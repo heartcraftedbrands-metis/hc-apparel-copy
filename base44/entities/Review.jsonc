@@ -1,0 +1,52 @@
+{
+  "name": "Review",
+  "type": "object",
+  "properties": {
+    "reviewer_name": {
+      "type": "string",
+      "description": "Name of the reviewer"
+    },
+    "rating": {
+      "type": "number",
+      "description": "Star rating from 1 to 5"
+    },
+    "review_text": {
+      "type": "string",
+      "description": "The review content"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Name of the product reviewed"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to show this review on the site"
+    }
+  },
+  "required": [
+    "reviewer_name",
+    "rating",
+    "review_text"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "data.is_active": true
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

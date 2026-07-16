@@ -1,0 +1,62 @@
+{
+  "name": "ImportBatch",
+  "type": "object",
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "description": "Unique batch identifier"
+    },
+    "file_name": {
+      "type": "string",
+      "description": "Name of uploaded file"
+    },
+    "uploaded_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When batch was uploaded"
+    },
+    "rows_in_file": {
+      "type": "number",
+      "description": "Number of rows in uploaded file"
+    },
+    "new_skus_added": {
+      "type": "number",
+      "default": 0,
+      "description": "Count of new SKUs added"
+    },
+    "existing_skus_updated": {
+      "type": "number",
+      "default": 0,
+      "description": "Count of existing SKUs updated"
+    },
+    "total_catalog_rows_after": {
+      "type": "number",
+      "description": "Total S&S catalog rows after this import"
+    },
+    "rows_deleted": {
+      "type": "number",
+      "default": 0,
+      "description": "Should always be 0"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Any errors encountered during import"
+    },
+    "import_status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "partial",
+        "failed"
+      ],
+      "default": "success"
+    }
+  },
+  "required": [
+    "batch_id",
+    "file_name"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "PaymentSettings",
+  "type": "object",
+  "properties": {
+    "payment_mode": {
+      "type": "string",
+      "enum": [
+        "demo",
+        "manual",
+        "pay_later",
+        "stripe"
+      ],
+      "default": "manual",
+      "description": "Current payment processing mode"
+    },
+    "stripe_connected": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether Stripe is connected"
+    },
+    "test_mode_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allow demo/test orders"
+    },
+    "invoice_instructions": {
+      "type": "string",
+      "description": "Instructions shown to customers for manual payment"
+    },
+    "payment_notes_customer": {
+      "type": "string",
+      "description": "Payment-related notes shown to customers"
+    },
+    "payment_notes_admin": {
+      "type": "string",
+      "description": "Internal payment notes for admin only"
+    }
+  },
+  "required": [
+    "payment_mode"
+  ]
+}

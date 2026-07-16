@@ -1,0 +1,100 @@
+{
+  "name": "VendorPricing",
+  "type": "object",
+  "properties": {
+    "vendor_id": {
+      "type": "string",
+      "description": "Reference to Vendor"
+    },
+    "vendor_name": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "garment_brand": {
+      "type": "string"
+    },
+    "garment_style_number": {
+      "type": "string"
+    },
+    "product_category": {
+      "type": "string"
+    },
+    "blank_garment_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "print_method": {
+      "type": "string",
+      "enum": [
+        "dtf",
+        "screen_print",
+        "embroidery",
+        "dtg",
+        "sublimation",
+        "vinyl",
+        "heat_transfer",
+        "other"
+      ],
+      "default": "dtf"
+    },
+    "print_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "setup_fee": {
+      "type": "number",
+      "default": 0
+    },
+    "shipping_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "minimum_order_quantity": {
+      "type": "number"
+    },
+    "turnaround_time": {
+      "type": "string"
+    },
+    "size_upcharge_notes": {
+      "type": "string"
+    },
+    "color_upcharge_notes": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "vendor_id",
+    "vendor_name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

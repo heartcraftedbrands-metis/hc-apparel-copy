@@ -1,0 +1,78 @@
+{
+  "name": "SSImportStaging",
+  "type": "object",
+  "properties": {
+    "import_session_id": {
+      "type": "string",
+      "description": "Unique import session identifier"
+    },
+    "file_name": {
+      "type": "string",
+      "description": "Name of the uploaded file"
+    },
+    "total_staged_rows": {
+      "type": "number",
+      "description": "Total rows staged in this session"
+    },
+    "row_number": {
+      "type": "number",
+      "description": "Row number in the original file"
+    },
+    "raw_row_data": {
+      "type": "string",
+      "description": "Raw row from the CSV/Excel file"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "brand": {
+      "type": "string"
+    },
+    "style_number": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "product_category": {
+      "type": "string"
+    },
+    "color": {
+      "type": "string"
+    },
+    "size": {
+      "type": "string"
+    },
+    "blank_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "inventory_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "row_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "imported",
+        "updated",
+        "skipped",
+        "error"
+      ],
+      "default": "pending"
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Error details if row failed"
+    }
+  },
+  "required": [
+    "import_session_id",
+    "file_name",
+    "row_number"
+  ]
+}

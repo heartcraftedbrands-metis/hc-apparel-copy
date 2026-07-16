@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mobile: disable overscroll bounce */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Disable text selection on interactive UI elements */
+button, nav, a, [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Safe area support */
+.safe-top    { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left   { padding-left: env(safe-area-inset-left); }
+.safe-right  { padding-right: env(safe-area-inset-right); }
+
+@layer base {
+  :root {
+    /* HC Apparel — Bold Premium Palette */
+    /* Deep olive green, warm tan, soft lavender, rich gold, cream, charcoal */
+
+    --background: 45 40% 96%;        /* warm cream #F8F4EE */
+    --foreground: 220 15% 13%;       /* deep charcoal */
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 13%;
+
+    --primary: 82 35% 28%;           /* deep olive green #4A5E2A */
+    --primary-foreground: 45 40% 96%;
+
+    --secondary: 30 35% 72%;         /* warm tan #C9A47A */
+    --secondary-foreground: 220 15% 13%;
+
+    --muted: 45 25% 91%;
+    --muted-foreground: 220 10% 48%;
+
+    --accent: 44 82% 50%;            /* rich gold #E8A910 */
+    --accent-foreground: 220 15% 13%;
+
+    --lavender: 255 40% 70%;         /* soft lavender #9B8EC4 */
+    --lavender-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 40 20% 85%;
+    --input: 40 20% 88%;
+    --ring: 82 35% 28%;
+
+    --chart-1: 82 35% 28%;
+    --chart-2: 44 82% 50%;
+    --chart-3: 255 40% 70%;
+    --chart-4: 30 35% 60%;
+    --chart-5: 0 0% 20%;
+    --radius: 0.5rem;
+
+    --sidebar-background: 82 35% 20%;
+    --sidebar-foreground: 45 40% 92%;
+    --sidebar-primary: 44 82% 50%;
+    --sidebar-primary-foreground: 220 15% 10%;
+    --sidebar-accent: 82 35% 26%;
+    --sidebar-accent-foreground: 45 40% 92%;
+    --sidebar-border: 82 25% 30%;
+    --sidebar-ring: 44 82% 50%;
+  }
+
+  .dark {
+    --background: 220 15% 10%;
+    --foreground: 45 40% 93%;
+    --card: 220 15% 13%;
+    --card-foreground: 45 40% 93%;
+    --popover: 220 15% 13%;
+    --popover-foreground: 45 40% 93%;
+    --primary: 82 40% 42%;
+    --primary-foreground: 220 15% 10%;
+    --secondary: 30 25% 25%;
+    --secondary-foreground: 45 40% 90%;
+    --muted: 220 10% 18%;
+    --muted-foreground: 220 8% 60%;
+    --accent: 44 82% 50%;
+    --accent-foreground: 220 15% 10%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 22%;
+    --input: 220 10% 22%;
+    --ring: 82 40% 42%;
+    --chart-1: 82 40% 42%;
+    --chart-2: 44 82% 50%;
+    --chart-3: 255 40% 65%;
+    --chart-4: 30 35% 55%;
+    --chart-5: 0 0% 70%;
+    --sidebar-background: 82 35% 12%;
+    --sidebar-foreground: 45 40% 90%;
+    --sidebar-primary: 44 82% 50%;
+    --sidebar-primary-foreground: 220 15% 10%;
+    --sidebar-accent: 82 30% 18%;
+    --sidebar-accent-foreground: 45 40% 90%;
+    --sidebar-border: 82 20% 22%;
+    --sidebar-ring: 44 82% 50%;
+  }
+}
+
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

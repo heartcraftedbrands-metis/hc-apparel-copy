@@ -1,0 +1,137 @@
+{
+  "name": "Vendor",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Vendor/company name"
+    },
+    "vendor_type": {
+      "type": "string",
+      "enum": [
+        "apparel_blank_supplier",
+        "dtf_printer",
+        "screen_printer",
+        "embroidery",
+        "dtg_printer",
+        "dtf_supplier",
+        "sublimation",
+        "packaging",
+        "shipping",
+        "other"
+      ],
+      "default": "other"
+    },
+    "contact_person": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "website": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string",
+      "description": "Full business address"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "print_methods_offered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "e.g. DTF, Screen Print, Embroidery"
+    },
+    "garment_types_offered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "e.g. T-Shirts, Hoodies, Hats"
+    },
+    "minimum_order_quantity": {
+      "type": "number"
+    },
+    "turnaround_time": {
+      "type": "string"
+    },
+    "rush_order_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "rush_fee_notes": {
+      "type": "string"
+    },
+    "shipping_options": {
+      "type": "string"
+    },
+    "local_pickup_available": {
+      "type": "boolean",
+      "default": false
+    },
+    "quality_rating": {
+      "type": "number",
+      "description": "1\u20135 stars"
+    },
+    "reliability_rating": {
+      "type": "number",
+      "description": "1\u20135 stars"
+    },
+    "default_setup_fee": {
+      "type": "number",
+      "default": 0
+    },
+    "default_shipping_estimate": {
+      "type": "number",
+      "default": 0
+    },
+    "payment_terms": {
+      "type": "string"
+    },
+    "tax_charged": {
+      "type": "boolean",
+      "default": false
+    },
+    "pricing_notes": {
+      "type": "string"
+    },
+    "shipping_cost_notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

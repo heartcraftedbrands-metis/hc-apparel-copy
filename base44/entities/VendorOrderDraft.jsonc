@@ -1,0 +1,145 @@
+{
+  "name": "VendorOrderDraft",
+  "type": "object",
+  "properties": {
+    "vendor_order_number": {
+      "type": "string",
+      "description": "Internal vendor order number (auto-generated)"
+    },
+    "customer_order_id": {
+      "type": "string",
+      "description": "Linked customer Order ID"
+    },
+    "customer_order_number": {
+      "type": "string",
+      "description": "Display order number e.g. #ABCDEF"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "customer_email": {
+      "type": "string"
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date the customer order was placed"
+    },
+    "vendor_status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "ready_to_order",
+        "ordered_from_vendor",
+        "in_transit_to_me",
+        "received",
+        "partially_received",
+        "cancelled"
+      ],
+      "default": "draft"
+    },
+    "vendor_name": {
+      "type": "string",
+      "description": "Name of vendor order was placed with (e.g. S&S Activewear)"
+    },
+    "external_vendor_order_number": {
+      "type": "string",
+      "description": "Vendor's own order number (e.g. TEST-123)"
+    },
+    "vendor_order_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date order was placed with vendor"
+    },
+    "expected_arrival_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Expected date garments arrive to me"
+    },
+    "items": {
+      "type": "array",
+      "description": "Line items from the customer order",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_name": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "style_number": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "customer_unit_price": {
+            "type": "number"
+          },
+          "customer_line_total": {
+            "type": "number"
+          },
+          "vendor_cost": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tracking_number": {
+      "type": "string",
+      "description": "Vendor-to-me tracking number"
+    },
+    "tracking_carrier": {
+      "type": "string",
+      "description": "Vendor-to-me carrier (UPS, FedEx, etc.)"
+    },
+    "tracking_url": {
+      "type": "string",
+      "description": "Vendor-to-me tracking URL"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Internal admin notes for this vendor order"
+    },
+    "has_sku_warnings": {
+      "type": "boolean",
+      "default": false
+    },
+    "has_image_warnings": {
+      "type": "boolean",
+      "default": false
+    },
+    "has_missing_warnings": {
+      "type": "boolean",
+      "default": false
+    },
+    "total_quantity": {
+      "type": "number",
+      "default": 0
+    },
+    "item_count": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "customer_order_id",
+    "customer_name"
+  ]
+}

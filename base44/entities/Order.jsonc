@@ -1,0 +1,316 @@
+{
+  "name": "Order",
+  "type": "object",
+  "properties": {
+    "customer_email": {
+      "type": "string"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "customer_phone": {
+      "type": "string"
+    },
+    "business_name": {
+      "type": "string"
+    },
+    "preferred_contact": {
+      "type": "string",
+      "enum": [
+        "email",
+        "phone",
+        "text"
+      ],
+      "default": "email"
+    },
+    "order_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "product_name": {
+            "type": "string"
+          },
+          "product_type": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "price": {
+            "type": "number"
+          },
+          "size": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "print_method": {
+            "type": "string"
+          },
+          "print_placement": {
+            "type": "string"
+          },
+          "num_print_locations": {
+            "type": "number"
+          },
+          "file_url": {
+            "type": "string"
+          },
+          "artwork_file_url": {
+            "type": "string"
+          },
+          "mockup_file_url": {
+            "type": "string"
+          },
+          "artwork_link": {
+            "type": "string"
+          },
+          "admin_mockup_url": {
+            "type": "string"
+          },
+          "needs_artwork_help": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "total_amount": {
+      "type": "number"
+    },
+    "amount_paid": {
+      "type": "number",
+      "default": 0
+    },
+    "balance_due": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "awaiting_payment",
+        "paid",
+        "awaiting_fulfillment",
+        "in_production",
+        "shipped",
+        "completed",
+        "canceled",
+        "refunded"
+      ],
+      "default": "awaiting_payment"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "unpaid",
+        "partially_paid",
+        "paid",
+        "refunded",
+        "awaiting_payment",
+        "pay_later",
+        "demo"
+      ],
+      "default": "unpaid"
+    },
+    "payment_method": {
+      "type": "string"
+    },
+    "payment_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payment_notes": {
+      "type": "string"
+    },
+    "stripe_session_id": {
+      "type": "string",
+      "description": "Stripe Checkout Session ID"
+    },
+    "stripe_payment_intent_id": {
+      "type": "string",
+      "description": "Stripe Payment Intent ID"
+    },
+    "fulfillment_status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "vendor_order_needed",
+        "ordered_from_vendor",
+        "in_transit_to_me",
+        "ready_to_ship",
+        "shipped",
+        "delivered",
+        "issue_hold",
+        "completed"
+      ],
+      "default": "not_started"
+    },
+    "has_physical_items": {
+      "type": "boolean",
+      "default": false
+    },
+    "shipping_address": {
+      "type": "object",
+      "properties": {
+        "street": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "zip": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        }
+      }
+    },
+    "delivery_notes": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "internal_notes": {
+      "type": "string"
+    },
+    "production_file_url": {
+      "type": "string"
+    },
+    "quote_request_id": {
+      "type": "string"
+    },
+    "vendor_order_id": {
+      "type": "string"
+    },
+    "assigned_vendor_id": {
+      "type": "string"
+    },
+    "assigned_vendor_name": {
+      "type": "string"
+    },
+    "vendor_cost_estimate": {
+      "type": "number",
+      "default": 0
+    },
+    "estimated_profit": {
+      "type": "number",
+      "default": 0
+    },
+    "profit_margin_pct": {
+      "type": "number",
+      "default": 0
+    },
+    "garment_type": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "sizes_needed": {
+      "type": "string"
+    },
+    "garment_colors": {
+      "type": "string"
+    },
+    "print_method": {
+      "type": "string"
+    },
+    "print_placement": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "num_print_locations": {
+      "type": "number",
+      "default": 1
+    },
+    "date_needed": {
+      "type": "string"
+    },
+    "project_notes": {
+      "type": "string"
+    },
+    "artwork_file_url": {
+      "type": "string"
+    },
+    "mockup_file_url": {
+      "type": "string"
+    },
+    "artwork_link": {
+      "type": "string"
+    },
+    "needs_artwork_help": {
+      "type": "boolean",
+      "default": false
+    },
+    "what_to_print": {
+      "type": "string"
+    },
+    "tracking_number": {
+      "type": "string",
+      "description": "Customer shipment tracking number"
+    },
+    "tracking_carrier": {
+      "type": "string",
+      "description": "Customer shipment carrier"
+    },
+    "tracking_url": {
+      "type": "string",
+      "description": "Customer shipment tracking URL"
+    },
+    "shipped_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date order was shipped to customer"
+    },
+    "delivery_estimate": {
+      "type": "string",
+      "description": "Estimated delivery date to customer"
+    },
+    "fulfillment_notes": {
+      "type": "string",
+      "description": "Admin notes about customer fulfillment/shipment"
+    }
+  },
+  "required": [
+    "customer_email",
+    "customer_name",
+    "total_amount"
+  ],
+  "rls": {
+    "create": null,
+    "read": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

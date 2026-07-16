@@ -1,0 +1,200 @@
+{
+  "name": "SSCatalogItem",
+  "type": "object",
+  "properties": {
+    "vendor": {
+      "type": "string",
+      "default": "S&S Activewear"
+    },
+    "brand": {
+      "type": "string"
+    },
+    "style_number": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "product_category": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "color": {
+      "type": "string"
+    },
+    "size": {
+      "type": "string"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "blank_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "msrp": {
+      "type": "number",
+      "default": 0
+    },
+    "inventory_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "warehouse_location": {
+      "type": "string"
+    },
+    "weight": {
+      "type": "string"
+    },
+    "case_quantity": {
+      "type": "number"
+    },
+    "item_status": {
+      "type": "string",
+      "default": "active"
+    },
+    "catalog_status": {
+      "type": "string",
+      "enum": [
+        "vendor_catalog_only",
+        "added_to_shop",
+        "archived",
+        "hidden"
+      ],
+      "default": "vendor_catalog_only"
+    },
+    "linked_product_id": {
+      "type": "string",
+      "description": "ID of public Product if added to shop"
+    },
+    "linked_vendor_pricing_id": {
+      "type": "string",
+      "description": "ID of VendorPricing record if created"
+    },
+    "import_batch": {
+      "type": "string",
+      "description": "Batch/date stamp from import"
+    },
+    "import_batch_id": {
+      "type": "string",
+      "description": "Unique batch ID for tracking specific imports"
+    },
+    "source_file_name": {
+      "type": "string",
+      "description": "Name of the uploaded CSV/Excel file"
+    },
+    "parent_group_id": {
+      "type": "string",
+      "description": "ID of parent product group (for variant grouping)"
+    },
+    "public_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Calculated public price for this variant"
+    },
+    "measurements": {
+      "type": "string"
+    },
+    "fabric_details": {
+      "type": "string"
+    },
+    "fit": {
+      "type": "string"
+    },
+    "material": {
+      "type": "string"
+    },
+    "care_notes": {
+      "type": "string"
+    },
+    "days_in_transit": {
+      "type": "number"
+    },
+    "curated_status": {
+      "type": "string",
+      "enum": [
+        "pending_review",
+        "approved_to_sell",
+        "not_selling",
+        "maybe_later"
+      ],
+      "default": "pending_review",
+      "description": "Curation decision for this SKU"
+    },
+    "product_lane": {
+      "type": "string",
+      "enum": [
+        "Cotton",
+        "Organic Cotton",
+        "Ring-Spun Cotton",
+        "Cotton Blend",
+        "CVC",
+        "Linen",
+        "Wool",
+        "Bamboo",
+        "Bamboo Blend",
+        "Sports / Activewear",
+        "Hoodie / Fleece",
+        "Youth",
+        "Other",
+        ""
+      ],
+      "default": "",
+      "description": "Product category lane for curation"
+    },
+    "suggested_lane": {
+      "type": "string",
+      "default": "",
+      "description": "Auto-suggested product lane from keyword matching"
+    },
+    "review_notes": {
+      "type": "string",
+      "description": "Internal review notes for this SKU"
+    },
+    "customer_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Curated customer-facing price"
+    },
+    "profit_estimate": {
+      "type": "number",
+      "default": 0,
+      "description": "Estimated profit per unit"
+    },
+    "needs_price_review": {
+      "type": "boolean",
+      "default": false,
+      "description": "Flag for manual price review"
+    }
+  },
+  "required": [
+    "product_name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

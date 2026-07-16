@@ -1,0 +1,212 @@
+{
+  "name": "VendorOrder",
+  "type": "object",
+  "properties": {
+    "customer_order_id": {
+      "type": "string"
+    },
+    "quote_request_id": {
+      "type": "string",
+      "description": "Linked QuoteRequest ID if applicable"
+    },
+    "vendor_id": {
+      "type": "string"
+    },
+    "vendor_name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "ready_to_place",
+        "sent_to_vendor",
+        "accepted",
+        "in_production",
+        "shipped",
+        "delivered",
+        "issue_hold",
+        "canceled"
+      ],
+      "default": "draft"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_name": {
+            "type": "string"
+          },
+          "garment_brand": {
+            "type": "string"
+          },
+          "garment_style_number": {
+            "type": "string"
+          },
+          "garment_size": {
+            "type": "string"
+          },
+          "garment_color": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "print_method": {
+            "type": "string"
+          },
+          "print_placement": {
+            "type": "string"
+          },
+          "print_details": {
+            "type": "string"
+          },
+          "artwork_link": {
+            "type": "string"
+          },
+          "vendor_cost_per_unit": {
+            "type": "number"
+          },
+          "customer_price_per_unit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "artwork_file_url": {
+      "type": "string"
+    },
+    "artwork_link": {
+      "type": "string"
+    },
+    "admin_mockup_url": {
+      "type": "string"
+    },
+    "blank_garment_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "print_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "setup_fee": {
+      "type": "number",
+      "default": 0
+    },
+    "shipping_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "other_fees": {
+      "type": "number",
+      "default": 0
+    },
+    "customer_sell_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Total customer sell price \u2014 manually entered or pulled from linked order/quote"
+    },
+    "estimated_profit": {
+      "type": "number",
+      "default": 0
+    },
+    "profit_margin_pct": {
+      "type": "number",
+      "default": 0
+    },
+    "shipping_notes": {
+      "type": "string"
+    },
+    "production_notes": {
+      "type": "string"
+    },
+    "tracking_number": {
+      "type": "string"
+    },
+    "tracking_carrier": {
+      "type": "string"
+    },
+    "tracking_url": {
+      "type": "string"
+    },
+    "ship_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "estimated_delivery_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "fulfillment_checklist": {
+      "type": "object",
+      "properties": {
+        "order_reviewed": {
+          "type": "boolean",
+          "default": false
+        },
+        "size_color_confirmed": {
+          "type": "boolean",
+          "default": false
+        },
+        "vendor_product_checked": {
+          "type": "boolean",
+          "default": false
+        },
+        "inventory_checked": {
+          "type": "boolean",
+          "default": false
+        },
+        "vendor_order_placed": {
+          "type": "boolean",
+          "default": false
+        },
+        "tracking_added": {
+          "type": "boolean",
+          "default": false
+        },
+        "customer_notified": {
+          "type": "boolean",
+          "default": false
+        },
+        "order_completed": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "internal_notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "vendor_id",
+    "vendor_name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

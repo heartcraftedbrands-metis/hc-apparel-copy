@@ -1,0 +1,62 @@
+{
+  "name": "SSPricingRules",
+  "type": "object",
+  "properties": {
+    "flat_markup_amount": {
+      "type": "number",
+      "default": 2.0,
+      "description": "Default flat markup in dollars (added to blank cost)"
+    },
+    "rounding_mode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "nearest_tenth",
+        "nearest_half",
+        "round_up"
+      ],
+      "default": "none",
+      "description": "How to round final price"
+    },
+    "minimum_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Minimum public price (0 = disabled)"
+    },
+    "category_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "markup_amount": {
+            "type": "number"
+          }
+        }
+      },
+      "description": "Category-specific markup overrides"
+    },
+    "brand_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string"
+          },
+          "markup_amount": {
+            "type": "number"
+          }
+        }
+      },
+      "description": "Brand-specific markup overrides"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": []
+}

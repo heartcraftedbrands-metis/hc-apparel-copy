@@ -1,0 +1,296 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Product name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Product description"
+    },
+    "price": {
+      "type": "number",
+      "description": "Base product price in USD"
+    },
+    "sale_price": {
+      "type": "number",
+      "description": "Optional sale/discounted price"
+    },
+    "product_type": {
+      "type": "string",
+      "enum": [
+        "digital",
+        "physical"
+      ],
+      "description": "Type of product"
+    },
+    "product_subtype": {
+      "type": "string",
+      "enum": [
+        "t_shirts",
+        "hoodies",
+        "sweatshirts",
+        "hats",
+        "kids_apparel",
+        "apparel_blanks",
+        "custom_printed",
+        "print_support",
+        "other",
+        ""
+      ],
+      "default": "",
+      "description": "Public product subtype for storefront display"
+    },
+    "design_type": {
+      "type": "string",
+      "enum": [
+        "halftone",
+        "fulltone",
+        "bundle",
+        ""
+      ],
+      "default": ""
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "draft",
+        "hidden",
+        "admin_archive"
+      ],
+      "default": "public"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "mockup_images": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "stock": {
+      "type": "number",
+      "default": 0
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "digital_designs",
+        "halftone_packs",
+        "distressed_packs",
+        "design_elements",
+        "short_sleeve_shirts",
+        "mens_short_sleeve_shirts",
+        "womens_short_sleeve_shirts",
+        "youth_short_sleeve_shirts",
+        "long_sleeve_shirts",
+        "mens_long_sleeve_shirts",
+        "womens_long_sleeve_shirts",
+        "youth_long_sleeve_shirts",
+        "crewnecks",
+        "mens_crewnecks",
+        "womens_crewnecks",
+        "youth_crewnecks",
+        "polo_shirts",
+        "mens_polo_shirts",
+        "womens_polo_shirts",
+        "youth_polo_shirts",
+        "jackets",
+        "mens_jackets",
+        "womens_jackets",
+        "youth_jackets",
+        "sportswear",
+        "mens_sportswear",
+        "womens_sportswear",
+        "youth_sportswear",
+        "hoodies",
+        "hats",
+        "office_supplies",
+        "accessories",
+        "other"
+      ],
+      "default": "other"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "digital_designs",
+          "halftone_packs",
+          "distressed_packs",
+          "design_elements",
+          "short_sleeve_shirts",
+          "mens_short_sleeve_shirts",
+          "womens_short_sleeve_shirts",
+          "youth_short_sleeve_shirts",
+          "long_sleeve_shirts",
+          "mens_long_sleeve_shirts",
+          "womens_long_sleeve_shirts",
+          "youth_long_sleeve_shirts",
+          "crewnecks",
+          "mens_crewnecks",
+          "womens_crewnecks",
+          "youth_crewnecks",
+          "polo_shirts",
+          "mens_polo_shirts",
+          "womens_polo_shirts",
+          "youth_polo_shirts",
+          "jackets",
+          "mens_jackets",
+          "womens_jackets",
+          "youth_jackets",
+          "sportswear",
+          "mens_sportswear",
+          "womens_sportswear",
+          "youth_sportswear",
+          "hoodies",
+          "hats",
+          "office_supplies",
+          "accessories",
+          "other"
+        ]
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Searchable tags"
+    },
+    "is_featured": {
+      "type": "boolean",
+      "default": false,
+      "description": "Show as featured product"
+    },
+    "is_best_seller": {
+      "type": "boolean",
+      "default": false,
+      "description": "Mark as best seller"
+    },
+    "available_sizes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "available_colors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "hex": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "size_prices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "care_instructions": {
+      "type": "string",
+      "description": "Garment care instructions"
+    },
+    "shipping_note": {
+      "type": "string",
+      "description": "Production/shipping note shown on product page"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "vendor_source": {
+      "type": "string",
+      "description": "Admin only: vendor or supplier name"
+    },
+    "vendor_cost": {
+      "type": "number",
+      "default": 0,
+      "description": "Admin only: total vendor cost"
+    },
+    "blank_garment_cost": {
+      "type": "number",
+      "default": 0,
+      "description": "Admin only: blank garment cost"
+    },
+    "print_cost_estimate": {
+      "type": "number",
+      "default": 0,
+      "description": "Admin only: estimated print cost"
+    },
+    "profit_estimate": {
+      "type": "number",
+      "default": 0,
+      "description": "Admin only: estimated profit per unit"
+    },
+    "internal_notes": {
+      "type": "string",
+      "description": "Admin only: internal notes"
+    },
+    "supplier_sku": {
+      "type": "string",
+      "description": "Admin only: supplier SKU or style number"
+    },
+    "vendor_pricing_id": {
+      "type": "string",
+      "description": "Admin only: linked VendorPricing record ID"
+    }
+  },
+  "required": [
+    "name",
+    "price",
+    "product_type"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.visibility": "public"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

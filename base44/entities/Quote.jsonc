@@ -1,0 +1,189 @@
+{
+  "name": "Quote",
+  "type": "object",
+  "properties": {
+    "customer_name": {
+      "type": "string"
+    },
+    "customer_email": {
+      "type": "string"
+    },
+    "customer_phone": {
+      "type": "string"
+    },
+    "preferred_contact": {
+      "type": "string",
+      "enum": [
+        "email",
+        "phone",
+        "text"
+      ],
+      "default": "email"
+    },
+    "product_type": {
+      "type": "string"
+    },
+    "garment_type": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "sizes": {
+      "type": "string"
+    },
+    "colors": {
+      "type": "string"
+    },
+    "print_method": {
+      "type": "string"
+    },
+    "print_locations": {
+      "type": "number",
+      "default": 1
+    },
+    "date_needed": {
+      "type": "string"
+    },
+    "budget_range": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "blank_garment_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "print_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "setup_fee": {
+      "type": "number",
+      "default": 0
+    },
+    "shipping_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "other_fees": {
+      "type": "number",
+      "default": 0
+    },
+    "vendor_estimate": {
+      "type": "number",
+      "default": 0,
+      "description": "Additional vendor estimate / total if not broken down"
+    },
+    "my_selling_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Price quoted to customer (per item)"
+    },
+    "estimated_price": {
+      "type": "number",
+      "description": "Legacy field \u2014 same as my_selling_price"
+    },
+    "estimated_profit": {
+      "type": "number",
+      "default": 0
+    },
+    "profit_margin_pct": {
+      "type": "number",
+      "default": 0
+    },
+    "assigned_vendor_id": {
+      "type": "string"
+    },
+    "assigned_vendor_name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "reviewing",
+        "need_more_info",
+        "waiting_on_vendor",
+        "quote_ready",
+        "sent",
+        "approved",
+        "declined",
+        "converted_to_order"
+      ],
+      "default": "draft"
+    },
+    "admin_notes": {
+      "type": "string"
+    },
+    "vendor_notes": {
+      "type": "string"
+    },
+    "quote_response_message": {
+      "type": "string"
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "shipping_street": {
+      "type": "string"
+    },
+    "shipping_city": {
+      "type": "string"
+    },
+    "shipping_state": {
+      "type": "string"
+    },
+    "shipping_zip": {
+      "type": "string"
+    },
+    "local_pickup": {
+      "type": "boolean",
+      "default": false
+    },
+    "converted_order_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "customer_name",
+    "customer_email"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.customer_email": "{{user.email}}",
+          "data.status": {
+            "$in": [
+              "sent",
+              "approved",
+              "converted_to_order"
+            ]
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

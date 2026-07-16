@@ -1,0 +1,68 @@
+{
+  "name": "OrderStatusHistory",
+  "type": "object",
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "Linked Order ID"
+    },
+    "order_number": {
+      "type": "string",
+      "description": "Order number for display"
+    },
+    "status_title": {
+      "type": "string",
+      "description": "Status event title (e.g., Payment Confirmed, Shipped)"
+    },
+    "status_type": {
+      "type": "string",
+      "enum": [
+        "payment",
+        "order",
+        "fulfillment",
+        "vendor",
+        "tracking",
+        "system",
+        "manual"
+      ],
+      "description": "Category of status change"
+    },
+    "customer_message": {
+      "type": "string",
+      "description": "Customer-friendly message shown on Track Order page"
+    },
+    "admin_note": {
+      "type": "string",
+      "description": "Internal admin-only note"
+    },
+    "customer_visible": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this entry is visible to customers"
+    },
+    "created_by": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "system",
+        "customer"
+      ],
+      "default": "system",
+      "description": "Who triggered this status change"
+    },
+    "previous_value": {
+      "type": "string",
+      "description": "Previous status value for reference"
+    },
+    "new_value": {
+      "type": "string",
+      "description": "New status value"
+    }
+  },
+  "required": [
+    "order_id",
+    "order_number",
+    "status_title",
+    "status_type"
+  ]
+}

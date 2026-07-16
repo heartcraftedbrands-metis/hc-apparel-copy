@@ -1,0 +1,100 @@
+{
+  "name": "GarmentCatalog",
+  "type": "object",
+  "properties": {
+    "brand": {
+      "type": "string"
+    },
+    "style_number": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "material": {
+      "type": "string",
+      "enum": [
+        "100% Cotton",
+        "Organic Cotton",
+        "Ring-Spun Cotton",
+        "Cotton Blend",
+        "CVC Cotton Blend",
+        "Linen",
+        "Wool",
+        "Bamboo",
+        "Bamboo Blend",
+        "Sports / Activewear",
+        "Other",
+        ""
+      ],
+      "default": ""
+    },
+    "product_type": {
+      "type": "string",
+      "enum": [
+        "T-Shirt",
+        "Hoodie",
+        "Sweatshirt",
+        "Tank Top",
+        "Polo",
+        "Shorts",
+        "Joggers",
+        "Youth",
+        "Sportswear",
+        "Other",
+        ""
+      ],
+      "default": ""
+    },
+    "color": {
+      "type": "string"
+    },
+    "size": {
+      "type": "string"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "blank_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "customer_price": {
+      "type": "number",
+      "default": 0
+    },
+    "inventory_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "approved_to_sell",
+        "maybe_later",
+        "not_selling"
+      ],
+      "default": "approved_to_sell"
+    },
+    "source_file": {
+      "type": "string"
+    },
+    "import_date": {
+      "type": "string"
+    },
+    "draft_product_id": {
+      "type": "string",
+      "description": "ID of the draft Product record built from this garment row"
+    },
+    "draft_built_at": {
+      "type": "string",
+      "description": "ISO timestamp when draft product was built"
+    }
+  },
+  "required": [
+    "product_name"
+  ]
+}

@@ -1,0 +1,243 @@
+{
+  "name": "QuoteRequest",
+  "type": "object",
+  "properties": {
+    "full_name": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "business_name": {
+      "type": "string"
+    },
+    "preferred_contact": {
+      "type": "string",
+      "enum": [
+        "email",
+        "phone",
+        "text"
+      ],
+      "default": "email"
+    },
+    "product_type": {
+      "type": "string",
+      "enum": [
+        "t_shirts",
+        "hoodies",
+        "sweatshirts",
+        "tank_tops",
+        "sportswear",
+        "youth_apparel",
+        "bulk_order",
+        "other"
+      ],
+      "default": "t_shirts"
+    },
+    "garment_knowledge": {
+      "type": "string",
+      "enum": [
+        "picked_from_shop",
+        "need_help_choosing",
+        "have_own_garment"
+      ],
+      "default": "need_help_choosing",
+      "description": "Whether customer already knows the garment they want"
+    },
+    "preferred_garment_style": {
+      "type": "string",
+      "description": "Customer's preferred garment / style (e.g. Gildan 2000, Bella Canvas)"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "sizes_needed": {
+      "type": "string"
+    },
+    "garment_colors": {
+      "type": "string"
+    },
+    "print_placement": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "print_colors": {
+      "type": "string",
+      "enum": [
+        "1_color",
+        "2_colors",
+        "full_color",
+        "not_sure"
+      ],
+      "default": "not_sure",
+      "description": "Number of print colors"
+    },
+    "print_method": {
+      "type": "string",
+      "enum": [
+        "dtf",
+        "screen_print",
+        "vinyl",
+        "embroidery",
+        "not_sure"
+      ],
+      "default": "not_sure"
+    },
+    "artwork_status": {
+      "type": "string",
+      "enum": [
+        "print_ready",
+        "have_logo_need_help",
+        "only_idea",
+        "need_design_help"
+      ],
+      "default": "only_idea",
+      "description": "Current state of customer's artwork"
+    },
+    "artwork_file_url": {
+      "type": "string"
+    },
+    "artwork_link": {
+      "type": "string"
+    },
+    "needs_artwork_help": {
+      "type": "boolean",
+      "default": false
+    },
+    "date_needed": {
+      "type": "string",
+      "format": "date"
+    },
+    "project_notes": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "reviewing",
+        "waiting_on_customer",
+        "quote_sent",
+        "approved",
+        "declined",
+        "completed",
+        "converted_to_order"
+      ],
+      "default": "new"
+    },
+    "admin_notes": {
+      "type": "string"
+    },
+    "admin_mockup_url": {
+      "type": "string"
+    },
+    "quote_response_sent": {
+      "type": "boolean",
+      "default": false
+    },
+    "converted_order_id": {
+      "type": "string"
+    },
+    "assigned_vendor_id": {
+      "type": "string"
+    },
+    "assigned_vendor_name": {
+      "type": "string"
+    },
+    "blank_garment_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "print_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "shipping_cost_vendor": {
+      "type": "number",
+      "default": 0
+    },
+    "setup_fee": {
+      "type": "number",
+      "default": 0
+    },
+    "other_fees": {
+      "type": "number",
+      "default": 0
+    },
+    "vendor_estimate_total": {
+      "type": "number",
+      "default": 0
+    },
+    "customer_quote_price": {
+      "type": "number",
+      "default": 0
+    },
+    "estimated_profit": {
+      "type": "number",
+      "default": 0
+    },
+    "profit_margin_pct": {
+      "type": "number",
+      "default": 0
+    },
+    "mockup_file_url": {
+      "type": "string"
+    },
+    "what_to_print": {
+      "type": "string"
+    },
+    "num_print_locations": {
+      "type": "number",
+      "default": 1
+    },
+    "budget_range": {
+      "type": "string"
+    },
+    "shipping_street": {
+      "type": "string"
+    },
+    "shipping_city": {
+      "type": "string"
+    },
+    "shipping_state": {
+      "type": "string"
+    },
+    "shipping_zip": {
+      "type": "string"
+    },
+    "local_pickup": {
+      "type": "boolean",
+      "default": false
+    },
+    "delivery_notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "full_name",
+    "email"
+  ],
+  "rls": {
+    "create": null,
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
