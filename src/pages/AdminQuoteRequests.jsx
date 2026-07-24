@@ -100,7 +100,7 @@ export default function AdminQuoteRequests() {
                   <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{newCount} new</span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">Customer quote submissions and project inquiries</p>
+              <p className="text-sm text-muted-foreground">Bulk quote submissions for orders of 50 or more</p>
             </div>
           </div>
         </div>

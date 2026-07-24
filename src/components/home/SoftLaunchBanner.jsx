@@ -25,7 +25,7 @@ export default function SoftLaunchBanner() {
             </Link>
             <Link to="/RequestQuote">
               <Button size="sm" variant="outline" className="border-primary-foreground/40 text-primary-foreground hover:bg-primary-foreground/10 font-semibold">
-                Request a Quote
+                Bulk Quote 50+
               </Button>
             </Link>
           </div>

@@ -71,7 +71,7 @@ function ProductCard({ product, onAddToCart }) {
             </Button>
             {isCustomPrint && (
               <Link to={`/RequestQuote?product=${encodeURIComponent(product.name)}`}>
-                <Button size="sm" variant="outline" className="h-8 px-2 text-xs border-secondary" title="Request custom quote">
+                <Button size="sm" variant="outline" className="h-8 px-2 text-xs border-secondary" title="Bulk Quote 50+">
                   <MessageSquare className="w-3.5 h-3.5" />
                 </Button>
               </Link>

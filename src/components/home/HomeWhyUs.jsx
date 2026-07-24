@@ -42,11 +42,11 @@ export default function HomeWhyUs() {
               Need your design printed?
             </h3>
             <p className="text-primary-foreground/80 text-sm leading-relaxed mb-8">
-              Send your artwork, idea, or logo and we'll help prepare your print order — no minimums, no stress.
+              For 1–49 items, choose a product and use Request Order Help. For 50 or more, start a bulk quote.
             </p>
             <Link to="/RequestQuote">
               <Button className="bg-accent text-accent-foreground hover:bg-accent/90 font-bold gap-2 px-6">
-                Request a Quote <ArrowRight className="w-4 h-4" />
+                Bulk Quote 50+ <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
           </div>

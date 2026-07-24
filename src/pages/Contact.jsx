@@ -8,9 +8,36 @@ import { Mail, MessageSquare, CheckCircle, Clock, AlertCircle } from "lucide-rea
 
 const INITIAL_FORM = { name: '', email: '', subject: '', message: '' };
 
+const initialContactForm = () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mode') !== 'order-help') return INITIAL_FORM;
+
+  const product = params.get('product');
+  const quantity = params.get('quantity') || '1';
+  const color = params.get('color');
+  const size = params.get('size');
+  const sku = params.get('sku');
+  const details = [
+    product && `Product: ${product}`,
+    sku && `SKU: ${sku}`,
+    color && `Color: ${color}`,
+    size && `Size: ${size}`,
+    `Quantity: ${quantity}`,
+  ].filter(Boolean);
+
+  return {
+    ...INITIAL_FORM,
+    subject: product ? `Request Order Help: ${product}` : 'Request Order Help',
+    message: `${details.join('\n')}\n\nPlease help me complete this smaller order.`,
+  };
+};
+
 export default function Contact() {
-  useEffect(() => { document.title = 'Contact | HC Apparel'; }, []);
-  const [formData, setFormData] = useState(INITIAL_FORM);
+  const isOrderHelp = new URLSearchParams(window.location.search).get('mode') === 'order-help';
+  useEffect(() => {
+    document.title = isOrderHelp ? 'Request Order Help | HC Apparel' : 'Contact | HC Apparel';
+  }, [isOrderHelp]);
+  const [formData, setFormData] = useState(initialContactForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
@@ -58,8 +85,12 @@ export default function Contact() {
       <div className="bg-primary text-primary-foreground py-14">
         <div className="container mx-auto px-4 text-center">
           <MessageSquare className="w-12 h-12 mx-auto mb-4 text-accent" />
-          <h1 className="text-4xl font-bold mb-3">Contact & Support</h1>
-          <p className="text-primary-foreground/75">Have a question or need help? We're here for you.</p>
+          <h1 className="text-4xl font-bold mb-3">{isOrderHelp ? 'Request Order Help' : 'Contact & Support'}</h1>
+          <p className="text-primary-foreground/75">
+            {isOrderHelp
+              ? 'For orders of 1–49 items, send your product details and HC Apparel will help with next steps.'
+              : 'Have a question or need help? We’re here for you.'}
+          </p>
         </div>
       </div>
 
@@ -104,7 +135,7 @@ export default function Contact() {
           {/* Form column */}
           <div className="md:col-span-2 bg-white rounded-2xl border p-6">
             <h2 className="font-bold text-lg mb-5 flex items-center gap-2">
-              <Mail className="w-5 h-5 text-primary" /> Send a Message
+                <Mail className="w-5 h-5 text-primary" /> {isOrderHelp ? 'Order Help Details' : 'Send a Message'}
             </h2>
 
             {submitted ? (
@@ -116,7 +147,12 @@ export default function Contact() {
                     Your message has been received. HC Apparel will respond within 1–2 business days.
                   </p>
                 </div>
-                <Button variant="outline" onClick={() => setSubmitted(false)}>Send Another Message</Button>
+                <Button variant="outline" onClick={() => {
+                  setSubmitted(false);
+                  setFormData(initialContactForm());
+                }}>
+                  Send Another Message
+                </Button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">

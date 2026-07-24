@@ -15,6 +15,9 @@ const ARTWORK_STATUSES = new Set([
   'print_ready', 'have_logo_need_help', 'only_idea', 'need_design_help',
 ]);
 const PRINT_PLACEMENTS = new Set(['Front', 'Back', 'Left Chest', 'Sleeve', 'Other']);
+const BULK_QUOTE_MINIMUM = 50;
+const BULK_QUOTE_MINIMUM_MESSAGE =
+  'Bulk quotes are for orders of 50 or more. For smaller orders, please use Request Order Help on the product page.';
 
 const cleanString = (value, maxLength = 1000) =>
   (typeof value === 'string' ? value : '')
@@ -37,6 +40,9 @@ Deno.serve(async (req) => {
     }
 
     const quantity = Number(body.quantity);
+    if (!Number.isInteger(quantity) || quantity < BULK_QUOTE_MINIMUM) {
+      return Response.json({ error: BULK_QUOTE_MINIMUM_MESSAGE }, { status: 400 });
+    }
     const printPlacement = Array.isArray(body.print_placement)
       ? body.print_placement.filter((value) => PRINT_PLACEMENTS.has(value)).slice(0, 5)
       : [];
@@ -56,7 +62,7 @@ Deno.serve(async (req) => {
       preferred_garment_style: cleanString(body.preferred_garment_style, 250),
       garment_colors: cleanString(body.garment_colors, 250),
       sizes_needed: cleanString(body.sizes_needed, 250),
-      ...(Number.isFinite(quantity) && quantity > 0 ? { quantity: Math.floor(quantity) } : {}),
+      quantity,
       print_placement: printPlacement,
       print_colors: allowedValue(body.print_colors, PRINT_COLORS, 'not_sure'),
       print_method: allowedValue(body.print_method, PRINT_METHODS, 'not_sure'),

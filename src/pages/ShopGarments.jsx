@@ -216,7 +216,7 @@ export default function ShopGarments() {
           </div>
           <Link to="/RequestQuote">
             <Button size="sm" className="bg-accent hover:bg-accent/90 text-accent-foreground gap-1.5">
-              <MessageSquare className="w-4 h-4" /> Request a Custom Quote
+              <MessageSquare className="w-4 h-4" /> Bulk Quote 50+
             </Button>
           </Link>
         </div>

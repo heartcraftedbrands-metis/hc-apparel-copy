@@ -15,7 +15,7 @@ export default function LaunchReadinessQA() {
     { path: '/About', name: 'About' },
     { path: '/FAQ', name: 'FAQ' },
     { path: '/Contact', name: 'Contact' },
-    { path: '/RequestQuote', name: 'Request a Quote' },
+    { path: '/RequestQuote', name: 'Bulk Quote 50+' },
     { path: '/TrackOrder', name: 'Track Order' },
   ];
 
@@ -431,7 +431,7 @@ export default function LaunchReadinessQA() {
                   { label: 'View Admin Inbox', path: '/AdminInbox' },
                   { label: 'View Admin Orders', path: '/AdminOrders' },
                   { label: 'Test Track Order', path: '/TrackOrder' },
-                  { label: 'Test Request Quote', path: '/RequestQuote' },
+                  { label: 'Test Bulk Quote 50+', path: '/RequestQuote' },
                   { label: 'Missing Image Report', path: '/MissingImageReport' },
                 ].map((link, i) => (
                   <a key={i} href={link.path} target="_blank" rel="noopener noreferrer">

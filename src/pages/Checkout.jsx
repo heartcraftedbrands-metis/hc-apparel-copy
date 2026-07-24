@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { createOrderHelpUrl } from "@/lib/orderHelp";
 
 export default function Checkout() {
   return (
@@ -39,7 +40,7 @@ export default function Checkout() {
               </div>
 
               <div className="flex flex-col gap-3 pt-4">
-                <Link to="/RequestQuote" className="w-full">
+                <Link to={createOrderHelpUrl({ quantity: 1 })} className="w-full">
                   <Button className="w-full" size="lg">
                     Request Order Help
                   </Button>

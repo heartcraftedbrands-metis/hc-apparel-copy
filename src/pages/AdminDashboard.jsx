@@ -178,8 +178,8 @@ export default function AdminDashboard() {
             />
             <NavCard
               icon={<FileText />}
-              label="Request Quote Page"
-              desc="View the public quote request form"
+              label="Bulk Quote 50+ Page"
+              desc="View the public bulk quote request form"
               to="/RequestQuote"
             />
           </div>

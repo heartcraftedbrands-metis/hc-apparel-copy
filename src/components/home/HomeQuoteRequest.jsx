@@ -4,6 +4,11 @@ import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { MessageSquare, Send } from 'lucide-react';
+import {
+  BULK_QUOTE_MINIMUM,
+  BULK_QUOTE_MINIMUM_MESSAGE,
+  isBulkQuoteQuantity,
+} from '@/lib/quoteRules';
 
 const inferProductType = (garmentType) => {
   const value = garmentType.toLowerCase();
@@ -25,10 +30,13 @@ export default function HomeQuoteRequest() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
     const garmentType = form.garment_type.trim();
     const quantity = Number(form.quantity);
+    if (!isBulkQuoteQuantity(quantity)) {
+      toast.error(BULK_QUOTE_MINIMUM_MESSAGE);
+      return;
+    }
+    setLoading(true);
 
     try {
       const response = await base44.functions.invoke('submitQuoteRequest', {
@@ -39,7 +47,7 @@ export default function HomeQuoteRequest() {
         garment_knowledge: 'need_help_choosing',
         preferred_garment_style: garmentType,
         project_notes: form.description.trim(),
-        ...(Number.isFinite(quantity) && quantity > 0 ? { quantity } : {}),
+        quantity,
       });
       if (!response.data?.success) throw new Error('Quote request failed');
 
@@ -52,6 +60,10 @@ export default function HomeQuoteRequest() {
     }
   };
 
+  const quantityEntered = form.quantity !== '';
+  const quantityIsValid = isBulkQuoteQuantity(form.quantity);
+  const showQuantityError = quantityEntered && !quantityIsValid;
+
   return (
     <section className="py-16 bg-accent/10">
       <div className="container mx-auto px-4">
@@ -60,8 +72,8 @@ export default function HomeQuoteRequest() {
             <div className="w-14 h-14 bg-accent rounded-2xl flex items-center justify-center mx-auto mb-4">
               <MessageSquare className="w-7 h-7 text-accent-foreground" />
             </div>
-            <h2 className="text-3xl font-bold mb-2">Request a Quote</h2>
-            <p className="text-muted-foreground">Tell us what you need and we'll respond within 1 business day.</p>
+            <h2 className="text-3xl font-bold mb-2">Bulk Quote 50+</h2>
+            <p className="text-muted-foreground">Bulk pricing is for 50 or more items. For 1–49, use Request Order Help on a product page.</p>
           </div>
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl border shadow-sm p-8 space-y-4">
             <div className="grid sm:grid-cols-2 gap-4">
@@ -80,10 +92,24 @@ export default function HomeQuoteRequest() {
                 <Input value={form.garment_type} onChange={e => setForm(p => ({...p, garment_type: e.target.value}))} placeholder="e.g. T-Shirts, Hoodies" />
               </div>
               <div>
-                <label className="text-sm font-medium mb-1 block">Quantity</label>
-                <Input type="number" value={form.quantity} onChange={e => setForm(p => ({...p, quantity: e.target.value}))} placeholder="e.g. 50" />
+                <label className="text-sm font-medium mb-1 block">Quantity (50+) *</label>
+                <Input
+                  type="number"
+                  min={BULK_QUOTE_MINIMUM}
+                  step="1"
+                  required
+                  value={form.quantity}
+                  onChange={e => setForm(p => ({...p, quantity: e.target.value}))}
+                  placeholder="50 or more"
+                  aria-invalid={showQuantityError}
+                />
               </div>
             </div>
+            <p className={`text-xs ${showQuantityError ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+              {showQuantityError
+                ? BULK_QUOTE_MINIMUM_MESSAGE
+                : '1–49 items = Request Order Help. 50+ items = Bulk Quote.'}
+            </p>
             <div>
               <label className="text-sm font-medium mb-1 block">Project Description</label>
               <textarea
@@ -94,8 +120,8 @@ export default function HomeQuoteRequest() {
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <Button type="submit" disabled={loading} className="w-full gap-2 font-bold">
-              <Send className="w-4 h-4" /> {loading ? 'Sending...' : 'Submit Quote Request'}
+            <Button type="submit" disabled={loading || !quantityIsValid} className="w-full gap-2 font-bold">
+              <Send className="w-4 h-4" /> {loading ? 'Sending...' : 'Submit Bulk Quote'}
             </Button>
           </form>
         </div>

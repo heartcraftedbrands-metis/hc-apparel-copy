@@ -7,6 +7,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CheckCircle2, Upload, Loader2, Shirt, Printer, User } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  BULK_QUOTE_MINIMUM,
+  BULK_QUOTE_MINIMUM_MESSAGE,
+  isBulkQuoteQuantity,
+} from '@/lib/quoteRules';
 
 const PROJECT_TYPES = [
   { value: 't_shirts', label: 'T-Shirts' },
@@ -65,7 +70,7 @@ const EMPTY = {
 };
 
 export default function RequestQuote() {
-  useEffect(() => { document.title = 'Request a Custom Printing Quote | HC Apparel'; }, []);
+  useEffect(() => { document.title = 'Bulk Quote 50+ | HC Apparel'; }, []);
   const [form, setForm] = useState(EMPTY);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,6 +99,10 @@ export default function RequestQuote() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isBulkQuoteQuantity(form.quantity)) {
+      toast.error(BULK_QUOTE_MINIMUM_MESSAGE);
+      return;
+    }
     setLoading(true);
     try {
       const response = await base44.functions.invoke('submitQuoteRequest', form);
@@ -107,6 +116,10 @@ export default function RequestQuote() {
     }
   };
 
+  const quantityEntered = form.quantity !== '';
+  const quantityIsValid = isBulkQuoteQuantity(form.quantity);
+  const showQuantityError = quantityEntered && !quantityIsValid;
+
   if (submitted) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -114,7 +127,7 @@ export default function RequestQuote() {
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-10 h-10 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground mb-4">Quote Request Received!</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-4">Bulk Quote Request Received!</h1>
           <p className="text-muted-foreground text-lg leading-relaxed mb-8">
             Your quote request has been received. HC Apparel will review your project and contact you with next steps.
           </p>
@@ -128,7 +141,7 @@ export default function RequestQuote() {
             </ul>
           </div>
           <Button onClick={() => { setForm(EMPTY); setSubmitted(false); }} className="bg-primary hover:bg-primary/90">
-            Submit Another Request
+            Submit Another Bulk Quote
           </Button>
         </div>
       </div>
@@ -141,9 +154,9 @@ export default function RequestQuote() {
       <div className="bg-primary text-primary-foreground py-14 px-4">
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-accent font-bold uppercase tracking-widest text-sm mb-3">HC Apparel</p>
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 leading-tight">Request a Custom Printing Quote</h1>
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 leading-tight">Bulk Quote 50+</h1>
           <p className="text-primary-foreground/75 text-lg max-w-2xl mx-auto">
-            Tell us what you want printed, what garment you're interested in, and how many pieces you need. We'll review your request and contact you with next steps.
+            Request custom pricing for orders of 50 or more. For 1–49 items, choose a product and use Request Order Help.
           </p>
         </div>
       </div>
@@ -189,8 +202,22 @@ export default function RequestQuote() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Quantity Needed *">
-              <Input type="number" min="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} placeholder="e.g. 50" required />
+            <Field label="Quantity Needed (50+) *">
+              <Input
+                type="number"
+                min={BULK_QUOTE_MINIMUM}
+                step="1"
+                value={form.quantity}
+                onChange={e => set('quantity', e.target.value)}
+                placeholder="50 or more"
+                aria-invalid={showQuantityError}
+                required
+              />
+              <p className={`text-xs ${showQuantityError ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+                {showQuantityError
+                  ? BULK_QUOTE_MINIMUM_MESSAGE
+                  : '1–49 items = Request Order Help on the product page. 50+ items = Bulk Quote.'}
+              </p>
             </Field>
           </div>
           <Field label="Do you already know the garment?">
@@ -284,9 +311,9 @@ export default function RequestQuote() {
               By submitting this form, you'll receive a custom quote from HC Apparel. <strong className="text-foreground">No payment is required at this stage.</strong> We typically respond within 1–2 business days.
             </p>
           </div>
-          <Button type="submit" size="lg" disabled={loading || uploading}
+          <Button type="submit" size="lg" disabled={loading || uploading || !quantityIsValid}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-lg h-14 rounded-2xl font-bold shadow-lg">
-            {loading ? <><Loader2 className="w-5 h-5 animate-spin mr-2" />Sending…</> : 'Send Quote Request'}
+            {loading ? <><Loader2 className="w-5 h-5 animate-spin mr-2" />Sending…</> : 'Send Bulk Quote Request'}
           </Button>
         </div>
       </form>

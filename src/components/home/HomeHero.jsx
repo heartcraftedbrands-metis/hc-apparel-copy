@@ -30,7 +30,7 @@ export default function HomeHero() {
             </Link>
             <Link to="/RequestQuote">
               <Button size="lg" variant="outline" className="border-white/50 text-white bg-white/10 hover:bg-white/20 px-8 text-base gap-2 font-semibold">
-                <MessageSquare className="w-5 h-5" /> Request a Quote
+                <MessageSquare className="w-5 h-5" /> Bulk Quote 50+
               </Button>
             </Link>
           </div>

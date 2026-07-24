@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
+import { createOrderHelpUrl } from "@/lib/orderHelp";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -345,6 +346,13 @@ export default function ProductDetail() {
     : (product?.stock ?? 0) > 0;
   const canAddToCart = !!(selectedColor && selectedSize && selectedVariant && inStock);
   const canPreviewDraft = isDraftPreview && isAdmin && product?.visibility === 'draft';
+  const orderHelpUrl = createOrderHelpUrl({
+    product: cleanProductName(product?.name || ''),
+    quantity,
+    color: selectedVariant?.color || selectedColor,
+    size: selectedVariant?.size || selectedSize,
+    sku: selectedVariant?.sku,
+  });
 
   const handleAddToCart = () => {
     if (!canAddToCart) return;
@@ -594,7 +602,9 @@ export default function ProductDetail() {
             {/* Soft Launch Ordering Note */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4">
               <p className="text-sm font-semibold text-primary mb-1">Soft Launch Ordering</p>
-              <p className="text-sm text-foreground">Select your color, size, and quantity, then request order help. HC Apparel will confirm availability and send next steps.</p>
+              <p className="text-sm text-foreground">
+                1–49 items: Request Order Help. 50+ items: use Bulk Quote 50+ for custom pricing.
+              </p>
             </div>
 
             {/* CTA */}
@@ -610,7 +620,7 @@ export default function ProductDetail() {
                   <ShoppingCart className="w-5 h-5" /> {buttonLabel}
                 </Button>
               )}
-              <Link to={`/RequestQuote?product=${encodeURIComponent(cleanProductName(product.name))}`} className="block">
+              <Link to={orderHelpUrl} className="block">
                 <Button size="lg" className="w-full text-base font-bold gap-2">
                   <MessageSquare className="w-5 h-5" /> Request Order Help
                 </Button>
@@ -646,7 +656,10 @@ export default function ProductDetail() {
               )}
               <div className="flex items-start gap-2.5 text-sm bg-white border rounded-xl p-3">
                 <Shield className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-                <p className="text-muted-foreground">Questions? <Link to="/Contact" className="text-primary hover:underline font-medium">Contact us</Link> or <Link to="/RequestQuote" className="text-primary hover:underline font-medium">request a quote</Link>.</p>
+                <p className="text-muted-foreground">
+                  Questions? <Link to="/Contact" className="text-primary hover:underline font-medium">Contact us</Link>
+                  {' '}or <Link to="/RequestQuote" className="text-primary hover:underline font-medium">request a Bulk Quote 50+</Link>.
+                </p>
               </div>
             </div>
           </div>

@@ -24,7 +24,7 @@ const NAV_LINKS = [
   { to: '/ShopGarments', label: 'Shop Garments' },
   { to: '/CustomPrinting', label: 'Custom Printing' },
   { to: '/PrintSupport', label: 'Print Support' },
-  { to: '/RequestQuote', label: 'Request a Quote' },
+  { to: '/RequestQuote', label: 'Bulk Quote 50+' },
   { to: '/About', label: 'About' },
   { to: '/FAQ', label: 'FAQ' },
   { to: '/Contact', label: 'Contact' },
@@ -225,7 +225,7 @@ function LayoutInner({ children }) {
                 <li><Link to="/ShopGarments" className="hover:text-primary-foreground transition-colors">All Garments</Link></li>
                 <li><Link to="/CustomPrinting" className="hover:text-primary-foreground transition-colors">Custom Printing</Link></li>
                 <li><Link to="/PrintSupport" className="hover:text-primary-foreground transition-colors">Print Support</Link></li>
-                <li><Link to="/RequestQuote" className="hover:text-primary-foreground transition-colors">Request a Quote</Link></li>
+                <li><Link to="/RequestQuote" className="hover:text-primary-foreground transition-colors">Bulk Quote 50+</Link></li>
                 <li><Link to="/TrackOrder" className="hover:text-primary-foreground transition-colors">Track Order</Link></li>
               </ul>
             </div>

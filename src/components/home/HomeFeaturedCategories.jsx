@@ -40,7 +40,7 @@ const CATEGORIES = [
   },
   {
     label: 'Bulk Orders',
-    desc: 'Team, event, or brand orders — any quantity',
+    desc: 'Team, event, or brand orders of 50 or more',
     emoji: '📦',
     link: '/RequestQuote',
     bg: 'bg-secondary/20',

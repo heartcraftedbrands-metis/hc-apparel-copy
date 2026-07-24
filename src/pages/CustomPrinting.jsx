@@ -40,7 +40,7 @@ const PRINT_METHODS = [
 ];
 
 const PROCESS_STEPS = [
-  { step: '01', title: 'Request a Quote', desc: 'Tell us your garment type, quantity, and print ideas. We\'ll get back to you fast.' },
+  { step: '01', title: 'Choose the Right Request', desc: 'Use Request Order Help for 1–49 items, or submit a Bulk Quote for 50 or more.' },
   { step: '02', title: 'Approve Artwork & Proof', desc: 'We prep your artwork and send a digital proof for your approval before production.' },
   { step: '03', title: 'Production Begins', desc: 'Your order goes to our print partners. Typical turnaround is 5–10 business days.' },
   { step: '04', title: 'Shipped to You', desc: 'Your finished garments are packaged and shipped directly to your door.' },
@@ -54,11 +54,11 @@ export default function CustomPrinting() {
         <div className="container mx-auto px-4 text-center">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Custom Printing Services</h1>
           <p className="text-primary-foreground/75 text-lg max-w-2xl mx-auto mb-8">
-            From single pieces to bulk runs — we handle the printing so you can focus on your brand.
+            From single pieces to bulk runs — use product Order Help for 1–49 items or a Bulk Quote for 50+.
           </p>
           <Link to="/RequestQuote">
             <Button size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90 font-bold px-8">
-              <MessageSquare className="w-5 h-5 mr-2" /> Get a Free Quote
+              <MessageSquare className="w-5 h-5 mr-2" /> Bulk Quote 50+
             </Button>
           </Link>
         </div>
@@ -110,10 +110,10 @@ export default function CustomPrinting() {
       {/* CTA */}
       <section className="py-16 container mx-auto px-4 text-center">
         <h2 className="text-3xl font-bold mb-4">Ready to Start Your Order?</h2>
-        <p className="text-muted-foreground mb-8 max-w-xl mx-auto">Tell us what you need and we'll handle the rest. No design skills required.</p>
+        <p className="text-muted-foreground mb-8 max-w-xl mx-auto">For 1–49 items, choose a garment and use Request Order Help. For 50+, start a bulk quote.</p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link to="/RequestQuote">
-            <Button size="lg" className="bg-primary text-primary-foreground font-bold px-10">Request a Quote</Button>
+            <Button size="lg" className="bg-primary text-primary-foreground font-bold px-10">Bulk Quote 50+</Button>
           </Link>
           <Link to="/ShopGarments">
             <Button size="lg" variant="outline" className="border-primary text-primary hover:bg-primary hover:text-primary-foreground px-10">Browse Garments</Button>

@@ -98,7 +98,7 @@ export default function LaunchQAReport() {
           <Row status="pass" label="Cart Drawer — full-height slide-over, items readable, checkout button accessible" />
           <Row status="pass" label="Checkout — single-column fields on mobile, no overflow" />
           <Row status="pass" label="Order Confirmation — action buttons stack vertically on mobile (flex-col sm:flex-row)" />
-          <Row status="pass" label="Request a Quote — form sections stack cleanly on mobile" />
+          <Row status="pass" label="Bulk Quote 50+ — form sections stack cleanly on mobile" />
           <Row status="pass" label="Contact — form goes full-width below info column on mobile" />
           <Row status="pass" label="No horizontal scroll detected on any customer page" />
           <Row status="pass" label="MobileHeader sticky at top, BottomTabBar fixed at bottom — no overlap" />
