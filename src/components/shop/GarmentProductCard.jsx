@@ -120,7 +120,14 @@ export default function GarmentProductCard({ product, onAddToCart }) {
               <Eye className="w-3.5 h-3.5" /> View Product
             </Button>
           </Link>
-          <Link to={createOrderHelpUrl({ product: product.name, quantity: 1 })} className="block">
+          <Link to={createOrderHelpUrl({
+            product: product.name,
+            productId: product.id,
+            brand: product.brand,
+            styleNumber: product.style_number,
+            imageUrl: product.image_url,
+            quantity: 1,
+          })} className="block">
             <Button size="sm" className="w-full h-8 gap-1 text-xs">
               <MessageSquare className="w-3.5 h-3.5" /> Request Order Help
             </Button>

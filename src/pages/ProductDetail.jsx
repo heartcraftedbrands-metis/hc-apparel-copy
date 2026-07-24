@@ -348,6 +348,10 @@ export default function ProductDetail() {
   const canPreviewDraft = isDraftPreview && isAdmin && product?.visibility === 'draft';
   const orderHelpUrl = createOrderHelpUrl({
     product: cleanProductName(product?.name || ''),
+    productId: product?.id,
+    brand: product?.brand,
+    styleNumber: product?.style_number,
+    imageUrl: displayImage,
     quantity,
     color: selectedVariant?.color || selectedColor,
     size: selectedVariant?.size || selectedSize,

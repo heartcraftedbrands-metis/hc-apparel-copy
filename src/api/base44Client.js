@@ -203,6 +203,7 @@ const functions = {
   invoke: async (name, body = {}) => {
     const rpc = {
       submitContactMessage: ['submit_contact_message', { payload: body }],
+      submitOrderHelpRequest: ['submit_order_help_request', { payload: body }],
       submitQuoteRequest: ['submit_quote_request', { payload: body }],
       subscribeNewsletter: ['subscribe_newsletter', { subscriber_email: body.email }],
       trackOrder: ['track_order', { order_fragment: body.order_number, customer_email: body.email }],

@@ -327,6 +327,11 @@ export default function AdminInbox() {
 
   // ── Create Vendor Order Draft ────────────────────────────────
   const createVendorOrderDraft = async (order) => {
+    if (!['paid', 'partially_paid'].includes(order.payment_status)) {
+      showToast('Payment must be received before a vendor order draft can be created.');
+      return;
+    }
+
     setCreatingDraft(true);
     try {
       const items = await enrichOrderItems(order.order_items || []);
@@ -344,9 +349,23 @@ export default function AdminInbox() {
         customer_order_number: orderNum,
         customer_name: order.customer_name,
         customer_email: order.customer_email,
+        customer_phone: order.customer_phone || '',
         order_date: order.created_date,
         vendor_status: 'draft',
+        vendor_name: 'S&S Activewear',
+        workflow_status: 'vendor_order_draft_created',
         items,
+        shipping_address: order.shipping_address || {},
+        shipping_method: order.shipping_address?.shipping_method || 'standard',
+        garment_cost: items.reduce((sum, item) => sum + ((item.vendor_cost || 0) * (item.quantity || 0)), 0),
+        sale_price: order.total_amount || 0,
+        estimated_profit: order.estimated_profit || 0,
+        payment_status: 'paid',
+        payment_received_at: order.payment_date || new Date().toISOString(),
+        customer_notes: order.notes || '',
+        admin_notes: 'Created from a paid customer order. Review all fields before test validation.',
+        live_submission_enabled: false,
+        safety_mode_message: 'Do Not Submit Live Order Yet',
         has_sku_warnings: hasSkuWarnings,
         has_image_warnings: hasImageWarnings,
         has_missing_warnings: hasMissingWarnings,

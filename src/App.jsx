@@ -24,6 +24,7 @@ import CheckoutPage from './pages/Checkout';
 import OrderConfirmationPage from './pages/OrderConfirmation';
 import LoginPage from './pages/Login';
 import ResetPasswordPage from './pages/ResetPassword';
+import RequestOrderHelpPage from './pages/RequestOrderHelp';
 
 // Admin pages
 import AdminDashboard from './pages/AdminDashboard';
@@ -116,6 +117,7 @@ const AuthenticatedApp = () => {
       <Route path="/Profile" element={<LayoutWrapper currentPageName="Profile"><ProfilePage /></LayoutWrapper>} />
       <Route path="/Wishlist" element={<LayoutWrapper currentPageName="Wishlist"><WishlistPage /></LayoutWrapper>} />
       <Route path="/RequestQuote" element={<LayoutWrapper currentPageName="RequestQuote"><RequestQuotePage /></LayoutWrapper>} />
+      <Route path="/RequestOrderHelp" element={<LayoutWrapper currentPageName="RequestOrderHelp"><RequestOrderHelpPage /></LayoutWrapper>} />
       <Route path="/TrackOrder" element={<LayoutWrapper currentPageName="TrackOrder"><TrackOrder /></LayoutWrapper>} />
       <Route path="/Login" element={<LayoutWrapper currentPageName="Login"><LoginPage /></LayoutWrapper>} />
       <Route path="/ResetPassword" element={<LayoutWrapper currentPageName="ResetPassword"><ResetPasswordPage /></LayoutWrapper>} />
