@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import {
   Loader2, Truck, X, Plus, Trash2, FileImage, ExternalLink,
-  Copy, Upload, Star, Phone, Mail, Clock, Tag, ChevronDown, Package,
+  Copy, Upload, Star, Phone, Mail, Clock, Tag, Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';

@@ -94,7 +94,11 @@ Deno.serve(async (req) => {
     const skuSet = new Set();
     let duplicateSKUs = 0;
     let approvedBrandRows = 0;
-    let approvedBrands = ['Adidas', 'Bella + Canvas', 'District', 'Gildan', 'Hanes', 'Nike', 'Port & Company', 'Russell'];
+    let approvedBrands = [
+      'Gildan', 'Bella + Canvas', 'Comfort Colors', 'Shaka Wear',
+      'Next Level', 'Jerzees', 'Hanes', 'Port & Company',
+      'Sport-Tek', 'Rabbit Skins', 'Adidas'
+    ];
 
     for (let i = 0; i < Math.min(5, rows.length); i++) {
       const normalized = normalizeSSRow(rows[i]);

@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { DollarSign, Plus, Trash2, Save, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { SS_ACTIVEWEAR_BRANDS } from '@/lib/ssBrands';
 
 const ROUNDING_MODES = [
   { value: 'none', label: 'No rounding ($5.30)' },
@@ -23,19 +24,7 @@ const ROUNDING_MODES = [
   { value: 'round_up', label: 'Round up ($5.50)' }
 ];
 
-const APPROVED_BRANDS = [
-  'Bella + Canvas',
-  'Gildan',
-  'Comfort Colors',
-  'Next Level',
-  'Independent Trading Co.',
-  'Champion',
-  'Hanes',
-  'Rabbit Skins',
-  'Shaka Wear',
-  'Lane Seven',
-  'adidas'
-];
+const APPROVED_BRANDS = SS_ACTIVEWEAR_BRANDS;
 
 const CATEGORIES = [
   'T-Shirts',

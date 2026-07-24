@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle2, Upload, Loader2, FileImage, Shirt, Printer, User } from 'lucide-react';
+import { CheckCircle2, Upload, Loader2, Shirt, Printer, User } from 'lucide-react';
+import { toast } from 'sonner';
 
 const PROJECT_TYPES = [
   { value: 't_shirts', label: 'T-Shirts' },
@@ -95,12 +96,12 @@ export default function RequestQuote() {
     e.preventDefault();
     setLoading(true);
     try {
-      await base44.entities.QuoteRequest.create({
-        ...form,
-        quantity: Number(form.quantity) || 0,
-        status: 'new',
-      });
+      const response = await base44.functions.invoke('submitQuoteRequest', form);
+      if (!response.data?.success) throw new Error('Quote request failed');
+
       setSubmitted(true);
+    } catch {
+      toast.error('We could not submit your quote request. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -202,7 +203,7 @@ export default function RequestQuote() {
           </Field>
           <Field label="Preferred Garment / Style">
             <Input value={form.preferred_garment_style} onChange={e => set('preferred_garment_style', e.target.value)}
-              placeholder='Example: Gildan 2000, Champion T453W, Bella Canvas, or "not sure"' />
+              placeholder='Example: Gildan 2000, Jerzees 29M, Bella + Canvas, or "not sure"' />
           </Field>
           <div className="grid md:grid-cols-2 gap-4">
             <Field label="Colors Needed">

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Eye, ShoppingBag, Tag, Archive, EyeOff, Package, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, ShoppingBag, Tag, Archive, EyeOff, Package } from 'lucide-react';
 
 const STATUS_STYLES = {
   vendor_catalog_only: 'bg-blue-100 text-blue-800',

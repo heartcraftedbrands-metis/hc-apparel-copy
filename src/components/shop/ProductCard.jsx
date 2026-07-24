@@ -1,6 +1,5 @@
 import React from 'react';
-import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Download, Package, Heart, Eye } from "lucide-react";
+import { ShoppingCart, Package, Heart, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWishlist } from "./WishlistContext";
 import { motion } from 'framer-motion';

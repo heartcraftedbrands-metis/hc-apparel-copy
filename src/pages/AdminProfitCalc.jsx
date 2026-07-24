@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Calculator, RefreshCw, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
-import MarginBadge, { getMarginStatus } from '@/components/profit/MarginBadge';
+import { getMarginStatus } from '@/components/profit/MarginBadge';
 
 const EMPTY = {
   customer_sale_price: '', quantity: '1',

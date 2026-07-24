@@ -29,7 +29,7 @@ export default function MobileHeader() {
 
       <Link to="/" className="absolute left-1/2 -translate-x-1/2">
         <img
-          src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/69889c36f99d1de4b17edfa4/4bf10d633_1.png"
+          src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
           alt="HC Apparel"
           className="h-9 w-auto brightness-0 invert"
         />

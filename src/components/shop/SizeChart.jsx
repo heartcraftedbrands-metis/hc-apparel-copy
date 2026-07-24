@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Ruler } from 'lucide-react';
 
 const SIZE_CHARTS = {

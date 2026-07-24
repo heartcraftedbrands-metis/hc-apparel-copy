@@ -45,11 +45,14 @@ export default function OrderConfirmation() {
     retry: 1
   });
 
-  const { data: paymentSettings = [] } = useQuery({
+  const { data: paymentSettings } = useQuery({
     queryKey: ['payment-settings'],
-    queryFn: () => base44.entities.PaymentSettings.list()
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getPublicPaymentSettings', {});
+      return response.data;
+    }
   });
-  const settings = paymentSettings[0] || { payment_mode: 'manual' };
+  const settings = paymentSettings || { payment_mode: 'manual' };
 
   if (isLoading || verifying) {
     return (

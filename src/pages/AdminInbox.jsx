@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   Mail, MessageSquare, Package, Clock, Eye, CheckCircle, Archive,
-  Loader2, ChevronRight, Inbox, DollarSign, Truck, AlertTriangle, ExternalLink, ArrowLeft
+  Loader2, ChevronRight, Inbox, DollarSign, Truck, ExternalLink, ArrowLeft
 } from 'lucide-react';
 import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import { format } from 'date-fns';

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 
@@ -9,28 +9,46 @@ const DefaultFallback = () => (
   </div>
 );
 
-export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthenticatedElement }) {
-  const { isAuthenticated, isLoadingAuth, authChecked, authError, checkUserAuth } = useAuth();
+export default function ProtectedRoute({
+  fallback = <DefaultFallback />,
+  unauthenticatedElement,
+  requiredRole,
+}) {
+  const {
+    user,
+    isAuthenticated,
+    isLoadingAuth,
+    isLoadingPublicSettings,
+    authError,
+    navigateToLogin,
+  } = useAuth();
+  const isLoading = isLoadingAuth || isLoadingPublicSettings;
+  const shouldNavigateToLogin =
+    !isLoading &&
+    !isAuthenticated &&
+    authError?.type !== 'user_not_registered' &&
+    !unauthenticatedElement;
 
   useEffect(() => {
-    if (!authChecked && !isLoadingAuth) {
-      checkUserAuth();
+    if (shouldNavigateToLogin) {
+      navigateToLogin();
     }
-  }, [authChecked, isLoadingAuth, checkUserAuth]);
+  }, [navigateToLogin, shouldNavigateToLogin]);
 
-  if (isLoadingAuth || !authChecked) {
+  if (isLoading) {
     return fallback;
   }
 
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    }
-    return unauthenticatedElement;
+  if (authError?.type === 'user_not_registered') {
+    return <UserNotRegisteredError />;
   }
 
   if (!isAuthenticated) {
-    return unauthenticatedElement;
+    return unauthenticatedElement || fallback;
+  }
+
+  if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

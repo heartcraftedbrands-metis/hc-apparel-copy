@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import GarmentProductCard from "@/components/shop/GarmentProductCard";
 import { filterPublicProducts } from "@/lib/productVisibility";
+import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from '@/lib/ssBrands';
 
 const TYPE_FILTERS = [
   { value: 'all', label: 'All Products' },
@@ -21,8 +22,11 @@ const TYPE_FILTERS = [
   { value: 'long_sleeve', label: 'Long Sleeve', cats: ['long_sleeve_shirts','mens_long_sleeve_shirts','womens_long_sleeve_shirts'] },
   { value: 'hats', label: 'Hats', cats: ['hats'] },
   { value: 'kids', label: 'Kids Apparel', cats: ['youth_short_sleeve_shirts','youth_long_sleeve_shirts','youth_crewnecks','youth_polo_shirts','youth_jackets','youth_sportswear'] },
-  { value: 'gildan', label: 'Gildan', brandMatch: 'gildan' },
-  { value: 'champion', label: 'Champion', brandMatch: 'champion' },
+  ...SS_ACTIVEWEAR_BRANDS.map(brand => ({
+    value: brandFilterValue(brand),
+    label: brand,
+    brandMatch: brand.toLowerCase(),
+  })),
   { value: 'apparel_blanks', label: 'Apparel Blanks', subtypes: ['apparel_blanks'] },
   { value: 'custom_printed', label: 'Custom Printed', subtypes: ['custom_printed'] },
   { value: 'print_support', label: 'Print Support', cats: ['other', 'accessories'], subtypes: ['print_support'] },

@@ -3,10 +3,8 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Search, SlidersHorizontal, Star } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { toast } from "sonner";
-import { Link } from 'react-router-dom';
 import VendorCard from '@/components/vendors/VendorCard';
 import VendorFormDialog from '@/components/vendors/VendorFormDialog';
 

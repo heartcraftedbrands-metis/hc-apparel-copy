@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, Search, Loader2, MessageSquare, ChevronRight } from 'lucide-react';
+import { Eye, Search, Loader2, MessageSquare } from 'lucide-react';
+import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 export const STATUSES = [
   { value: 'new', label: 'New', color: 'bg-blue-100 text-blue-700' },
@@ -175,6 +176,11 @@ export default function AdminQuoteRequests() {
                       <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{r.date_needed || '—'}</td>
                       <td className="px-4 py-3">
                         <Badge className={`text-xs ${s.color}`}>{s.label}</Badge>
+                        {r.workflow_status && (
+                          <p className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">
+                            {ssVendorOrderStageLabel(r.workflow_status)}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                         {r.created_date ? new Date(r.created_date).toLocaleDateString() : '—'}

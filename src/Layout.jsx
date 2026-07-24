@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, ChevronDown, Menu, X, Search, Archive, Truck, Tag, Calculator, MessageSquare, Mail, DollarSign, CheckCircle2, Inbox } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Tag, Calculator, MessageSquare, Mail, DollarSign, CheckCircle2, Inbox } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
@@ -80,7 +80,7 @@ function LayoutInner({ children }) {
           <div className="flex items-center justify-between h-16 gap-6">
             <Link to="/" className="flex-shrink-0">
               <img
-                src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/69889c36f99d1de4b17edfa4/4bf10d633_1.png"
+                src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
                 alt="HC Apparel"
                 className="h-10 w-auto brightness-0 invert"
               />
@@ -211,7 +211,7 @@ function LayoutInner({ children }) {
           <div className="grid md:grid-cols-4 gap-8 mb-10">
             <div>
               <img
-                src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/69889c36f99d1de4b17edfa4/4bf10d633_1.png"
+                src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
                 alt="HC Apparel"
                 className="h-10 w-auto brightness-0 invert mb-4"
               />

@@ -20,6 +20,8 @@ import MarginBadge from '@/components/profit/MarginBadge';
 import CreateVendorOrderModal from '@/components/orders/CreateVendorOrderModal';
 import OrderHistorySection from '@/components/orders/OrderHistorySection';
 import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
+import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
+import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 const ORDER_STATUSES = [
   { value: 'awaiting_payment', label: 'Awaiting Payment' },
@@ -836,7 +838,7 @@ export default function AdminOrderDetail() {
                     {linkedVendorDrafts[0].tracking_url && (
                       <a href={linkedVendorDrafts[0].tracking_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Track Vendor Shipment →</a>
                     )}
-                    <a href={`/AdminVendorOrderDraftDetail?id=${linkedVendorDrafts[0].id}`} className="block text-xs text-primary hover:underline mt-1">
+                    <a href={`/AdminVendorOrderDraft?id=${linkedVendorDrafts[0].id}`} className="block text-xs text-primary hover:underline mt-1">
                       View Vendor Draft: {linkedVendorDrafts[0].vendor_order_number} →
                     </a>
                   </div>
@@ -1026,6 +1028,27 @@ export default function AdminOrderDetail() {
                   className="flex items-center gap-1 text-xs text-primary hover:underline mt-3 font-medium">
                   <Eye className="w-3 h-3" />View Full Quote Request →
                 </a>
+              </Section>
+            )}
+
+            {linkedVendorDrafts.length > 0 && (
+              <Section title="S&S Vendor Order Workflow" icon={<ClipboardList className="w-4 h-4" />} adminOnly>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {ssVendorOrderStageLabel(linkedVendorDrafts[0].workflow_status)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Do Not Submit Live Order Yet</p>
+                  </div>
+                  <a href={`/AdminVendorOrderDraft?id=${linkedVendorDrafts[0].id}`}>
+                    <Button size="sm" variant="outline">Open safe draft</Button>
+                  </a>
+                </div>
+                <SSVendorOrderTimeline
+                  currentStatus={linkedVendorDrafts[0].workflow_status}
+                  draftId={linkedVendorDrafts[0].id}
+                  quoteRequestId={linkedVendorDrafts[0].quote_request_id}
+                />
               </Section>
             )}
 

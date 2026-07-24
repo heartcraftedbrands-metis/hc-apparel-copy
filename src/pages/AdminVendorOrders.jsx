@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Package, AlertTriangle, ChevronRight, Loader2, Truck, Download, ClipboardEdit } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Loader2, Truck, Download, ClipboardEdit } from 'lucide-react';
 import { format } from 'date-fns';
+import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 const STATUS_MAP = {
   draft:               { label: 'Draft',                color: 'bg-gray-100 text-gray-600' },
@@ -46,8 +47,6 @@ function exportDraftCSV(draft) {
 }
 
 export default function AdminVendorOrders() {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
 
   const { data: drafts = [], isLoading } = useQuery({
@@ -84,6 +83,13 @@ export default function AdminVendorOrders() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-8 space-y-6">
+        <div className="rounded-2xl border-2 border-red-300 bg-red-50 text-red-800 p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-extrabold">Do Not Submit Live Order Yet</p>
+            <p className="text-sm">Draft review and test-mode validation are available. No live S&S order action exists.</p>
+          </div>
+        </div>
 
         {/* Filter chips */}
         <div className="flex flex-wrap gap-2">
@@ -124,6 +130,16 @@ export default function AdminVendorOrders() {
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="font-mono font-bold text-sm">{draft.vendor_order_number || draft.id?.slice(-8).toUpperCase()}</span>
                       <Badge className={s.color}>{s.label}</Badge>
+                      {draft.workflow_status && (
+                        <Badge className="bg-primary/10 text-primary">
+                          {ssVendorOrderStageLabel(draft.workflow_status)}
+                        </Badge>
+                      )}
+                      <Badge className={draft.payment_status === 'paid'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-red-100 text-red-700'}>
+                        {draft.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
+                      </Badge>
                       {anyWarn && (
                         <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                           <AlertTriangle className="w-3 h-3" />Warnings
@@ -139,12 +155,12 @@ export default function AdminVendorOrders() {
 
                   {/* Quick actions */}
                   <div className="flex flex-wrap gap-2 items-center">
-                    <Link to={`/AdminVendorOrderDraftDetail?id=${draft.id}`}>
+                    <Link to={`/AdminVendorOrderDraft?id=${draft.id}`}>
                       <Button size="sm" variant="outline" className="gap-1 text-xs">
                         View Details <ChevronRight className="w-3.5 h-3.5" />
                       </Button>
                     </Link>
-                    <Link to={`/AdminVendorOrderDraftDetail?id=${draft.id}#vendor-info`}>
+                    <Link to={`/AdminVendorOrderDraft?id=${draft.id}#vendor-info`}>
                       <Button size="sm" variant="outline"
                         className="gap-1 text-xs border-blue-300 text-blue-700 hover:bg-blue-50">
                         <ClipboardEdit className="w-3.5 h-3.5" />Enter Vendor Info

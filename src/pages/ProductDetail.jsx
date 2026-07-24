@@ -185,7 +185,7 @@ function normalize(str) {
 }
 
 // Parse size_prices where each entry is { size: "Color / Size", price, image_url?, sku? }
-// Returns a map keyed by "normColor|||normSize" -> { color, size, price, image_url, sku }
+// Returns a map keyed by "normColor|||normSize" with SKU-level price and stock.
 function buildVariantMap(product) {
   const map = {};
   const sp = product.size_prices || [];
@@ -202,6 +202,8 @@ function buildVariantMap(product) {
       price: entry.price,
       image_url: entry.image_url || '',
       sku: entry.sku || '',
+      inventory: entry.inventory == null ? null : Number(entry.inventory),
+      color_hex: entry.color_hex || '',
     };
   }
   return map;
@@ -270,15 +272,20 @@ function cleanProductName(name) {
 export default function ProductDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const productId = urlParams.get('id');
+  const isDraftPreview = urlParams.get('preview') === 'draft';
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const { addToCart } = useCart();
 
   useEffect(() => {
-    base44.auth.me().then(u => { if (u?.role === 'admin') setIsAdmin(true); }).catch(() => {});
+    base44.auth.me()
+      .then(u => setIsAdmin(u?.role === 'admin'))
+      .catch(() => setIsAdmin(false))
+      .finally(() => setAuthChecked(true));
   }, []);
 
   const { data: product, isLoading } = useQuery({
@@ -332,10 +339,12 @@ export default function ProductDetail() {
   // Price
   const displayPrice = selectedVariant?.price ?? product?.price ?? 0;
 
-  // Inventory: product has no per-variant inventory in this data structure
-  // Use product.stock as a proxy; if >0, in stock
-  const inStock = (product?.stock ?? 0) > 0;
+  const selectedInventory = selectedVariant?.inventory;
+  const inStock = selectedVariant
+    ? (selectedInventory == null ? (product?.stock ?? 0) > 0 : selectedInventory > 0)
+    : (product?.stock ?? 0) > 0;
   const canAddToCart = !!(selectedColor && selectedSize && selectedVariant && inStock);
+  const canPreviewDraft = isDraftPreview && isAdmin && product?.visibility === 'draft';
 
   const handleAddToCart = () => {
     if (!canAddToCart) return;
@@ -350,6 +359,7 @@ export default function ProductDetail() {
       sku: selectedVariant.sku || null,
       quantity,
       product_type: product.product_type,
+      stock: selectedInventory ?? product.stock,
     };
     addToCart(cartItem);
     toast.success(`${cleanProductName(product.name)} added to cart!`);
@@ -357,7 +367,7 @@ export default function ProductDetail() {
     window.dispatchEvent(new CustomEvent('hc:open-cart'));
   };
 
-  if (isLoading) return (
+  if (isLoading || (isDraftPreview && !authChecked)) return (
     <div className="container mx-auto px-4 py-8">
       <div className="animate-pulse grid md:grid-cols-2 gap-8">
         <div className="aspect-square bg-muted rounded-2xl" />
@@ -372,7 +382,7 @@ export default function ProductDetail() {
     </div>
   );
 
-  if (!product || !isPublicProduct(product)) return (
+  if (!product || (!isPublicProduct(product) && !canPreviewDraft)) return (
     <div className="container mx-auto px-4 py-20 text-center">
       <p className="text-muted-foreground mb-4">Product not found.</p>
       <Link to="/ShopGarments"><Button>Back to Shop</Button></Link>
@@ -400,11 +410,18 @@ export default function ProductDetail() {
   return (
     <div className="bg-background min-h-screen">
       <div className="container mx-auto px-4 py-6">
-        <Link to="/ShopGarments">
+        <Link to={canPreviewDraft ? '/AdminSSLaunchBatch' : '/ShopGarments'}>
           <Button variant="ghost" size="sm" className="mb-5 gap-1.5 -ml-2">
-            <ArrowLeft className="w-4 h-4" /> Back to Shop
+            <ArrowLeft className="w-4 h-4" /> {canPreviewDraft ? 'Back to Private Batch' : 'Back to Shop'}
           </Button>
         </Link>
+
+        {canPreviewDraft && (
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <strong>Private admin preview.</strong> This S&amp;S product is inactive and cannot appear in the public shop.
+            Cart testing here is for QA only.
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
           {/* Image */}
@@ -505,11 +522,12 @@ export default function ProductDetail() {
                 <div className="flex flex-wrap gap-2">
                   {product.available_sizes.map((s, i) => {
                     const normS = normalize(s);
-                    const available = selectedColor ? availableSizesForColor.includes(normS) : true;
-                    const isSelected = normalize(selectedSize) === normS;
-                    // Try to get price for this color+size combo
                     const vKey = `${normSelectedColor}|||${normS}`;
                     const v = variantMap[vKey];
+                    const available = selectedColor
+                      ? availableSizesForColor.includes(normS) && Boolean(v) && (v.inventory == null || v.inventory > 0)
+                      : true;
+                    const isSelected = normalize(selectedSize) === normS;
                     const vPrice = v?.price;
 
                     return (
@@ -556,7 +574,11 @@ export default function ProductDetail() {
                 </button>
                 <span className="text-lg font-bold w-8 text-center">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(q => q + 1)}
+                  onClick={() => setQuantity(q => {
+                    const maximum = selectedInventory == null ? Number.POSITIVE_INFINITY : selectedInventory;
+                    return Math.min(maximum, q + 1);
+                  })}
+                  disabled={selectedInventory != null && quantity >= selectedInventory}
                   className="w-9 h-9 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors"
                 >
                   <Plus className="w-4 h-4" />
@@ -577,6 +599,17 @@ export default function ProductDetail() {
 
             {/* CTA */}
             <div className="flex flex-col gap-2.5 pt-2">
+              {canPreviewDraft && (
+                <Button
+                  size="lg"
+                  type="button"
+                  disabled={!canAddToCart}
+                  onClick={handleAddToCart}
+                  className="w-full text-base font-bold gap-2"
+                >
+                  <ShoppingCart className="w-5 h-5" /> {buttonLabel}
+                </Button>
+              )}
               <Link to={`/RequestQuote?product=${encodeURIComponent(cleanProductName(product.name))}`} className="block">
                 <Button size="lg" className="w-full text-base font-bold gap-2">
                   <MessageSquare className="w-5 h-5" /> Request Order Help

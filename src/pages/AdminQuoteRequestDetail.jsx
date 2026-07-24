@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,6 +20,8 @@ import { PRODUCT_LABELS, CONTACT_LABELS } from './AdminQuoteRequests';
 import ConvertToOrderModal from '@/components/orders/ConvertToOrderModal';
 import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import { toast } from 'sonner';
+import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
+import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 const STATUSES = ALL_STATUSES;
 
@@ -45,7 +48,7 @@ const GARMENT_KNOWLEDGE_LABELS = {
   have_own_garment: 'Customer Has Own Garment',
 };
 
-const BUDGET_LABELS = {
+const _BUDGET_LABELS = {
   under_100: 'Under $100', '100_250': '$100 – $250', '250_500': '$250 – $500',
   '500_1000': '$500 – $1,000', '1000_2500': '$1,000 – $2,500',
   '2500_5000': '$2,500 – $5,000', '5000_plus': '$5,000+',
@@ -61,7 +64,6 @@ function calcProfit(d) {
 }
 
 export default function AdminQuoteRequestDetail() {
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const params = new URLSearchParams(window.location.search);
   const id = params.get('id');
@@ -83,6 +85,22 @@ export default function AdminQuoteRequestDetail() {
     queryFn: () => base44.entities.Vendor.list(),
   });
 
+  const { data: vendorDraft } = useQuery({
+    queryKey: ['ss-vendor-draft-for-quote', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vendor_order_drafts')
+        .select('*')
+        .eq('quote_request_id', id)
+        .order('created_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: Boolean(id),
+  });
+
   useEffect(() => {
     if (request && !form) setForm({ ...request });
   }, [request]);
@@ -97,7 +115,10 @@ export default function AdminQuoteRequestDetail() {
     },
   });
 
-  const canConvert = form && ['approved', 'quote_sent'].includes(form.status) && !form.converted_order_id;
+  const canCreateVendorDraft = form
+    && (form.status === 'approved' || form.workflow_status === 'customer_approved')
+    && !vendorDraft;
+  const canConvert = false;
 
   const handleMockupUpload = async (e) => {
     const file = e.target.files[0];
@@ -113,13 +134,18 @@ export default function AdminQuoteRequestDetail() {
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
-  const saveChanges = () => {
-    if (!form) return;
+  const savePayload = () => {
     const { cost, profit, margin } = calcProfit(form);
-    updateMutation.mutate({
+    return {
       status: form.status,
       assigned_vendor_id: form.assigned_vendor_id,
       assigned_vendor_name: form.assigned_vendor_name,
+      vendor_product_name: form.vendor_product_name,
+      vendor_style_number: form.vendor_style_number,
+      vendor_sku: form.vendor_sku,
+      selected_color: form.selected_color,
+      selected_size: form.selected_size,
+      shipping_method: form.shipping_method,
       blank_garment_cost: form.blank_garment_cost,
       print_cost: form.print_cost,
       shipping_cost_vendor: form.shipping_cost_vendor,
@@ -130,10 +156,57 @@ export default function AdminQuoteRequestDetail() {
       estimated_profit: profit,
       profit_margin_pct: margin,
       admin_notes: form.admin_notes,
+      customer_notes: form.customer_notes,
       admin_mockup_url: form.admin_mockup_url,
       quote_response_sent: form.quote_response_sent,
-    });
+    };
   };
+
+  const saveChanges = () => {
+    if (!form) return;
+    updateMutation.mutate(savePayload());
+  };
+
+  const workflowMutation = useMutation({
+    mutationFn: async (stage) => {
+      await updateMutation.mutateAsync(savePayload());
+      const { data, error } = await supabase.rpc('set_ss_quote_workflow_stage', {
+        p_quote_request_id: id,
+        p_stage: stage,
+        p_admin_note: form.admin_notes || null,
+        p_customer_note: form.customer_notes || null,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (updated) => {
+      setForm((current) => ({ ...current, ...updated }));
+      qc.invalidateQueries({ queryKey: ['quote_request', id] });
+      qc.invalidateQueries({ queryKey: ['quote_requests'] });
+      qc.invalidateQueries({ queryKey: ['ss-vendor-order-history'] });
+      toast.success('Quote workflow updated');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const createDraftMutation = useMutation({
+    mutationFn: async () => {
+      await updateMutation.mutateAsync(savePayload());
+      const { data, error } = await supabase.rpc('create_ss_vendor_order_draft_from_quote', {
+        p_quote_request_id: id,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['ss-vendor-draft-for-quote', id] });
+      qc.invalidateQueries({ queryKey: ['vendor_order_drafts'] });
+      qc.invalidateQueries({ queryKey: ['quote_request', id] });
+      toast.success(result.created ? 'S&S vendor order draft created' : 'Existing S&S draft opened');
+      window.location.assign(`/AdminVendorOrderDraft?id=${result.draft_id}`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   const quickStatus = (status) => {
     setForm(f => ({ ...f, status }));
@@ -213,6 +286,26 @@ export default function AdminQuoteRequestDetail() {
                 <Package className="w-4 h-4" />Convert to Order (Coming Soon)
               </Button>
             )}
+            {canCreateVendorDraft && (
+              <Button
+                size="sm"
+                onClick={() => createDraftMutation.mutate()}
+                disabled={createDraftMutation.isPending}
+                className="gap-2"
+              >
+                {createDraftMutation.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Package className="w-4 h-4" />}
+                Create S&S Vendor Draft
+              </Button>
+            )}
+            {vendorDraft && (
+              <Link to={`/AdminVendorOrderDraft?id=${vendorDraft.id}`}>
+                <Button size="sm" variant="outline" className="gap-2">
+                  <Package className="w-4 h-4" />Open S&S Vendor Draft
+                </Button>
+              </Link>
+            )}
             {form.converted_order_id && (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-sm text-green-700 font-medium">
@@ -226,6 +319,35 @@ export default function AdminQuoteRequestDetail() {
             )}
           </div>
         </div>
+
+        <Section title="S&S Order Workflow" icon={<Package className="w-4 h-4" />} adminOnly>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {[
+              ['quote_reviewed', 'Quote reviewed'],
+              ['customer_approved', 'Customer approved'],
+              ['payment_link_sent', 'Payment link sent'],
+              ['payment_received', 'Payment received'],
+            ].map(([stage, label]) => (
+              <Button
+                key={stage}
+                size="sm"
+                variant="outline"
+                onClick={() => workflowMutation.mutate(stage)}
+                disabled={workflowMutation.isPending}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-sm font-semibold mb-3">
+            Current stage: {ssVendorOrderStageLabel(vendorDraft?.workflow_status || form.workflow_status)}
+          </p>
+          <SSVendorOrderTimeline
+            currentStatus={vendorDraft?.workflow_status || form.workflow_status || 'quote_request_received'}
+            draftId={vendorDraft?.id}
+            quoteRequestId={id}
+          />
+        </Section>
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left column: customer info + project info + files */}
@@ -361,6 +483,14 @@ export default function AdminQuoteRequestDetail() {
                     className="w-4 h-4 accent-primary" />
                   <label htmlFor="qr-sent" className="text-xs font-medium cursor-pointer">Quote response sent to customer</label>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <AdminInput label="Vendor product" value={form.vendor_product_name} onChange={v => set('vendor_product_name', v)} />
+                  <AdminInput label="Style number" value={form.vendor_style_number} onChange={v => set('vendor_style_number', v)} />
+                  <AdminInput label="S&S SKU" value={form.vendor_sku} onChange={v => set('vendor_sku', v)} />
+                  <AdminInput label="Color" value={form.selected_color} onChange={v => set('selected_color', v)} />
+                  <AdminInput label="Size" value={form.selected_size} onChange={v => set('selected_size', v)} />
+                  <AdminInput label="Shipping method" value={form.shipping_method} onChange={v => set('shipping_method', v)} />
+                </div>
               </div>
             </Section>
 
@@ -419,6 +549,16 @@ export default function AdminQuoteRequestDetail() {
                 value={form.admin_notes || ''}
                 onChange={e => set('admin_notes', e.target.value)}
                 placeholder="Internal notes — customers will never see this…"
+                rows={4}
+                className="text-sm"
+              />
+            </Section>
+
+            <Section title="Customer-Facing Notes" icon={<MessageSquare className="w-4 h-4" />} adminOnly>
+              <Textarea
+                value={form.customer_notes || ''}
+                onChange={e => set('customer_notes', e.target.value)}
+                placeholder="Notes that may be shared with the customer"
                 rows={4}
                 className="text-sm"
               />
@@ -555,6 +695,15 @@ function InfoGrid({ items }) {
           <p className="text-sm font-medium">{String(value)}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function AdminInput({ label, value, onChange }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs font-semibold">{label}</Label>
+      <Input className="h-8 text-sm" value={value || ''} onChange={e => onChange(e.target.value)} />
     </div>
   );
 }

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Loader2, Package, X, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Loader2, Package, X, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';
 

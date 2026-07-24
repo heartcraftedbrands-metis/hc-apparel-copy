@@ -1,24 +1,41 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 const APPROVED_BRANDS_NORMALIZED = [
-  'Bella + Canvas',
   'Gildan',
+  'Bella + Canvas',
   'Comfort Colors',
-  'Next Level',
-  'Independent Trading Co.',
-  'Champion',
-  'Hanes',
-  'Rabbit Skins',
   'Shaka Wear',
-  'Lane Seven',
+  'Next Level',
+  'Jerzees',
+  'Hanes',
+  'Port & Company',
+  'Sport-Tek',
+  'Rabbit Skins',
   'Adidas'
 ];
 
 const normalizeBrand = (brand) => {
   if (!brand) return '';
-  return brand.trim()
-    .replace(/BELLA\s*\+\s*CANVAS/i, 'Bella + Canvas')
-    .replace(/ADIDAS/i, 'Adidas');
+  const normalized = brand.trim().toLowerCase().replace(/\s+/g, ' ');
+  const aliases = {
+    'gildan': 'Gildan',
+    'bella + canvas': 'Bella + Canvas',
+    'bella and canvas': 'Bella + Canvas',
+    'comfort colors': 'Comfort Colors',
+    'shaka wear': 'Shaka Wear',
+    'shakawear': 'Shaka Wear',
+    'next level': 'Next Level',
+    'jerzees': 'Jerzees',
+    'hanes': 'Hanes',
+    'port & company': 'Port & Company',
+    'port and company': 'Port & Company',
+    'sport-tek': 'Sport-Tek',
+    'sport tek': 'Sport-Tek',
+    'rabbit skins': 'Rabbit Skins',
+    'rabbitskins': 'Rabbit Skins',
+    'adidas': 'Adidas',
+  };
+  return aliases[normalized] || brand.trim();
 };
 
 const isApprovedBrand = (brand) => {

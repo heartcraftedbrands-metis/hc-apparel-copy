@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,8 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Package, ImagePlus, Zap, Archive, Eye, EyeOff, Globe } from "lucide-react";
+import {
+  Archive,
+  ClipboardCheck,
+  Eye,
+  EyeOff,
+  Globe,
+  ImagePlus,
+  LockKeyhole,
+  Package,
+  Pencil,
+  Plus,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { isDigitalProduct } from "@/lib/productVisibility";
 import SSProductPlaceholder from "@/components/ss/SSProductPlaceholder";
@@ -105,6 +118,8 @@ const EMPTY_FORM = {
 };
 
 export default function AdminProducts() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -115,7 +130,9 @@ export default function AdminProducts() {
   const [sizePriceInput, setSizePriceInput] = useState({ size: '', price: '' });
   const [colorNameInput, setColorNameInput] = useState('');
   const [colorHexInput, setColorHexInput] = useState('#000000');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState(
+    FILTER_TABS.some(tab => tab.key === requestedTab) ? requestedTab : 'all'
+  );
 
   const queryClient = useQueryClient();
 
@@ -199,6 +216,14 @@ export default function AdminProducts() {
     }
     if (!formData.visibility) {
       toast.error('Product status is required');
+      return;
+    }
+    if (
+      editingProduct?.is_sample
+      && editingProduct?.vendor_source === 'S&S Activewear'
+      && formData.visibility === 'public'
+    ) {
+      toast.error('Private S&S test drafts must pass the separate approval workflow before publishing.');
       return;
     }
 
@@ -321,7 +346,10 @@ export default function AdminProducts() {
           {FILTER_TABS.map(tab => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                setSearchParams(tab.key === 'all' ? {} : { tab: tab.key });
+              }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
                 activeTab === tab.key
                   ? 'bg-primary text-primary-foreground'
@@ -336,6 +364,26 @@ export default function AdminProducts() {
             </button>
           ))}
         </div>
+
+        {activeTab === 'draft_ss' && (
+          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 font-bold text-amber-950">
+                <LockKeyhole className="h-4 w-4" />
+                Private S&amp;S pricing test
+              </h2>
+              <p className="mt-1 text-sm text-amber-900">
+                Direct publishing is locked. Review image, price, variants, inventory, and privacy checks first.
+              </p>
+            </div>
+            <Link to="/AdminSSDraftReview">
+              <Button>
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+                Run private draft QA
+              </Button>
+            </Link>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -355,6 +403,9 @@ export default function AdminProducts() {
               const vis = product.visibility || (product.is_active ? 'public' : 'hidden');
               const vc = VISIBILITY_CONFIG[vis] || VISIBILITY_CONFIG.hidden;
               const isArchived = vis === 'admin_archive';
+              const isPrivateSSTest = vis === 'draft'
+                && product.vendor_source === 'S&S Activewear'
+                && product.is_sample;
               return (
                 <div key={product.id} className={`bg-white rounded-2xl border overflow-hidden shadow-sm hover:shadow-md transition-shadow ${isArchived ? 'opacity-70' : ''}`}>
                   <div className="aspect-square bg-muted overflow-hidden relative">
@@ -387,7 +438,17 @@ export default function AdminProducts() {
                         <Pencil className="w-3 h-3" /> Edit
                       </Button>
                       {/* Quick visibility toggle */}
-                      {vis !== 'public' ? (
+                      {isPrivateSSTest ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2"
+                          title="Publishing locked until private QA is approved"
+                          disabled
+                        >
+                          <LockKeyhole className="w-3 h-3" />
+                        </Button>
+                      ) : vis !== 'public' ? (
                         <Button size="sm" className="h-7 px-2 bg-green-600 hover:bg-green-700 text-white" title="Make Public"
                           onClick={() => quickVisibility.mutate({ id: product.id, visibility: 'public' })}>
                           <Eye className="w-3 h-3" />
@@ -478,11 +539,22 @@ export default function AdminProducts() {
                   <button
                     key={val}
                     type="button"
+                    disabled={
+                      val === 'public'
+                      && editingProduct?.is_sample
+                      && editingProduct?.vendor_source === 'S&S Activewear'
+                    }
                     onClick={() => setFormData(p => ({...p, visibility: val}))}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
                       formData.visibility === val
                         ? 'border-primary bg-primary text-primary-foreground font-semibold'
                         : 'border-border bg-white hover:bg-muted'
+                    } ${
+                      val === 'public'
+                      && editingProduct?.is_sample
+                      && editingProduct?.vendor_source === 'S&S Activewear'
+                        ? 'cursor-not-allowed opacity-40'
+                        : ''
                     }`}
                   >
                     <cfg.icon className="w-4 h-4 flex-shrink-0" />

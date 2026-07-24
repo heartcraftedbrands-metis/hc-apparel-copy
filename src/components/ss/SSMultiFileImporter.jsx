@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, CheckCircle2, AlertCircle, Loader, Shield } from 'lucide-react';
+import { Upload, CheckCircle2, Loader, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,

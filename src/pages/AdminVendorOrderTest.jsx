@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertCircle, Clock, Plus } from 'lucide-react';
-import { toast } from "sonner";
 
 const TESTS = [
   { id: 'A', name: 'Vendor Order Detail Opens', description: 'Open the saved vendor order from Customer Order #c7b23626 if available' },

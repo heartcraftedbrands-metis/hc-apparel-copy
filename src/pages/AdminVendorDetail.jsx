@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Pencil, Mail, Phone, Globe, MapPin, Star, Package, Truck, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ArrowLeft, Pencil, Mail, Phone, Globe, MapPin, Star, Package, Truck, CheckCircle } from 'lucide-react';
 import { toast } from "sonner";
 import VendorFormDialog from '@/components/vendors/VendorFormDialog';
 

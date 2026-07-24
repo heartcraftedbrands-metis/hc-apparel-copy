@@ -18,8 +18,8 @@ Any change pushed to the repo will also be reflected in the Base44 Builder.
 4. Create an `.env.local` file and set the right environment variables
 
 ```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
+VITE_BASE44_APP_ID=66ffd80d8c60b4323c
+VITE_BASE44_APP_BASE_URL=https://hc-apparel.base44.app
 
 e.g.
 VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6

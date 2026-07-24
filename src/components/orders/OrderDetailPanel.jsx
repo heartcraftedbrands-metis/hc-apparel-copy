@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   X, User, Package, Truck, FileImage, ExternalLink,
-  CheckCircle2, ArrowRight, Link2, Calculator,
+  CheckCircle2, Link2, Calculator,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';

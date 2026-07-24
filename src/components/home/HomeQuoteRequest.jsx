@@ -5,6 +5,20 @@ import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { MessageSquare, Send } from 'lucide-react';
 
+const inferProductType = (garmentType) => {
+  const value = garmentType.toLowerCase();
+
+  if (value.includes('hood')) return 'hoodies';
+  if (value.includes('sweatshirt')) return 'sweatshirts';
+  if (value.includes('tank')) return 'tank_tops';
+  if (value.includes('sport') || value.includes('jersey')) return 'sportswear';
+  if (value.includes('youth') || value.includes('kid')) return 'youth_apparel';
+  if (value.includes('bulk')) return 'bulk_order';
+  if (value.includes('shirt') || value.includes('tee')) return 't_shirts';
+
+  return 'other';
+};
+
 export default function HomeQuoteRequest() {
   const [form, setForm] = useState({ customer_name: '', customer_email: '', garment_type: '', quantity: '', description: '' });
   const [loading, setLoading] = useState(false);
@@ -12,10 +26,30 @@ export default function HomeQuoteRequest() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    await base44.entities.Quote.create({ ...form, quantity: Number(form.quantity), status: 'new' });
-    toast.success('Quote request submitted! We\'ll get back to you shortly.');
-    setForm({ customer_name: '', customer_email: '', garment_type: '', quantity: '', description: '' });
-    setLoading(false);
+
+    const garmentType = form.garment_type.trim();
+    const quantity = Number(form.quantity);
+
+    try {
+      const response = await base44.functions.invoke('submitQuoteRequest', {
+        full_name: form.customer_name.trim(),
+        email: form.customer_email.trim().toLowerCase(),
+        preferred_contact: 'email',
+        product_type: inferProductType(garmentType),
+        garment_knowledge: 'need_help_choosing',
+        preferred_garment_style: garmentType,
+        project_notes: form.description.trim(),
+        ...(Number.isFinite(quantity) && quantity > 0 ? { quantity } : {}),
+      });
+      if (!response.data?.success) throw new Error('Quote request failed');
+
+      toast.success('Quote request submitted! We\'ll get back to you shortly.');
+      setForm({ customer_name: '', customer_email: '', garment_type: '', quantity: '', description: '' });
+    } catch {
+      toast.error('We couldn\'t submit your quote request. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

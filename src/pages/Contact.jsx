@@ -28,13 +28,14 @@ export default function Contact() {
     }, 15000);
 
     try {
-      await base44.entities.ContactMessage.create({
+      const response = await base44.functions.invoke('submitContactMessage', {
         name: formData.name,
         email: formData.email,
         subject: formData.subject,
         message: formData.message,
-        status: 'new',
       });
+      if (!response.data?.success) throw new Error('Contact message failed');
+
       if (!timedOut) {
         setSubmitted(true);
         setFormData(INITIAL_FORM);

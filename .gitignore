@@ -1,6 +1,7 @@
 #env
 .env
 .env.*
+!.env.example
 
 # Logs
 logs
@@ -29,3 +30,13 @@ dist-ssr
 
 .env
 base44/.app.jsonc
+
+# Local migration exports contain customer/order data and must never be committed.
+supabase/.private/
+
+# Local validation and generated working files.
+.tmp/
+outputs/
+error.txt
+__pycache__/
+*.pyc

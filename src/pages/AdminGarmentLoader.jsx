@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Package, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Package, AlertTriangle } from 'lucide-react';
 import GarmentImportUploader from '@/components/catalog/GarmentImportUploader';
 import DraftProductBuilder from '@/components/catalog/DraftProductBuilder';
 import ProductQARunner from '@/components/catalog/ProductQARunner';

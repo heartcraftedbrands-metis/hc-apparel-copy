@@ -273,7 +273,8 @@
     "read": {
       "$or": [
         {
-          "data.visibility": "public"
+          "data.visibility": "public",
+          "data.is_active": true
         },
         {
           "user_condition": {

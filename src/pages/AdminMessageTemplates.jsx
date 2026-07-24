@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Copy, CheckCircle, Mail, Eye } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
 
 const TRACK_URL = 'https://ilovehcapparel.net/TrackOrder';
 const TRACK_INSTRUCTION = '(Enter your order number and email address to view your status.)';

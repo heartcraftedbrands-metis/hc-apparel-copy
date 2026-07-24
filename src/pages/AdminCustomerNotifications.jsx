@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, Eye, EyeOff } from 'lucide-react';
+import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Table,

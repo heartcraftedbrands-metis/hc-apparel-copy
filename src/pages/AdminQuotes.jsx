@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 // QuoteDetailPanel renders as a full-screen slide-in panel (not a Dialog)
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MessageSquare, Plus, Pencil, Eye, Loader2, Calculator } from 'lucide-react';
+import { MessageSquare, Plus, Pencil, Eye, Calculator } from 'lucide-react';
 import { toast } from "sonner";
 import { format } from "date-fns";
 import MarginBadge from '@/components/profit/MarginBadge';

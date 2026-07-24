@@ -14,17 +14,17 @@ Deno.serve(async (req) => {
     const processAllRemaining = body.processAllRemaining || false;
 
     const APPROVED_BRANDS = [
-      'Bella + Canvas',
       'Gildan',
+      'Bella + Canvas',
       'Comfort Colors',
-      'Next Level',
-      'Independent Trading Co.',
-      'Champion',
-      'Hanes',
-      'Rabbit Skins',
       'Shaka Wear',
-      'Lane Seven',
-      'adidas'
+      'Next Level',
+      'Jerzees',
+      'Hanes',
+      'Port & Company',
+      'Sport-Tek',
+      'Rabbit Skins',
+      'Adidas'
     ];
 
     const report = {

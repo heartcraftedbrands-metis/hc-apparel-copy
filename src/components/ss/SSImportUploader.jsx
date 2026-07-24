@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
-import { Upload, FileSpreadsheet, CheckCircle, X, Loader2, Package } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, X, Loader2 } from 'lucide-react';
 import { toast } from "sonner";
 
 // Flexible header → field mapping. Add more aliases as needed for S&S column name variations.

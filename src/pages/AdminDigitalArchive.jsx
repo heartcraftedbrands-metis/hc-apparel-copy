@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Archive, Eye, Globe, Pencil, Search } from 'lucide-react';
+import { Archive, Globe, Pencil, Search } from 'lucide-react';
 import { toast } from "sonner";
 import { Link } from 'react-router-dom';
 import { isDigitalProduct } from "@/lib/productVisibility";

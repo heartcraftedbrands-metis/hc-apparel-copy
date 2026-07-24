@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { CheckCircle2, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';

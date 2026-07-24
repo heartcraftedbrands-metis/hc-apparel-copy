@@ -148,25 +148,15 @@ export default function TrackOrder() {
     setOrder(null);
 
     try {
-      // Filter by email first, then match order number locally
       const emailNorm = email.toLowerCase().trim();
       const numNorm = orderNum.trim().replace(/^#/, '').toLowerCase();
-
-      const results = await base44.entities.Order.filter({ customer_email: emailNorm });
-
-      const found = results.find(o =>
-        o.id.slice(-8).toLowerCase() === numNorm ||
-        o.id.toLowerCase().includes(numNorm)
-      );
+      const response = await base44.functions.invoke('trackOrder', {
+        order_number: numNorm,
+        email: emailNorm,
+      });
+      const found = response.data;
 
       if (!found) {
-        setError('not_found');
-        setSearched(true);
-        return;
-      }
-
-      // Security: double-check email matches (should always be true due to filter, but be explicit)
-      if (found.customer_email?.toLowerCase() !== emailNorm) {
         setError('not_found');
         setSearched(true);
         return;

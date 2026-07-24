@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Printer, ChevronLeft, Save, Package, Truck, DollarSign, CheckCircle2, 
-  AlertCircle, Clock, MapPin, Phone, Mail, FileText, Download
+  AlertCircle, MapPin, FileText
 } from 'lucide-react';
 import { toast } from "sonner";
 import MarginBadge from '@/components/profit/MarginBadge';

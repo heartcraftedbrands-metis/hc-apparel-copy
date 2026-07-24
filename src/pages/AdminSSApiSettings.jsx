@@ -1,18 +1,119 @@
-import React, { useState } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, ArrowLeft, Wifi, WifiOff, Info } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Database,
+  Info,
+  Loader2,
+  PauseCircle,
+  Settings2,
+  ShieldCheck,
+  Wifi,
+  WifiOff,
+} from 'lucide-react';
+import { supabase } from '@/api/supabaseClient';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 export default function AdminSSApiSettings() {
-  const [form, setForm] = useState({ account_number: '', api_key: '' });
+  const [workflowStatus, setWorkflowStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [connection, setConnection] = useState(null);
+  const [error, setError] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [staging, setStaging] = useState(false);
+  const [stagedResult, setStagedResult] = useState(null);
+  const [stagingError, setStagingError] = useState('');
 
-  const handleTestConnection = () => {
+  useEffect(() => {
+    let active = true;
+
+    const loadWorkflowStatus = async () => {
+      const { data } = await supabase
+        .from('ss_catalog_workflow_status')
+        .select('product_loading_paused,pause_message,api_read_checks_enabled')
+        .eq('id', true)
+        .maybeSingle();
+
+      if (active) setWorkflowStatus(data || null);
+    };
+
+    loadWorkflowStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const invokeMessage = async (invokeError, fallback) => {
+    let message = invokeError?.message || fallback;
+    try {
+      const details = await invokeError?.context?.json();
+      if (details?.error) message = details.error;
+    } catch {
+      // The generic invocation error is still safe to display.
+    }
+    return message;
+  };
+
+  const handleTestConnection = async () => {
     setTesting(true);
-    setTimeout(() => { setTesting(false); }, 1500);
+    setConnection(null);
+    setError('');
+
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'test_connection' },
+    });
+
+    if (invokeError) {
+      setError(await invokeMessage(invokeError, 'Connection test failed.'));
+    } else if (!data?.connected) {
+      setError(data?.error || 'S&S did not confirm the connection.');
+    } else {
+      setConnection(data);
+    }
+
+    setTesting(false);
+  };
+
+  const handlePreview = async () => {
+    setPreviewLoading(true);
+    setPreview(null);
+    setPreviewError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'preview_catalog' },
+    });
+
+    if (invokeError) {
+      setPreviewError(await invokeMessage(invokeError, 'Catalog preview failed.'));
+    } else if (!data?.preview) {
+      setPreviewError(data?.error || 'S&S did not return a catalog preview.');
+    } else {
+      setPreview(data);
+    }
+    setPreviewLoading(false);
+  };
+
+  const handleStageStyles = async () => {
+    if (!window.confirm('Stage these S&S styles for private admin review? No storefront products will be changed.')) return;
+    setStaging(true);
+    setStagedResult(null);
+    setStagingError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'stage_styles' },
+    });
+
+    if (invokeError) {
+      setStagingError(await invokeMessage(invokeError, 'Staging import failed.'));
+    } else if (!data?.staged) {
+      setStagingError(data?.error || 'S&S did not complete the staging import.');
+    } else {
+      setStagedResult(data);
+    }
+    setStaging(false);
   };
 
   return (
@@ -27,101 +128,141 @@ export default function AdminSSApiSettings() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <Settings2 className="w-5 h-5 text-accent" />
-              S&S Activewear API Settings
+              S&amp;S Activewear API
             </h1>
-            <p className="text-primary-foreground/70 text-sm">Phase 2 — API connection placeholder</p>
+            <p className="text-primary-foreground/70 text-sm">Secure vendor connection</p>
           </div>
         </div>
       </div>
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
-        {/* Phase 2 banner */}
+        {workflowStatus?.product_loading_paused && (
+          <div className="mb-6 flex gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+            <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div>
+              <p className="font-semibold">
+                {workflowStatus.pause_message || 'Product loading is paused. Current catalog is stable.'}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Connection tests, catalog previews, and private pricing/inventory data refreshes remain available.
+                New product batches cannot be created.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="bg-accent/10 border border-accent/30 rounded-2xl p-5 mb-6 flex gap-3">
-          <Info className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+          <ShieldCheck className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-sm">Phase 2 — Coming Soon</p>
+            <p className="font-semibold text-sm">Credentials protected</p>
             <p className="text-sm text-muted-foreground mt-1">
-              This page is a placeholder for the upcoming S&S Activewear live API integration.
-              When Phase 2 is ready, you'll be able to sync your catalog automatically using your account credentials.
-              For now, use the <Link to="/AdminSSCatalog" className="text-primary underline">CSV / Excel import</Link> to add products.
+              Your account number and API key are encrypted as Supabase Edge Function secrets.
+              They are never sent to this browser or stored in the product database.
             </p>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-lg">API Credentials</h2>
-            <Badge className="bg-gray-100 text-gray-600 flex items-center gap-1">
-              <WifiOff className="w-3 h-3" /> Not Connected
-            </Badge>
-          </div>
-
-          <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <Label htmlFor="acct">S&S Account Number</Label>
-              <Input
-                id="acct"
-                placeholder="Your S&S Activewear account number"
-                value={form.account_number}
-                onChange={e => setForm(f => ({ ...f, account_number: e.target.value }))}
-                disabled
-              />
+              <h2 className="font-bold text-lg">Connection status</h2>
+              <p className="text-sm text-muted-foreground">Runs a read-only request against the S&amp;S Brands endpoint.</p>
             </div>
-            <div>
-              <Label htmlFor="apikey">S&S API Key</Label>
-              <Input
-                id="apikey"
-                type="password"
-                placeholder="Your S&S API key"
-                value={form.api_key}
-                onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))}
-                disabled
-              />
-              <p className="text-xs text-muted-foreground mt-1">Your credentials are never stored until Phase 2 is live.</p>
-            </div>
+            {connection ? (
+              <Badge className="bg-green-100 text-green-800 flex items-center gap-1">
+                <Wifi className="w-3 h-3" /> Connected
+              </Badge>
+            ) : (
+              <Badge className="bg-gray-100 text-gray-600 flex items-center gap-1">
+                <WifiOff className="w-3 h-3" /> Not tested
+              </Badge>
+            )}
           </div>
 
-          <div className="border-t pt-5 space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <p className="text-sm font-medium">Connection Status</p>
-                <p className="text-xs text-muted-foreground">Last checked: Never</p>
-              </div>
-              <Badge className="bg-gray-100 text-gray-500">Offline</Badge>
-            </div>
-            <Button
-              variant="outline"
-              className="gap-2 w-full"
-              onClick={handleTestConnection}
-              disabled={testing}
-            >
-              <Wifi className="w-4 h-4" />
-              {testing ? 'Testing…' : 'Test Connection (Coming Soon)'}
-            </Button>
-          </div>
+          {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
-          <div className="border-t pt-5">
-            <Button className="w-full bg-primary text-primary-foreground" disabled>
-              Save Settings (Coming Soon)
-            </Button>
-          </div>
+          {connection && (
+            <Alert>
+              <CheckCircle2 className="w-4 h-4" />
+              <AlertDescription>
+                Connected to {connection.endpoint}.
+                {Number.isInteger(connection.brands_available) && ` ${connection.brands_available} brands are available.`}
+                {connection.rate_limit_remaining && ` ${connection.rate_limit_remaining} API requests remain in the current window.`}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <Button className="w-full gap-2" onClick={handleTestConnection} disabled={testing}>
+            {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+            {testing ? 'Testing connection...' : 'Test S&S connection'}
+          </Button>
         </div>
 
         <div className="mt-6 bg-white rounded-2xl border shadow-sm p-6">
-          <h3 className="font-bold mb-3">What Phase 2 Will Include</h3>
-          <ul className="space-y-2 text-sm text-muted-foreground">
-            {[
-              'Live catalog sync from your S&S account',
-              'Automatic inventory and price updates',
-              'Order placement directly to S&S from vendor orders',
-              'Dropship fulfillment routing',
-              'Automatic product availability updates',
-            ].map((item, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="text-accent font-bold mt-0.5">→</span> {item}
-              </li>
-            ))}
-          </ul>
+          <div className="flex gap-3">
+            <Info className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-bold">Next integration stage</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Preview approved-brand data and refresh private pricing or inventory checks.
+                Product loading remains paused and no storefront products are changed here.
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" className="w-full mt-5 gap-2" onClick={handlePreview} disabled={previewLoading}>
+            {previewLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Info className="w-4 h-4" />}
+            {previewLoading ? 'Loading approved brands...' : 'Preview approved-brand catalog'}
+          </Button>
+          {previewError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{previewError}</AlertDescription>
+            </Alert>
+          )}
+          {preview && (
+            <div className="mt-5 space-y-4">
+              <Alert>
+                <CheckCircle2 className="w-4 h-4" />
+                <AlertDescription>
+                  Found {preview.matching_styles} styles across {preview.approved_brands} approved brands.
+                  No catalog records were changed.
+                </AlertDescription>
+              </Alert>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {preview.brand_counts.map(({ brand, styles }) => (
+                  <div key={brand} className="flex justify-between rounded-lg border px-3 py-2 text-sm">
+                    <span>{brand}</span>
+                    <span className="font-semibold">{styles}</span>
+                  </div>
+                ))}
+              </div>
+              {preview.unresolved_brands?.length > 0 && (
+                <p className="text-xs text-amber-700">
+                  No exact S&amp;S brand match: {preview.unresolved_brands.join(', ')}
+                </p>
+              )}
+              {preview.unresolved_brands?.length === 0 && !stagedResult && (
+                <Button className="w-full gap-2" onClick={handleStageStyles} disabled={staging}>
+                  {staging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                  {staging ? 'Refreshing private data...' : `Refresh ${preview.matching_styles} styles for data checks`}
+                </Button>
+              )}
+              {stagingError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{stagingError}</AlertDescription>
+                </Alert>
+              )}
+              {stagedResult && (
+                <Alert>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <AlertDescription>
+                    {stagedResult.staged_styles} styles are in private staging.
+                    {stagedResult.reused ? ' The existing pending session was reused.' : ' No storefront records were changed.'}
+                    {' '}<Link to="/AdminSSStagedImport" className="font-semibold underline">Review staging</Link>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

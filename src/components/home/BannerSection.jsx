@@ -7,7 +7,7 @@ export default function BannerSection() {
   return (
     <div className="relative w-full h-[500px] md:h-[600px] overflow-hidden">
       <img
-        src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/69889c36f99d1de4b17edfa4/bae687835_image_1.png"
+        src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/9ee5d4168d8ca162_bae687835_image_1.png"
         alt="HC Apparel Banner"
         className="w-full h-full object-cover object-top"
       />

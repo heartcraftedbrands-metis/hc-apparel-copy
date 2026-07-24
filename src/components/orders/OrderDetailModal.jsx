@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { AlertCircle, X, Package, MapPin, Truck } from 'lucide-react';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+
 
 const ORDER_STATUSES = [
   { value: 'awaiting_payment', label: 'Pending Payment' },

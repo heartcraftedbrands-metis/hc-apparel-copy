@@ -1,9 +1,9 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 const APPROVED_BRANDS = [
-  'bella + canvas', 'gildan', 'comfort colors', 'next level',
-  'independent trading co.', 'independent trading co', 'champion',
-  'hanes', 'rabbit skins', 'shaka wear', 'lane seven', 'adidas',
+  'gildan', 'bella + canvas', 'comfort colors', 'shaka wear',
+  'next level', 'jerzees', 'hanes', 'port & company', 'port and company',
+  'sport-tek', 'sport tek', 'rabbit skins', 'adidas',
 ];
 
 function normalizeBrand(raw) {
@@ -13,13 +13,13 @@ function normalizeBrand(raw) {
   if (lower === 'gildan') return 'Gildan';
   if (lower.includes('comfort color')) return 'Comfort Colors';
   if (lower.includes('next level')) return 'Next Level';
-  if (lower.includes('independent trading')) return 'Independent Trading Co.';
-  if (lower === 'champion') return 'Champion';
+  if (lower === 'jerzees') return 'Jerzees';
   if (lower === 'hanes') return 'Hanes';
+  if (lower === 'port & company' || lower === 'port and company') return 'Port & Company';
+  if (lower === 'sport-tek' || lower === 'sport tek') return 'Sport-Tek';
   if (lower.includes('rabbit skins') || lower.includes('rabbitskins')) return 'Rabbit Skins';
   if (lower.includes('shaka wear') || lower === 'shakawear') return 'Shaka Wear';
-  if (lower.includes('lane seven')) return 'Lane Seven';
-  if (lower === 'adidas') return 'adidas';
+  if (lower === 'adidas') return 'Adidas';
   return null;
 }
 

@@ -1,0 +1,149 @@
+{
+  "source_zip": "ilovehcapparel.net_backup.zip",
+  "generated_at": "2026-07-22",
+  "contains_pii": true,
+  "committed_to_git": false,
+  "tables": [
+    {
+      "entity": "Cart",
+      "table": "carts",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "ContactMessage",
+      "table": "contact_messages",
+      "rows": 4,
+      "state": "prepared"
+    },
+    {
+      "entity": "CustomerNotification",
+      "table": "customer_notifications",
+      "rows": 2,
+      "state": "prepared"
+    },
+    {
+      "entity": "GarmentCatalog",
+      "table": "garment_catalog_items",
+      "rows": 625,
+      "state": "prepared"
+    },
+    {
+      "entity": "ImportBatch",
+      "table": "import_batches",
+      "rows": 25,
+      "state": "prepared"
+    },
+    {
+      "entity": "NewsletterSubscriber",
+      "table": "newsletter_subscribers",
+      "rows": 0,
+      "state": "empty"
+    },
+    {
+      "entity": "Order",
+      "table": "orders",
+      "rows": 19,
+      "state": "prepared"
+    },
+    {
+      "entity": "OrderStatusHistory",
+      "table": "order_status_history",
+      "rows": 0,
+      "state": "empty"
+    },
+    {
+      "entity": "PaymentFeeSettings",
+      "table": "payment_fee_settings",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "PaymentSettings",
+      "table": "payment_settings",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "Product",
+      "table": "products",
+      "rows": 140,
+      "state": "prepared"
+    },
+    {
+      "entity": "Quote",
+      "table": "quotes",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "QuoteRequest",
+      "table": "quote_requests",
+      "rows": 6,
+      "state": "prepared"
+    },
+    {
+      "entity": "Review",
+      "table": "reviews",
+      "rows": 2,
+      "state": "prepared"
+    },
+    {
+      "entity": "SSCatalogItem",
+      "table": "ss_catalog_items",
+      "rows": 17858,
+      "state": "prepared"
+    },
+    {
+      "entity": "SSImportStaging",
+      "table": "ss_import_staging",
+      "rows": 15520,
+      "state": "prepared"
+    },
+    {
+      "entity": "SSPricingRules",
+      "table": "ss_pricing_rules",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "Vendor",
+      "table": "vendors",
+      "rows": 4,
+      "state": "prepared"
+    },
+    {
+      "entity": "VendorOrder",
+      "table": "vendor_orders",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "VendorOrderDraft",
+      "table": "vendor_order_drafts",
+      "rows": 1,
+      "state": "prepared"
+    },
+    {
+      "entity": "VendorPricing",
+      "table": "vendor_pricing",
+      "rows": 2,
+      "state": "prepared"
+    },
+    {
+      "entity": "Wishlist",
+      "table": "wishlists",
+      "rows": 0,
+      "state": "empty"
+    }
+  ],
+  "excluded_from_initial_import": [
+    "ss_import_staging",
+    "import_batches"
+  ],
+  "notes": [
+    "Base44 auth users cannot be exported; owner_user_id remains null until account reconciliation.",
+    "legacy_created_by_id and created_by_email preserve source ownership metadata.",
+    "SS import staging and import batch history are retained locally but excluded from the initial production import."
+  ]
+}
