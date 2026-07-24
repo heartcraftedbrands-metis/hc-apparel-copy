@@ -14,6 +14,7 @@ import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
 import ProductionPacket from '@/components/orders/ProductionPacket';
 import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
+import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { format } from 'date-fns';
 
 const STATUS_MAP = {
@@ -751,6 +752,14 @@ export default function AdminVendorOrderDraftDetail() {
         />
 
         <ProductionPacket order={customerOrder || {}} vendorDraft={draft} />
+
+        <ZeroTouchPrepPanel
+          draft={draft}
+          customerOrder={customerOrder}
+          onUpdated={async () => {
+            await Promise.all([refetchDraft(), refetchCustomerOrder()]);
+          }}
+        />
 
         {customerOrder && (
           <CustomerNotificationsSection orderId={customerOrder.id} order={customerOrder} />

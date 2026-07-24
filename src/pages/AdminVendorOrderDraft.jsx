@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
+import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 const emptyItem = () => ({
@@ -71,10 +72,16 @@ export default function AdminVendorOrderDraft() {
   const [form, setForm] = useState(null);
   const [testResult, setTestResult] = useState(null);
 
-  const { data: draft, isLoading } = useQuery({
+  const { data: draft, isLoading, refetch: refetchDraft } = useQuery({
     queryKey: ['ss-vendor-order-draft', id],
     queryFn: () => base44.entities.VendorOrderDraft.get(id),
     enabled: Boolean(id),
+  });
+
+  const { data: customerOrder } = useQuery({
+    queryKey: ['zerotouch-customer-order', draft?.customer_order_id],
+    queryFn: () => base44.entities.Order.get(draft.customer_order_id),
+    enabled: Boolean(draft?.customer_order_id),
   });
 
   useEffect(() => {
@@ -328,6 +335,16 @@ export default function AdminVendorOrderDraft() {
             <Textarea rows={5} value={form.customer_notes || ''} onChange={(event) => setField('customer_notes', event.target.value)} />
           </div>
         </section>
+
+        <ZeroTouchPrepPanel
+          draft={form}
+          customerOrder={customerOrder}
+          onUpdated={async (saved) => {
+            if (saved) setForm((current) => ({ ...current, ...saved }));
+            await refetchDraft();
+            refresh();
+          }}
+        />
 
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <h2 className="font-bold">Safe order controls</h2>
