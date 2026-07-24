@@ -9,6 +9,7 @@ const ENTITY_CONFIG = {
   NewsletterSubscriber: { table: 'newsletter_subscribers' },
   Order: { table: 'orders', customerView: 'customer_orders' },
   OrderStatusHistory: { table: 'order_status_history' },
+  ProductionStatusHistory: { table: 'production_status_history' },
   PaymentFeeSettings: { table: 'payment_fee_settings' },
   PaymentSettings: { table: 'payment_settings' },
   Product: { table: 'products', publicView: 'storefront_products' },

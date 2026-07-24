@@ -11,6 +11,9 @@ import {
   Truck, Loader2, Wrench, Mail
 } from 'lucide-react';
 import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
+import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
+import ProductionPacket from '@/components/orders/ProductionPacket';
+import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 import { format } from 'date-fns';
 
 const STATUS_MAP = {
@@ -89,10 +92,16 @@ export default function AdminVendorOrderDraftDetail() {
   const [orderedConfirmation, setOrderedConfirmation] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState(null);
 
-  const { data: draft, isLoading } = useQuery({
+  const { data: draft, isLoading, refetch: refetchDraft } = useQuery({
     queryKey: ['vendor_order_draft', draftId],
     queryFn: () => base44.entities.VendorOrderDraft.get(draftId),
     enabled: !!draftId,
+  });
+
+  const { data: customerOrder, refetch: refetchCustomerOrder } = useQuery({
+    queryKey: ['vendor-draft-customer-order', draft?.customer_order_id],
+    queryFn: () => base44.entities.Order.get(draft.customer_order_id),
+    enabled: !!draft?.customer_order_id,
   });
 
   // Initialize form fields once draft loads
@@ -731,6 +740,21 @@ export default function AdminVendorOrderDraftDetail() {
             ))}
           </div>
         </div>
+
+        <ProductionWorkflowPanel
+          order={customerOrder}
+          vendorDraft={draft}
+          onUpdated={async () => {
+            await Promise.all([refetchDraft(), refetchCustomerOrder()]);
+            qc.invalidateQueries({ queryKey: ['customer-notifications', customerOrder?.id] });
+          }}
+        />
+
+        <ProductionPacket order={customerOrder || {}} vendorDraft={draft} />
+
+        {customerOrder && (
+          <CustomerNotificationsSection orderId={customerOrder.id} order={customerOrder} />
+        )}
 
         {/* Generate Message */}
         <div className="bg-white border border-border rounded-2xl p-5 space-y-3">

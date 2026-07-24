@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import { toast } from "sonner";
 import MarginBadge from '@/components/profit/MarginBadge';
+import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
+import ProductionPacket from '@/components/orders/ProductionPacket';
+import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 
 const updateCustomerOrderTracking = async (customerOrderId, trackingData) => {
   if (!customerOrderId) return;
@@ -56,12 +59,12 @@ export default function AdminVendorOrderDetail() {
   const [form, setForm] = useState({});
   const [checklist, setChecklist] = useState({});
 
-  const { data: vendorOrder, isLoading } = useQuery({
+  const { data: vendorOrder, isLoading, refetch: refetchVendorOrder } = useQuery({
     queryKey: ['vendor-order-detail', vendorOrderId],
     queryFn: () => vendorOrderId ? base44.entities.VendorOrder.get(vendorOrderId) : null,
   });
 
-  const { data: customerOrder } = useQuery({
+  const { data: customerOrder, refetch: refetchCustomerOrder } = useQuery({
     queryKey: ['customer-order-ref', vendorOrder?.customer_order_id],
     queryFn: () => vendorOrder?.customer_order_id ? base44.entities.Order.get(vendorOrder.customer_order_id) : null,
   });
@@ -223,6 +226,21 @@ export default function AdminVendorOrderDetail() {
                 <Button size="sm" variant={form.status === 'delivered' ? 'default' : 'outline'} onClick={() => handleStatusChange('delivered')}>Mark Delivered</Button>
               </div>
             </div>
+
+            <ProductionWorkflowPanel
+              order={customerOrder}
+              vendorOrder={vendorOrder}
+              onUpdated={async () => {
+                await Promise.all([refetchVendorOrder(), refetchCustomerOrder()]);
+                qc.invalidateQueries({ queryKey: ['customer-notifications', customerOrder?.id] });
+              }}
+            />
+
+            <ProductionPacket order={customerOrder || {}} vendorOrder={vendorOrder} />
+
+            {customerOrder && (
+              <CustomerNotificationsSection orderId={customerOrder.id} order={customerOrder} />
+            )}
 
             {/* Customer Shipping Address */}
             <div className="bg-white rounded-2xl border p-6">

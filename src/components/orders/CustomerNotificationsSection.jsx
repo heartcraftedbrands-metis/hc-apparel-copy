@@ -1,318 +1,216 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Mail, Copy, Trash2, CheckCircle, Clock, AlertCircle, Plus, Eye, EyeOff } from 'lucide-react';
+import { Copy, Eye, Mail, Plus, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import {
+  buildMailtoUrl,
+  buildNotificationTemplate,
+  NOTIFICATION_TEMPLATE_LABELS,
+  SUPPORT_EMAIL,
+} from '@/lib/productionWorkflow';
 
-const NOTIFICATION_TYPES = {
-  order_received: 'Order Received',
-  awaiting_payment: 'Awaiting Payment',
-  payment_confirmed: 'Payment Confirmed',
-  preparing_order: 'Preparing Order',
-  sent_to_production: 'Sent to Production',
-  in_production: 'In Production',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-  completed: 'Completed',
-  custom_update: 'Custom Update',
-};
+const CUSTOM_UPDATE = 'custom_update';
 
-const SENT_STATUS_CONFIG = {
-  draft: { label: 'Draft', icon: Clock, color: 'text-slate-600' },
-  ready_to_send: { label: 'Ready', icon: Mail, color: 'text-blue-600' },
-  sent: { label: 'Sent', icon: CheckCircle, color: 'text-green-600' },
-  failed: { label: 'Failed', icon: AlertCircle, color: 'text-red-600' },
+const draftFromTemplate = (templateKey, order) => {
+  if (templateKey === CUSTOM_UPDATE) {
+    return {
+      notification_type: CUSTOM_UPDATE,
+      subject: '',
+      customer_message: '',
+      related_status: CUSTOM_UPDATE,
+      label: 'Custom update',
+    };
+  }
+  return buildNotificationTemplate(templateKey, order);
 };
 
 export default function CustomerNotificationsSection({ orderId, order }) {
-  const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ notification_type: 'custom_update' });
+  const [templateKey, setTemplateKey] = useState('order_received_payment_confirmed');
+  const [formData, setFormData] = useState(() => draftFromTemplate('order_received_payment_confirmed', order));
   const [copiedId, setCopiedId] = useState(null);
 
   const { data: notifications = [], isLoading, refetch } = useQuery({
     queryKey: ['customer-notifications', orderId],
-    queryFn: async () => {
-      const result = await base44.entities.CustomerNotification.filter(
-        { order_id: orderId },
-        '-created_date',
-        100
-      );
-      return result;
-    },
+    queryFn: () => base44.entities.CustomerNotification.filter(
+      { order_id: orderId },
+      '-created_date',
+      100,
+    ),
     enabled: !!orderId,
   });
 
-  const handleCreateNotification = async () => {
-    if (!formData.subject || !formData.customer_message) {
-      alert('Please fill in subject and message');
+  const customerEmail = order?.customer_email || '';
+  const previewFields = useMemo(() => {
+    const items = Array.isArray(order?.order_items) ? order.order_items : [];
+    return {
+      customer: order?.customer_name || '—',
+      order: order?.id ? `#${order.id.slice(-8).toUpperCase()}` : '—',
+      product: items[0]?.product_name || items[0]?.name || order?.garment_type || '—',
+      quantity: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || order?.quantity || '—',
+      status: order?.production_status?.replaceAll('_', ' ') || 'order received',
+      tracking: order?.tracking_number || '—',
+      carrier: order?.tracking_carrier || '—',
+    };
+  }, [order]);
+
+  const chooseTemplate = (value) => {
+    setTemplateKey(value);
+    setFormData(draftFromTemplate(value, order));
+  };
+
+  const handleCreateDraft = async () => {
+    if (!formData.subject?.trim() || !formData.customer_message?.trim()) {
+      toast.error('Add a subject and preview message first.');
       return;
     }
-
     try {
       await base44.entities.CustomerNotification.create({
         order_id: orderId,
         order_number: order.id,
         customer_name: order.customer_name,
-        customer_email: order.customer_email,
+        customer_email: customerEmail,
         notification_type: formData.notification_type,
-        subject: formData.subject,
-        customer_message: formData.customer_message,
-        related_status: formData.notification_type,
+        subject: formData.subject.trim(),
+        customer_message: formData.customer_message.trim(),
+        related_status: formData.related_status || templateKey,
         sent_status: 'draft',
-        customer_visible: formData.customer_visible !== false,
-        admin_note: formData.admin_note || '',
+        customer_visible: true,
+        admin_note: 'Draft only. No automatic email was sent.',
         auto_generated: false,
+        trigger_event: `admin_template:${templateKey}`,
       });
-
-      toast.success('Notification created');
-      setFormData({ notification_type: 'custom_update' });
+      toast.success('Customer notification saved as a draft. Nothing was sent.');
       setShowForm(false);
-      refetch();
+      await refetch();
     } catch (error) {
-      toast.error('Failed: ' + error.message);
+      toast.error(`Draft was not saved: ${error.message}`);
     }
   };
 
-  const handleCopyMessage = (notification) => {
-    navigator.clipboard.writeText(
-      `${notification.subject}\n\n${notification.customer_message}`
-    );
-    setCopiedId(notification.id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyMessage = async (notification) => {
+    await navigator.clipboard.writeText(`${notification.subject}\n\n${notification.customer_message}`);
+    setCopiedId(notification.id || 'preview');
+    window.setTimeout(() => setCopiedId(null), 2000);
+    toast.success('Email subject and message copied.');
   };
 
-  const handleMarkSent = async (notification) => {
-    try {
-      await base44.entities.CustomerNotification.update(notification.id, {
-        sent_status: 'sent',
-        sent_date: new Date().toISOString(),
-      });
-      refetch();
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  const handleDelete = async (notificationId) => {
-    if (window.confirm('Delete this notification?')) {
-      try {
-        await base44.entities.CustomerNotification.delete(notificationId);
-        refetch();
-      } catch (error) {
-        console.error('Error:', error);
-      }
-    }
+  const deleteDraft = async (notificationId) => {
+    if (!window.confirm('Delete this notification draft?')) return;
+    await base44.entities.CustomerNotification.delete(notificationId);
+    await refetch();
   };
 
   return (
-    <div className="rounded-2xl p-5 border border-primary/20 bg-primary/[0.03] space-y-4">
-      <div className="flex items-center gap-2 mb-4">
+    <section className="rounded-2xl p-5 border border-primary/20 bg-primary/[0.03] space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
         <Mail className="w-4 h-4 text-primary" />
-        <p className="text-sm font-bold">Customer Notifications</p>
-        <span className="ml-auto text-xs bg-primary/10 text-primary font-semibold px-2 py-0.5 rounded-full">
-          Admin Only
-        </span>
+        <h2 className="text-sm font-bold">Customer Notification Drafts</h2>
+        <span className="ml-auto text-xs bg-primary/10 text-primary font-semibold px-2 py-0.5 rounded-full">Admin Only</span>
       </div>
 
-      {/* Notification List */}
+      <div className="rounded-lg border bg-white px-3 py-2 text-xs">
+        <p><strong>Customer email:</strong> <a className="text-primary underline" href={`mailto:${customerEmail}`}>{customerEmail || 'Not available'}</a></p>
+        <p className="text-muted-foreground mt-1">Email sending is not configured here. Drafts are never sent automatically.</p>
+      </div>
+
       {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <p className="text-sm text-muted-foreground">Loading drafts…</p>
       ) : notifications.length === 0 ? (
-        <div className="text-center py-4 text-muted-foreground text-sm">
-          No notifications created yet
-        </div>
+        <p className="text-sm text-muted-foreground">No customer notification drafts yet.</p>
       ) : (
         <div className="space-y-3">
-          {notifications.map((notification) => {
-            const StatusIcon = SENT_STATUS_CONFIG[notification.sent_status]?.icon || Clock;
-            const statusConfig = SENT_STATUS_CONFIG[notification.sent_status];
-
-            return (
-              <div key={notification.id} className="border rounded-lg p-3 bg-white space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-sm">{notification.subject}</p>
-                      <Badge variant="outline" className="text-xs">
-                        {NOTIFICATION_TYPES[notification.notification_type] || 'Custom'}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {notification.customer_message}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <StatusIcon className={`w-4 h-4 ${statusConfig?.color}`} />
-                    <span className="text-xs font-medium">{statusConfig?.label}</span>
-                  </div>
+          {notifications.map((notification) => (
+            <article key={notification.id} className="border rounded-lg p-3 bg-white space-y-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{notification.subject}</p>
+                  <p className="text-xs text-muted-foreground">{notification.customer_email}</p>
                 </div>
-
-                <div className="flex items-center justify-between pt-2 border-t flex-wrap gap-2">
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    {notification.customer_visible ? (
-                      <>
-                        <Eye className="w-3 h-3" />
-                        <span>Customer visible</span>
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="w-3 h-3" />
-                        <span>Admin only</span>
-                      </>
-                    )}
-                    · {format(new Date(notification.created_date), 'MMM d h:mm a')}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 gap-1 text-xs"
-                      onClick={() => handleCopyMessage(notification)}
-                      title="Copy message"
-                    >
-                      {copiedId === notification.id ? '✓' : <Copy className="w-3 h-3" />}
-                    </Button>
-                    {notification.sent_status === 'draft' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 gap-1 text-xs"
-                        onClick={() => handleMarkSent(notification)}
-                      >
-                        Mark Sent
-                      </Button>
-                    )}
-                    {notification.sent_status === 'draft' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDelete(notification.id)}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                <Badge variant="outline">{notification.sent_status === 'draft' ? 'Draft — not sent' : notification.sent_status}</Badge>
               </div>
-            );
-          })}
+              <p className="text-xs whitespace-pre-wrap rounded-md bg-muted/30 p-2">{notification.customer_message}</p>
+              <div className="flex flex-wrap gap-2 items-center">
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => copyMessage(notification)}>
+                  <Copy className="w-3.5 h-3.5" />{copiedId === notification.id ? 'Copied' : 'Copy to Email'}
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" asChild>
+                  <a href={buildMailtoUrl(notification.customer_email, notification.subject, notification.customer_message)}>
+                    <Mail className="w-3.5 h-3.5" />Open Email Draft
+                  </a>
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 text-destructive" onClick={() => deleteDraft(notification.id)}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  <Eye className="w-3 h-3 inline mr-1" />{format(new Date(notification.created_date), 'MMM d, yyyy h:mm a')}
+                </span>
+              </div>
+            </article>
+          ))}
         </div>
       )}
 
-      {/* Create Notification Form */}
-      {showForm && (
-        <div className="border rounded-lg p-4 bg-blue-50 space-y-3">
+      {showForm ? (
+        <div className="border rounded-xl p-4 bg-white space-y-3">
           <div>
-            <Label className="text-xs text-muted-foreground">Notification Type</Label>
-            <Select
-              value={formData.notification_type}
-              onValueChange={(value) =>
-                setFormData((p) => ({ ...p, notification_type: value }))
-              }
-            >
-              <SelectTrigger className="mt-1 text-sm">
-                <SelectValue />
-              </SelectTrigger>
+            <Label className="text-xs text-muted-foreground">Draft Template</Label>
+            <Select value={templateKey} onValueChange={chooseTemplate}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {Object.entries(NOTIFICATION_TYPES).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
+                {Object.entries(NOTIFICATION_TEMPLATE_LABELS).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
                 ))}
+                <SelectItem value={CUSTOM_UPDATE}>Custom update</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div>
-            <Label className="text-xs text-muted-foreground">Subject</Label>
-            <Input
-              value={formData.subject || ''}
-              onChange={(e) => setFormData((p) => ({ ...p, subject: e.target.value }))}
-              placeholder="Email subject line"
-              className="mt-1 text-sm"
-            />
+          <div className="grid sm:grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-3 text-xs">
+            <p><strong>Customer:</strong> {previewFields.customer}</p>
+            <p><strong>Order:</strong> {previewFields.order}</p>
+            <p><strong>Product:</strong> {previewFields.product}</p>
+            <p><strong>Quantity:</strong> {previewFields.quantity}</p>
+            <p><strong>Status:</strong> {previewFields.status}</p>
+            <p><strong>Tracking:</strong> {previewFields.carrier} {previewFields.tracking}</p>
+            <p className="sm:col-span-2"><strong>Support:</strong> {SUPPORT_EMAIL}</p>
           </div>
 
           <div>
-            <Label className="text-xs text-muted-foreground">Customer Message</Label>
-            <Textarea
-              value={formData.customer_message || ''}
-              onChange={(e) =>
-                setFormData((p) => ({ ...p, customer_message: e.target.value }))
-              }
-              placeholder="Message shown to customer"
-              rows={3}
-              className="mt-1 text-sm"
-            />
+            <Label className="text-xs text-muted-foreground">Subject Preview</Label>
+            <Input className="mt-1" value={formData.subject || ''} onChange={(event) => setFormData((current) => ({ ...current, subject: event.target.value }))} />
           </div>
-
           <div>
-            <Label className="text-xs text-muted-foreground">Admin Note (internal only)</Label>
-            <Input
-              value={formData.admin_note || ''}
-              onChange={(e) => setFormData((p) => ({ ...p, admin_note: e.target.value }))}
-              placeholder="Internal note"
-              className="mt-1 text-sm"
-            />
+            <Label className="text-xs text-muted-foreground">Message Preview</Label>
+            <Textarea className="mt-1 font-mono text-xs" rows={12} value={formData.customer_message || ''} onChange={(event) => setFormData((current) => ({ ...current, customer_message: event.target.value }))} />
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="customer_visible"
-              checked={formData.customer_visible !== false}
-              onChange={(e) =>
-                setFormData((p) => ({ ...p, customer_visible: e.target.checked }))
-              }
-              className="w-4 h-4 rounded border-input"
-            />
-            <Label htmlFor="customer_visible" className="text-xs cursor-pointer">
-              Customer visible on Track Order page
-            </Label>
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={handleCreateNotification}
-            >
-              Create Notification
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={handleCreateDraft}>Save Notification Draft</Button>
+            <Button size="sm" variant="outline" onClick={() => copyMessage({ ...formData, id: 'preview' })}>
+              <Copy className="w-4 h-4 mr-1.5" />Copy Preview
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setShowForm(false);
-                setFormData({ notification_type: 'custom_update' });
-              }}
-            >
-              Cancel
+            <Button size="sm" variant="outline" asChild>
+              <a href={buildMailtoUrl(customerEmail, formData.subject, formData.customer_message)}>
+                <Mail className="w-4 h-4 mr-1.5" />Open in Email
+              </a>
             </Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
           </div>
         </div>
-      )}
-
-      {!showForm && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full gap-2"
-          onClick={() => setShowForm(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Create Notification
+      ) : (
+        <Button size="sm" variant="outline" className="w-full gap-2" onClick={() => setShowForm(true)}>
+          <Plus className="w-4 h-4" />Create Notification Draft
         </Button>
       )}
-    </div>
+    </section>
   );
 }

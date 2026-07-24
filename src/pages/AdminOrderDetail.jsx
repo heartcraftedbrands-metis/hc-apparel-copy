@@ -20,6 +20,8 @@ import MarginBadge from '@/components/profit/MarginBadge';
 import CreateVendorOrderModal from '@/components/orders/CreateVendorOrderModal';
 import OrderHistorySection from '@/components/orders/OrderHistorySection';
 import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
+import ProductionPacket from '@/components/orders/ProductionPacket';
+import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
@@ -188,7 +190,7 @@ export default function AdminOrderDetail() {
     }
   };
 
-  const { data: order, isLoading } = useQuery({
+  const { data: order, isLoading, refetch: refetchOrder } = useQuery({
     queryKey: ['order', orderId],
     queryFn: () => base44.entities.Order.filter({ id: orderId }).then(r => r[0]),
     enabled: !!orderId,
@@ -845,6 +847,25 @@ export default function AdminOrderDetail() {
                 )}
               </div>
             </Section>
+
+            <ProductionWorkflowPanel
+              order={form}
+              vendorDraft={linkedVendorDrafts[0] || null}
+              vendorOrder={linkedVendorOrders[0] || null}
+              onUpdated={async () => {
+                const result = await refetchOrder();
+                if (result.data) setForm(result.data);
+                qc.invalidateQueries({ queryKey: ['vendor-drafts-for-order', orderId] });
+                qc.invalidateQueries({ queryKey: ['vendor-orders-for-order', orderId] });
+                qc.invalidateQueries({ queryKey: ['customer-notifications', orderId] });
+              }}
+            />
+
+            <ProductionPacket
+              order={form}
+              vendorDraft={linkedVendorDrafts[0] || null}
+              vendorOrder={linkedVendorOrders[0] || null}
+            />
 
             {/* Order History (admin only) */}
             <OrderHistorySection orderId={form.id} orderNumber={form.id.slice(-8).toUpperCase()} />
