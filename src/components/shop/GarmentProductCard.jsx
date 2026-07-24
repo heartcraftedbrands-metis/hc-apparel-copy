@@ -4,27 +4,12 @@ import { MessageSquare, Eye, Star, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createOrderHelpUrl } from "@/lib/orderHelp";
-
-const SUBTYPE_LABELS = {
-  t_shirts: 'T-Shirt', hoodies: 'Hoodie', sweatshirts: 'Sweatshirt',
-  hats: 'Hat', kids_apparel: 'Kids', apparel_blanks: 'Apparel Blank',
-  custom_printed: 'Custom Print', print_support: 'Print Support',
-};
-
-const CAT_LABELS = {
-  short_sleeve_shirts: 'T-Shirt', hoodies: 'Hoodie', crewnecks: 'Crewneck',
-  long_sleeve_shirts: 'Long Sleeve', hats: 'Hat', polo_shirts: 'Polo',
-  jackets: 'Jacket', sportswear: 'Sportswear',
-  youth_short_sleeve_shirts: 'Kids', accessories: 'Accessory', other: 'Print Support',
-};
+import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 
 export default function GarmentProductCard({ product, onAddToCart }) {
   const [imgError, setImgError] = useState(false);
 
-  const cats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
-  const catLabel = product.product_subtype
-    ? SUBTYPE_LABELS[product.product_subtype]
-    : cats.map(c => CAT_LABELS[c]).find(Boolean) || null;
+  const catLabel = getStorefrontCategoryLabel(product);
 
   const colors = product.available_colors || [];
   const sizes = product.available_sizes || [];

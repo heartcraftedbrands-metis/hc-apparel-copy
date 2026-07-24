@@ -1,84 +1,339 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { useCart } from "@/components/shop/CartContext";
-import { toast } from "sonner";
-import { SlidersHorizontal, Search, X, Star, Sparkles, MessageSquare, ChevronDown } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import GarmentProductCard from "@/components/shop/GarmentProductCard";
-import { filterPublicProducts } from "@/lib/productVisibility";
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, MessageSquare, Search, SlidersHorizontal, Sparkles, Star, X } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { base44 } from '@/api/base44Client';
+import { useCart } from '@/components/shop/CartContext';
+import GarmentProductCard from '@/components/shop/GarmentProductCard';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
+import { filterPublicProducts } from '@/lib/productVisibility';
+import {
+  CATEGORY_FILTERS,
+  SORT_OPTIONS,
+  countActiveGarmentFilters,
+  filterAndSortGarments,
+  getFilterOptions,
+  matchesBrand,
+  matchesCategory,
+} from '@/lib/shopGarmentFilters';
 import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from '@/lib/ssBrands';
 
-const TYPE_FILTERS = [
-  { value: 'all', label: 'All Products' },
-  { value: 't_shirts', label: 'T-Shirts', cats: ['short_sleeve_shirts','mens_short_sleeve_shirts','womens_short_sleeve_shirts'] },
-  { value: 'tank_tops', label: 'Tank Tops', cats: ['short_sleeve_shirts','mens_short_sleeve_shirts','womens_short_sleeve_shirts'], nameMatch: 'tank' },
-  { value: 'womens', label: "Women's", cats: ['womens_short_sleeve_shirts','womens_long_sleeve_shirts','womens_crewnecks','womens_polo_shirts','womens_jackets','womens_sportswear'] },
-  { value: 'sportswear', label: 'Sports / Activewear', cats: ['sportswear','mens_sportswear','womens_sportswear','youth_sportswear'] },
-  { value: 'hoodies', label: 'Hoodies', cats: ['hoodies'] },
-  { value: 'long_sleeve', label: 'Long Sleeve', cats: ['long_sleeve_shirts','mens_long_sleeve_shirts','womens_long_sleeve_shirts'] },
-  { value: 'hats', label: 'Hats', cats: ['hats'] },
-  { value: 'kids', label: 'Kids Apparel', cats: ['youth_short_sleeve_shirts','youth_long_sleeve_shirts','youth_crewnecks','youth_polo_shirts','youth_jackets','youth_sportswear'] },
-  ...SS_ACTIVEWEAR_BRANDS.map(brand => ({
-    value: brandFilterValue(brand),
-    label: brand,
-    brandMatch: brand.toLowerCase(),
-  })),
-  { value: 'apparel_blanks', label: 'Apparel Blanks', subtypes: ['apparel_blanks'] },
-  { value: 'custom_printed', label: 'Custom Printed', subtypes: ['custom_printed'] },
-  { value: 'print_support', label: 'Print Support', cats: ['other', 'accessories'], subtypes: ['print_support'] },
-];
-
-const SORT_OPTIONS = [
-  { value: 'newest', label: 'Newest' },
-  { value: 'featured', label: 'Featured' },
-  { value: 'best_sellers', label: 'Best Sellers' },
-  { value: 'price_asc', label: 'Price: Low → High' },
-  { value: 'price_desc', label: 'Price: High → Low' },
-];
-
-const COMMON_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', 'One Size'];
-
-function matchesTypeFilter(product, typeValue) {
-  if (typeValue === 'all') return true;
-  const filter = TYPE_FILTERS.find(f => f.value === typeValue);
-  if (!filter) return false;
-  const pCats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
-  const subtype = product.product_subtype || '';
-  const nameLower = (product.name || '').toLowerCase();
-  const vendorLower = (product.vendor_source || product.internal_notes || '').toLowerCase();
-  if (filter.subtypes?.includes(subtype)) return true;
-  if (filter.cats?.some(c => pCats.includes(c))) return true;
-  if (filter.nameMatch && nameLower.includes(filter.nameMatch)) return true;
-  if (filter.brandMatch && (nameLower.includes(filter.brandMatch) || vendorLower.includes(filter.brandMatch))) return true;
-  return false;
+function toggleListValue(setter, value) {
+  setter(current => (
+    current.includes(value)
+      ? current.filter(item => item !== value)
+      : [...current, value]
+  ));
 }
 
-function countProductsForFilter(products, typeValue) {
-  return products.filter(p => matchesTypeFilter(p, typeValue)).length;
+function FilterPanel({
+  products,
+  options,
+  category,
+  setCategory,
+  brand,
+  setBrand,
+  selectedSizes,
+  setSelectedSizes,
+  selectedColors,
+  setSelectedColors,
+  minPrice,
+  setMinPrice,
+  maxPrice,
+  setMaxPrice,
+  featuredOnly,
+  setFeaturedOnly,
+  bestSellersOnly,
+  setBestSellersOnly,
+  sort,
+  setSort,
+  showAllColors,
+  setShowAllColors,
+  activeFilterCount,
+  resetFilters,
+  filterState,
+}) {
+  const visibleCategories = CATEGORY_FILTERS.filter(filter => (
+    filter.value === 'all'
+    || products.some(product => matchesCategory(product, filter.value))
+  ));
+  const visibleColors = showAllColors ? options.colors : options.colors.slice(0, 14);
+  const hasFeatured = products.some(product => product.is_featured === true);
+  const hasBestSellers = products.some(product => product.is_best_seller === true);
+  const categoryCounts = new Map(visibleCategories.map(filter => [
+    filter.value,
+    filterAndSortGarments(products, { ...filterState, category: filter.value }).length,
+  ]));
+  const brandCounts = new Map(options.brands.map(option => [
+    option.value,
+    filterAndSortGarments(products, { ...filterState, brand: option.value }).length,
+  ]));
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Category</p>
+        <div className="space-y-0.5">
+          {visibleCategories.map(filter => (
+            <button
+              key={filter.value}
+              type="button"
+              aria-pressed={category === filter.value}
+              onClick={() => setCategory(filter.value)}
+              className={`flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                category === filter.value
+                  ? 'bg-primary font-semibold text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              <span>{filter.label}</span>
+              <span className="text-xs opacity-70">{categoryCounts.get(filter.value)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {options.brands.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Brand</p>
+          <div className="space-y-0.5">
+            <button
+              type="button"
+              aria-pressed={brand === 'all'}
+              onClick={() => setBrand('all')}
+              className={`w-full rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                brand === 'all'
+                  ? 'bg-primary font-semibold text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              All Brands
+            </button>
+            {options.brands.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={brand === option.value}
+                onClick={() => setBrand(option.value)}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                  brand === option.value
+                    ? 'bg-primary font-semibold text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <span>{option.label}</span>
+                <span className="text-xs opacity-70">{brandCounts.get(option.value)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {options.sizes.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Size</p>
+          <div className="flex flex-wrap gap-1.5">
+            {options.sizes.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={selectedSizes.includes(option.value)}
+                onClick={() => toggleListValue(setSelectedSizes, option.value)}
+                title={`${option.count} products`}
+                className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                  selectedSizes.includes(option.value)
+                    ? 'border-primary bg-primary font-semibold text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {options.colors.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Color</p>
+          <div className="flex flex-wrap gap-1.5">
+            {visibleColors.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={selectedColors.includes(option.value)}
+                onClick={() => toggleListValue(setSelectedColors, option.value)}
+                title={`${option.count} products`}
+                className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                  selectedColors.includes(option.value)
+                    ? 'border-primary bg-primary font-semibold text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {options.colors.length > 14 && (
+            <button
+              type="button"
+              onClick={() => setShowAllColors(value => !value)}
+              className="mt-2 text-xs font-semibold text-primary hover:underline"
+            >
+              {showAllColors ? 'Show fewer colors' : `Show all colors (${options.colors.length})`}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Price</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            aria-label="Minimum price"
+            placeholder="Min"
+            value={minPrice}
+            onChange={event => setMinPrice(event.target.value)}
+            className="bg-background"
+          />
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            aria-label="Maximum price"
+            placeholder="Max"
+            value={maxPrice}
+            onChange={event => setMaxPrice(event.target.value)}
+            className="bg-background"
+          />
+        </div>
+      </div>
+
+      {(hasFeatured || hasBestSellers) && (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Special</p>
+          <div className="space-y-1.5">
+            {hasFeatured && (
+              <button
+                type="button"
+                aria-pressed={featuredOnly}
+                onClick={() => setFeaturedOnly(value => !value)}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                  featuredOnly
+                    ? 'border border-accent/40 bg-accent/20 font-semibold text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Featured Products
+              </button>
+            )}
+            {hasBestSellers && (
+              <button
+                type="button"
+                aria-pressed={bestSellersOnly}
+                onClick={() => setBestSellersOnly(value => !value)}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                  bestSellersOnly
+                    ? 'border border-orange-200 bg-orange-100 font-semibold text-orange-800'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Star className="h-3.5 w-3.5" />
+                Best Sellers
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Sort By</p>
+        <div className="space-y-0.5">
+          {SORT_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={sort === option.value}
+              onClick={() => setSort(option.value)}
+              className={`w-full rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                sort === option.value
+                  ? 'bg-primary font-semibold text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={resetFilters}
+        disabled={activeFilterCount === 0}
+      >
+        <X className="mr-1 h-3.5 w-3.5" />
+        Reset Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+      </Button>
+    </div>
+  );
 }
 
 export default function ShopGarments() {
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [category, setCategory] = useState('all');
+  const [brand, setBrand] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
+  const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [selectedSizes, setSelectedSizes] = useState([]);
+  const [selectedColors, setSelectedColors] = useState([]);
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const [bestSellersOnly, setBestSellersOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAllColors, setShowAllColors] = useState(false);
   const location = useLocation();
   const { addToCart } = useCart();
 
-  useEffect(() => { document.title = 'Shop Garments | HC Apparel'; }, []);
+  useEffect(() => {
+    document.title = 'Shop Garments | HC Apparel';
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const requestedType = params.get('type');
+    const requestedBrand = params.get('brand');
+    const categoryExists = CATEGORY_FILTERS.some(filter => filter.value === requestedType);
+    const matchedBrand = SS_ACTIVEWEAR_BRANDS.find(item => (
+      brandFilterValue(item) === requestedType
+      || brandFilterValue(item) === requestedBrand
+      || item.toLowerCase() === requestedBrand?.toLowerCase()
+    ));
+
     setSearch(params.get('q') || '');
-    if (params.get('type')) setTypeFilter(params.get('type'));
+    setCategory(categoryExists ? requestedType : 'all');
+    setBrand(matchedBrand ? brandFilterValue(matchedBrand) : 'all');
   }, [location.search]);
 
   const { data: allProducts = [], isLoading } = useQuery({
@@ -86,195 +341,238 @@ export default function ShopGarments() {
     queryFn: () => base44.entities.Product.filter({ is_active: true }, '-created_date'),
   });
 
-  const products = filterPublicProducts(allProducts);
+  const products = useMemo(() => filterPublicProducts(allProducts), [allProducts]);
+  const filterOptions = useMemo(() => getFilterOptions(products), [products]);
+  const filterState = useMemo(() => ({
+    category,
+    brand,
+    search,
+    minPrice,
+    maxPrice,
+    sizes: selectedSizes,
+    colors: selectedColors,
+    featuredOnly,
+    bestSellersOnly,
+    sort,
+  }), [
+    category,
+    brand,
+    search,
+    minPrice,
+    maxPrice,
+    selectedSizes,
+    selectedColors,
+    featuredOnly,
+    bestSellersOnly,
+    sort,
+  ]);
 
-  const toggleSize = (size) => {
-    setSelectedSizes(prev => prev.includes(size) ? prev.filter(s => s !== size) : [...prev, size]);
+  const filtered = useMemo(
+    () => filterAndSortGarments(products, filterState),
+    [products, filterState],
+  );
+  const activeFilterCount = countActiveGarmentFilters(filterState);
+
+  const resetFilters = () => {
+    setCategory('all');
+    setBrand('all');
+    setSearch('');
+    setMinPrice('');
+    setMaxPrice('');
+    setSelectedSizes([]);
+    setSelectedColors([]);
+    setFeaturedOnly(false);
+    setBestSellersOnly(false);
+    setSort('newest');
+    setShowAllColors(false);
   };
 
-  const filtered = products
-    .filter(p => {
-      if (!matchesTypeFilter(p, typeFilter)) return false;
-      const q = search.toLowerCase();
-      if (q && !p.name?.toLowerCase().includes(q) && !p.description?.toLowerCase().includes(q) && !(p.tags || []).some(t => t.toLowerCase().includes(q))) return false;
-      if (maxPrice && (p.sale_price || p.price) > parseFloat(maxPrice)) return false;
-      if (selectedSizes.length > 0 && !(p.available_sizes || []).some(s => selectedSizes.includes(s))) return false;
-      if (featuredOnly && !p.is_featured) return false;
-      if (bestSellersOnly && !p.is_best_seller) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (sort === 'price_asc') return (a.sale_price || a.price) - (b.sale_price || b.price);
-      if (sort === 'price_desc') return (b.sale_price || b.price) - (a.sale_price || a.price);
-      if (sort === 'featured') return (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0);
-      if (sort === 'best_sellers') return (b.is_best_seller ? 1 : 0) - (a.is_best_seller ? 1 : 0);
-      return new Date(b.created_date) - new Date(a.created_date);
-    });
-
-  const activeFilterCount = [
-    typeFilter !== 'all', maxPrice, selectedSizes.length > 0, featuredOnly, bestSellersOnly
-  ].filter(Boolean).length;
-
-  const clearFilters = () => {
-    setTypeFilter('all'); setMaxPrice(''); setSelectedSizes([]);
-    setFeaturedOnly(false); setBestSellersOnly(false); setSort('newest');
+  const filterPanelProps = {
+    products,
+    options: filterOptions,
+    category,
+    setCategory,
+    brand,
+    setBrand,
+    selectedSizes,
+    setSelectedSizes,
+    selectedColors,
+    setSelectedColors,
+    minPrice,
+    setMinPrice,
+    maxPrice,
+    setMaxPrice,
+    featuredOnly,
+    setFeaturedOnly,
+    bestSellersOnly,
+    setBestSellersOnly,
+    sort,
+    setSort,
+    showAllColors,
+    setShowAllColors,
+    activeFilterCount,
+    resetFilters,
+    filterState,
   };
 
-  const FilterContent = () => {
-    // Only show filter categories with products
-    const visibleFilters = TYPE_FILTERS.filter(f => f.value === 'all' || countProductsForFilter(products, f.value) > 0);
-    
-    return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-foreground mb-2">Product Type</p>
-        <div className="space-y-0.5">
-          {visibleFilters.map(f => (
-            <button key={f.value} onClick={() => setTypeFilter(f.value)}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${typeFilter === f.value ? 'bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-foreground mb-2">Size</p>
-        <div className="flex flex-wrap gap-1.5">
-          {COMMON_SIZES.map(s => (
-            <button key={s} onClick={() => toggleSize(s)}
-              className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${selectedSizes.includes(s) ? 'bg-primary text-primary-foreground border-primary font-semibold' : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'}`}>
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-foreground mb-2">Max Price</p>
-        <Input type="number" placeholder="e.g. $50" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="bg-background" />
-      </div>
-
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-foreground mb-2">Special</p>
-        <div className="space-y-1.5">
-          <button onClick={() => setFeaturedOnly(v => !v)}
-            className={`w-full text-left px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 transition-colors ${featuredOnly ? 'bg-accent/20 text-accent-foreground font-semibold border border-accent/40' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Sparkles className="w-3.5 h-3.5" />Featured Products
-          </button>
-          <button onClick={() => setBestSellersOnly(v => !v)}
-            className={`w-full text-left px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 transition-colors ${bestSellersOnly ? 'bg-orange-100 text-orange-800 font-semibold border border-orange-200' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Star className="w-3.5 h-3.5" />Best Sellers
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-foreground mb-2">Sort By</p>
-        <div className="space-y-0.5">
-          {SORT_OPTIONS.map(opt => (
-            <button key={opt.value} onClick={() => setSort(opt.value)}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${sort === opt.value ? 'bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {activeFilterCount > 0 && (
-        <Button variant="outline" size="sm" className="w-full" onClick={clearFilters}>
-          <X className="w-3 h-3 mr-1" /> Clear Filters ({activeFilterCount})
-        </Button>
-      )}
-    </div>
-    );
-  };
+  const quickFilters = [
+    { kind: 'category', value: 'all', label: 'All Products' },
+    { kind: 'category', value: 't_shirts', label: 'T-Shirts' },
+    { kind: 'category', value: 'tank_tops', label: 'Tank Tops' },
+    { kind: 'category', value: 'womens', label: "Women's" },
+    { kind: 'category', value: 'sportswear', label: 'Sports / Activewear' },
+    { kind: 'brand', value: 'gildan', label: 'Gildan' },
+    { kind: 'brand', value: 'champion', label: 'Champion' },
+  ].filter(filter => (
+    filter.value === 'all'
+    || products.some(product => (
+      filter.kind === 'brand'
+        ? matchesBrand(product, filter.value)
+        : matchesCategory(product, filter.value)
+    ))
+  ));
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-primary text-primary-foreground py-10 md:py-14">
+      <div className="bg-primary py-10 text-primary-foreground md:py-14">
         <div className="container mx-auto px-4">
-          <h1 className="text-3xl md:text-4xl font-black mb-2 tracking-tight">Shop Garments</h1>
-          <p className="text-primary-foreground/70 text-base mb-5">Quality apparel blanks and custom printed garments</p>
-          {/* Quick filter chips */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {['all','t_shirts','tank_tops','womens','sportswear','gildan','champion'].map(v => {
-                const f = TYPE_FILTERS.find(f => f.value === v);
-                if (!f || (v !== 'all' && countProductsForFilter(products, v) === 0)) return null;
-                const active = typeFilter === v;
-                return (
-                  <button key={v} onClick={() => setTypeFilter(v)}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-                      active
-                        ? 'bg-accent text-accent-foreground border-accent'
-                        : 'bg-primary-foreground/10 border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/20'
-                    }`}>
-                    {f.label}
-                  </button>
-                );
-              })}
+          <h1 className="mb-2 text-3xl font-black tracking-tight md:text-4xl">Shop Garments</h1>
+          <p className="mb-5 text-base text-primary-foreground/70">Quality apparel blanks and custom printed garments</p>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {quickFilters.map(filter => {
+              const active = filter.kind === 'brand'
+                ? brand === filter.value
+                : category === filter.value && (filter.value !== 'all' || brand === 'all');
+              return (
+                <button
+                  key={`${filter.kind}-${filter.value}`}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    if (filter.kind === 'brand') {
+                      setBrand(filter.value);
+                    } else {
+                      setCategory(filter.value);
+                      if (filter.value === 'all') setBrand('all');
+                    }
+                  }}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    active
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-primary-foreground/30 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
           </div>
           <Link to="/RequestQuote">
-            <Button size="sm" className="bg-accent hover:bg-accent/90 text-accent-foreground gap-1.5">
-              <MessageSquare className="w-4 h-4" /> Bulk Quote 50+
+            <Button size="sm" className="gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90">
+              <MessageSquare className="h-4 w-4" />
+              Bulk Quote 50+
             </Button>
           </Link>
         </div>
       </div>
 
       <div className="container mx-auto px-4 py-6">
-        <div className="flex items-center gap-3 mb-5 flex-wrap">
-          <div className="relative flex-1 min-w-[180px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-white" />
-            {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[180px] max-w-sm flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              className="bg-white pl-9"
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label="Clear product search"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
           </div>
-          <Button variant="outline" className="flex items-center gap-2 md:hidden" onClick={() => setShowFilters(v => !v)}>
-            <SlidersHorizontal className="w-4 h-4" />
-            Filters {activeFilterCount > 0 && <Badge className="bg-primary text-primary-foreground text-xs w-5 h-5 p-0 flex items-center justify-center rounded-full">{activeFilterCount}</Badge>}
-          </Button>
-          <div className="hidden md:flex items-center gap-2 ml-auto">
-            <span className="text-sm text-muted-foreground">{filtered.length} product{filtered.length !== 1 ? 's' : ''}</span>
+
+          <Sheet open={showFilters} onOpenChange={setShowFilters}>
+            <SheetTrigger asChild>
+              <Button variant="outline" className="flex items-center gap-2 md:hidden">
+                <SlidersHorizontal className="h-4 w-4" />
+                Filters
+                {activeFilterCount > 0 && (
+                  <Badge className="flex h-5 w-5 items-center justify-center rounded-full bg-primary p-0 text-xs text-primary-foreground">
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="flex w-[90vw] flex-col p-0 sm:max-w-md">
+              <SheetHeader className="border-b px-5 py-4 text-left">
+                <SheetTitle>Filters</SheetTitle>
+                <SheetDescription>{filtered.length} garment{filtered.length === 1 ? '' : 's'} match</SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                <FilterPanel {...filterPanelProps} />
+              </div>
+              <SheetFooter className="border-t p-4">
+                <SheetClose asChild>
+                  <Button className="w-full">View {filtered.length} Garment{filtered.length === 1 ? '' : 's'}</Button>
+                </SheetClose>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
+
+          <span className="text-sm text-muted-foreground md:hidden">
+            {filtered.length} product{filtered.length === 1 ? '' : 's'}
+          </span>
+
+          <div className="ml-auto hidden items-center gap-2 md:flex">
+            <span className="text-sm text-muted-foreground">{filtered.length} product{filtered.length === 1 ? '' : 's'}</span>
             <div className="relative">
-              <select value={sort} onChange={e => setSort(e.target.value)}
-                className="appearance-none bg-white border border-border rounded-lg px-3 py-1.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer">
-                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <select
+                value={sort}
+                onChange={event => setSort(event.target.value)}
+                className="cursor-pointer appearance-none rounded-lg border border-border bg-white px-3 py-1.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label="Sort garments"
+              >
+                {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </div>
         </div>
 
-        {showFilters && (
-          <div className="md:hidden bg-white border rounded-xl p-5 mb-5 shadow-sm">
-            <FilterContent />
-          </div>
-        )}
-
         <div className="flex gap-6">
-          <aside className="hidden md:block w-52 flex-shrink-0">
-            <div className="bg-white rounded-xl border p-4 sticky top-20">
-              <FilterContent />
+          <aside className="hidden w-64 flex-shrink-0 md:block">
+            <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl border bg-white p-4">
+              <FilterPanel {...filterPanelProps} />
             </div>
           </aside>
 
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             {isLoading ? (
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {[...Array(8)].map((_, i) => <div key={i} className="bg-white rounded-2xl aspect-[3/4] animate-pulse" />)}
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
+                {[...Array(8)].map((_, index) => <div key={index} className="aspect-[3/4] animate-pulse rounded-2xl bg-white" />)}
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-center py-20">
-                <p className="text-muted-foreground mb-4">No products match your filters.</p>
-                <Button variant="outline" onClick={clearFilters}>Clear Filters</Button>
+              <div className="py-20 text-center">
+                <p className="mb-4 text-muted-foreground">No garments match these filters. Try clearing one or more filters.</p>
+                <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
                 {filtered.map(product => (
                   <GarmentProductCard
                     key={product.id}
                     product={product}
-                    onAddToCart={() => { addToCart(product); toast.success(`${product.name} added to cart!`); }}
+                    onAddToCart={() => {
+                      addToCart(product);
+                      toast.success(`${product.name} added to cart!`);
+                    }}
                   />
                 ))}
               </div>

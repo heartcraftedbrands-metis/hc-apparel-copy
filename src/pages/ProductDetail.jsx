@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
 import { createOrderHelpUrl } from "@/lib/orderHelp";
+import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -19,13 +20,6 @@ function resolveImgUrl(raw) {
   // relative S&S path e.g. "Images/Color/17106_f_fm.jpg"
   return SS_CDN + raw.replace(/^\//, '');
 }
-
-const CAT_LABELS = {
-  short_sleeve_shirts: 'T-Shirt', hoodies: 'Hoodie', crewnecks: 'Crewneck',
-  long_sleeve_shirts: 'Long Sleeve', hats: 'Hat', polo_shirts: 'Polo',
-  jackets: 'Jacket', sportswear: 'Sportswear', youth_short_sleeve_shirts: 'Kids',
-  apparel_blanks: 'Apparel Blank', custom_printed: 'Custom Print', print_support: 'Print Support',
-};
 
 const COLOR_MAP = {
   // Whites / Naturals
@@ -402,9 +396,7 @@ export default function ProductDetail() {
   );
 
   const cats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
-  const catLabel = product.product_subtype
-    ? (CAT_LABELS[product.product_subtype] || product.product_subtype.replace(/_/g, ' '))
-    : cats.map(c => CAT_LABELS[c]).find(Boolean);
+  const catLabel = getStorefrontCategoryLabel(product);
 
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
