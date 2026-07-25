@@ -27,7 +27,6 @@ import {
   countActiveGarmentFilters,
   filterAndSortGarments,
   getFilterOptions,
-  matchesBrand,
   matchesCategory,
 } from '@/lib/shopGarmentFilters';
 import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from '@/lib/ssBrands';
@@ -415,21 +414,25 @@ export default function ShopGarments() {
     filterState,
   };
 
-  const quickFilters = [
-    { kind: 'category', value: 'all', label: 'All Products' },
-    { kind: 'category', value: 't_shirts', label: 'T-Shirts' },
-    { kind: 'category', value: 'tank_tops', label: 'Tank Tops' },
-    { kind: 'category', value: 'womens', label: "Women's" },
-    { kind: 'category', value: 'sportswear', label: 'Sports / Activewear' },
-    { kind: 'brand', value: 'gildan', label: 'Gildan' },
-    { kind: 'brand', value: 'champion', label: 'Champion' },
-  ].filter(filter => (
-    filter.value === 'all'
-    || products.some(product => (
-      filter.kind === 'brand'
-        ? matchesBrand(product, filter.value)
-        : matchesCategory(product, filter.value)
-    ))
+  const topCategoryValues = [
+    'all',
+    'hats',
+    'bags',
+    't_shirts',
+    'hoodies',
+    'crewnecks',
+    'long_sleeve',
+    'tank_tops',
+    'womens',
+    'kids',
+    'sportswear',
+  ];
+  const quickFilters = CATEGORY_FILTERS.filter(filter => (
+    topCategoryValues.includes(filter.value)
+    && (
+      filter.value === 'all'
+      || products.some(product => matchesCategory(product, filter.value))
+    )
   ));
 
   return (
@@ -440,21 +443,15 @@ export default function ShopGarments() {
           <p className="mb-5 text-base text-primary-foreground/70">Quality apparel blanks and custom printed garments</p>
           <div className="mb-4 flex flex-wrap gap-2">
             {quickFilters.map(filter => {
-              const active = filter.kind === 'brand'
-                ? brand === filter.value
-                : category === filter.value && (filter.value !== 'all' || brand === 'all');
+              const active = category === filter.value && (filter.value !== 'all' || brand === 'all');
               return (
                 <button
-                  key={`${filter.kind}-${filter.value}`}
+                  key={filter.value}
                   type="button"
                   aria-pressed={active}
                   onClick={() => {
-                    if (filter.kind === 'brand') {
-                      setBrand(filter.value);
-                    } else {
-                      setCategory(filter.value);
-                      if (filter.value === 'all') setBrand('all');
-                    }
+                    setCategory(filter.value);
+                    if (filter.value === 'all') setBrand('all');
                   }}
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
                     active

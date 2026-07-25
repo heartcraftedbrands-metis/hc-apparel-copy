@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageSquare, Eye, Star, Sparkles } from 'lucide-react';
+import { ShoppingCart, Eye, Star, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createOrderHelpUrl } from "@/lib/orderHelp";
 import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 
 export default function GarmentProductCard({ product, onAddToCart }) {
@@ -105,16 +104,9 @@ export default function GarmentProductCard({ product, onAddToCart }) {
               <Eye className="w-3.5 h-3.5" /> View Product
             </Button>
           </Link>
-          <Link to={createOrderHelpUrl({
-            product: product.name,
-            productId: product.id,
-            brand: product.brand,
-            styleNumber: product.style_number,
-            imageUrl: product.image_url,
-            quantity: 1,
-          })} className="block">
+          <Link to={`/ProductDetail?id=${product.id}`} className="block">
             <Button size="sm" className="w-full h-8 gap-1 text-xs">
-              <MessageSquare className="w-3.5 h-3.5" /> Request Order Help
+              <ShoppingCart className="w-3.5 h-3.5" /> Customize &amp; Add to Cart
             </Button>
           </Link>
         </div>

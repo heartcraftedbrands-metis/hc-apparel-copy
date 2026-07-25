@@ -2,6 +2,8 @@ import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from './ssBrands.js';
 
 export const CATEGORY_FILTERS = [
   { value: 'all', label: 'All Products' },
+  { value: 'hats', label: 'Hats' },
+  { value: 'bags', label: 'Bags' },
   { value: 't_shirts', label: 'T-Shirts' },
   { value: 'hoodies', label: 'Hoodies' },
   { value: 'crewnecks', label: 'Crewnecks / Sweatshirts' },
@@ -11,8 +13,6 @@ export const CATEGORY_FILTERS = [
   { value: 'kids', label: 'Youth / Kids' },
   { value: 'sportswear', label: 'Sports / Activewear' },
   { value: 'polos', label: 'Polos' },
-  { value: 'hats', label: 'Hats' },
-  { value: 'bags', label: 'Bags' },
   { value: 'custom_printed', label: 'Custom Printed' },
   { value: 'print_support', label: 'Print Support' },
 ];
@@ -67,6 +67,10 @@ const YOUTH_CATEGORIES = [
   'kids',
 ];
 const STYLE_CATEGORY_RULES = [
+  { category: 'hats', brand: 'oakley', styles: ['fos900833'] },
+  { category: 'bags', brand: 'oakley', styles: ['fos901100'] },
+  { category: 'polos', brand: 'oakley', styles: ['foa402993'] },
+  { category: 'hoodies', brand: 'oakley', styles: ['foa402994'] },
   { category: 'hoodies', brand: 'gildan', styles: ['18500'] },
   { category: 'hoodies', brand: 'champion', styles: ['s700'] },
   { category: 'hoodies', brand: 'lane seven', styles: ['ls14001', 'ls14003'] },
@@ -198,6 +202,15 @@ function hasAnyVendorCategory(categories, categoryGroup) {
   return (VENDOR_CATEGORY_GROUPS[categoryGroup] || []).some(category => categories.includes(category));
 }
 
+function hasExplicitStorefrontCategoryTag(product, categoryValue) {
+  const acceptedTags = new Set([
+    `storefront:${categoryValue}`,
+    `hc-category:${categoryValue}`,
+    `hc_category:${categoryValue}`,
+  ]);
+  return asArray(product?.tags).map(normalized).some(tag => acceptedTags.has(tag));
+}
+
 export function isWomensSpecific(product) {
   const text = productIdentityText(product);
   const categories = [
@@ -266,6 +279,10 @@ export function matchesCategory(product, categoryValue) {
   const normalizedCategory = getStorefrontCategory(product);
   if (categoryValue === 't_shirts') {
     return normalizedCategory === 't_shirts' || normalizedCategory === 'long_sleeve';
+  }
+  if (categoryValue === 'sportswear') {
+    return normalizedCategory === 'sportswear'
+      || hasExplicitStorefrontCategoryTag(product, 'sportswear');
   }
   return normalizedCategory === categoryValue;
 }

@@ -167,4 +167,32 @@ assert.equal(getStorefrontCategory({ name: 'Adidas Structured Trucker Cap' }), '
 assert.equal(getStorefrontCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }), 'kids', 'Rabbit Skins products normalize to Youth / Kids');
 assert.equal(matchesCategory({ name: 'Bella + Canvas Women’s Relaxed Jersey Tee' }, 'womens'), true, 'women-specific titles populate the Women’s filter');
 
-console.log('Shop Garments filter/category tests passed (37 assertions).');
+const oakleyAccessories = [
+  { id: 'oakley-cap', name: 'Oakley FOS900833', brand: 'Oakley', style_number: 'FOS900833' },
+  { id: 'oakley-backpack', name: 'Oakley FOS901100', brand: 'Oakley', style_number: 'FOS901100' },
+  { id: 'oakley-polo', name: 'Oakley FOA402993', brand: 'Oakley', style_number: 'FOA402993' },
+  { id: 'oakley-hoodie', name: 'Oakley FOA402994', brand: 'Oakley', style_number: 'FOA402994' },
+  { id: 'performance-shirt', name: 'Oakley Team Issue Performance Shirt', brand: 'Oakley' },
+  {
+    id: 'intentional-activewear-cap',
+    name: 'Oakley FOS900833',
+    brand: 'Oakley',
+    style_number: 'FOS900833',
+    tags: ['storefront:sportswear'],
+  },
+];
+const oakleyIds = category => ids(filterAndSortGarments(oakleyAccessories, { category }));
+
+assert.equal(getStorefrontCategory(oakleyAccessories[0]), 'hats', 'Oakley FOS900833 style metadata normalizes to Hats');
+assert.equal(getStorefrontCategory(oakleyAccessories[1]), 'bags', 'Oakley FOS901100 style metadata normalizes to Bags');
+assert.equal(getStorefrontCategory(oakleyAccessories[2]), 'polos', 'Oakley FOA402993 style metadata normalizes to Polos');
+assert.equal(getStorefrontCategory(oakleyAccessories[3]), 'hoodies', 'Oakley FOA402994 style metadata normalizes to Hoodies');
+assert.deepEqual(oakleyIds('hats'), ['oakley-cap', 'intentional-activewear-cap'], 'Hats contains headwear products only');
+assert.deepEqual(oakleyIds('bags'), ['oakley-backpack'], 'Bags contains bag products only');
+assert.deepEqual(
+  oakleyIds('sportswear'),
+  ['performance-shirt', 'intentional-activewear-cap'],
+  'Sports / Activewear excludes hats and bags unless explicitly tagged for storefront overlap',
+);
+
+console.log('Shop Garments filter/category tests passed (44 assertions).');
