@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
+import { getCartItemKey, getCustomizedCartQuantity } from '@/lib/productCustomization';
 
 const CartContext = createContext(null);
 
@@ -10,8 +11,6 @@ export function CartProvider({ children }) {
   useEffect(() => {
     init();
   }, []);
-
-  const getCartItemKey = (item) => `${item.id}|${item.selectedSize || ''}|${item.selectedColor || ''}`;
 
   const mergeItems = (existing, incoming) => {
     const map = {};
@@ -63,15 +62,25 @@ export function CartProvider({ children }) {
 
   const addToCart = useCallback((product) => {
     setCart(current => {
-      // Find existing item with same product ID and options
-      const existing = current.find(i => i.id === product.id && i.selectedSize === product.selectedSize && i.selectedColor === product.selectedColor);
+      const incomingQuantity = Number(product.quantity) || 1;
+      if (product.is_customized && getCustomizedCartQuantity(current) + incomingQuantity >= 50) {
+        return current;
+      }
+
+      // Each customized artwork setup has its own key and remains a separate cart line.
+      const productKey = getCartItemKey(product);
+      const existing = current.find(item => getCartItemKey(item) === productKey);
       const currentQty = existing ? existing.quantity : 0;
       if (product.product_type === 'physical' && product.stock !== undefined && currentQty >= product.stock) {
         return current;
       }
       const newCart = existing
-        ? current.map(i => i.id === product.id && i.selectedSize === product.selectedSize && i.selectedColor === product.selectedColor ? { ...i, quantity: i.quantity + (product.quantity || 1) } : i)
-        : [...current, { ...product, quantity: product.quantity || 1 }];
+        ? current.map(item => (
+          getCartItemKey(item) === productKey
+            ? { ...item, quantity: item.quantity + incomingQuantity }
+            : item
+        ))
+        : [...current, { ...product, quantity: incomingQuantity }];
       persist(newCart, cartRecord);
       return newCart;
     });
@@ -79,9 +88,15 @@ export function CartProvider({ children }) {
 
   const updateQuantity = useCallback((itemKey, quantity) => {
     setCart(current => {
-      const newCart = quantity <= 0
+      const currentItem = current.find(item => getCartItemKey(item) === itemKey);
+      let safeQuantity = quantity;
+      if (currentItem?.is_customized && quantity > 0) {
+        const otherCustomizedQuantity = getCustomizedCartQuantity(current) - Number(currentItem.quantity || 0);
+        safeQuantity = Math.min(quantity, Math.max(1, 49 - otherCustomizedQuantity));
+      }
+      const newCart = safeQuantity <= 0
         ? current.filter(i => getCartItemKey(i) !== itemKey)
-        : current.map(i => getCartItemKey(i) === itemKey ? { ...i, quantity } : i);
+        : current.map(i => getCartItemKey(i) === itemKey ? { ...i, quantity: safeQuantity } : i);
       persist(newCart, cartRecord);
       return newCart;
     });

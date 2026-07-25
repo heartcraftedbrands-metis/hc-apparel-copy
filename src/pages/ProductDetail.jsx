@@ -3,13 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, MessageSquare, Package, ArrowLeft, Star, Sparkles, Minus, Plus, Truck, Shield, Scissors, Bug } from "lucide-react";
+import { ShoppingCart, Package, ArrowLeft, Star, Sparkles, Minus, Plus, Truck, Shield, Scissors, Bug } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
-import { createOrderHelpUrl } from "@/lib/orderHelp";
 import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -340,18 +340,6 @@ export default function ProductDetail() {
     : (product?.stock ?? 0) > 0;
   const canAddToCart = !!(selectedColor && selectedSize && selectedVariant && inStock);
   const canPreviewDraft = isDraftPreview && isAdmin && product?.visibility === 'draft';
-  const orderHelpUrl = createOrderHelpUrl({
-    product: cleanProductName(product?.name || ''),
-    productId: product?.id,
-    brand: product?.brand,
-    styleNumber: product?.style_number,
-    imageUrl: displayImage,
-    quantity,
-    color: selectedVariant?.color || selectedColor,
-    size: selectedVariant?.size || selectedSize,
-    sku: selectedVariant?.sku,
-  });
-
   const handleAddToCart = () => {
     if (!canAddToCart) return;
     const cartImage = variantImage || colorImage || productMainImage || null;
@@ -595,16 +583,29 @@ export default function ProductDetail() {
               <p className="text-muted-foreground leading-relaxed text-sm border-t pt-4">{product.description}</p>
             )}
 
-            {/* Soft Launch Ordering Note */}
+            {/* Ordering Note */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-primary mb-1">Soft Launch Ordering</p>
+              <p className="text-sm font-semibold text-primary mb-1">Custom Garment Ordering</p>
               <p className="text-sm text-foreground">
-                1–49 items: Request Order Help. 50+ items: use Bulk Quote 50+ for custom pricing.
+                Customize and add 1–49 garments to cart. Orders of 50 or more require Bulk Quote 50+.
               </p>
             </div>
 
             {/* CTA */}
             <div className="flex flex-col gap-2.5 pt-2">
+              {isPublicProduct(product) && (
+                <ProductCustomizationDialog
+                  product={product}
+                  initialColor={selectedColor}
+                  initialSize={selectedSize}
+                  initialQuantity={quantity}
+                  trigger={(
+                    <Button size="lg" type="button" className="w-full text-base font-bold gap-2">
+                      <ShoppingCart className="w-5 h-5" /> Customize &amp; Add to Cart
+                    </Button>
+                  )}
+                />
+              )}
               {canPreviewDraft && (
                 <Button
                   size="lg"
@@ -616,11 +617,6 @@ export default function ProductDetail() {
                   <ShoppingCart className="w-5 h-5" /> {buttonLabel}
                 </Button>
               )}
-              <Link to={orderHelpUrl} className="block">
-                <Button size="lg" className="w-full text-base font-bold gap-2">
-                  <MessageSquare className="w-5 h-5" /> Request Order Help
-                </Button>
-              </Link>
               <Link to="/Contact" className="block">
                 <Button size="lg" variant="outline" className="w-full gap-2">
                   Contact Support

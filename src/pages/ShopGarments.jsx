@@ -2,10 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, MessageSquare, Search, SlidersHorizontal, Sparkles, Star, X } from 'lucide-react';
-import { toast } from 'sonner';
 
 import { base44 } from '@/api/base44Client';
-import { useCart } from '@/components/shop/CartContext';
 import GarmentProductCard from '@/components/shop/GarmentProductCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -313,7 +311,6 @@ export default function ShopGarments() {
   const [showFilters, setShowFilters] = useState(false);
   const [showAllColors, setShowAllColors] = useState(false);
   const location = useLocation();
-  const { addToCart } = useCart();
 
   useEffect(() => {
     document.title = 'Shop Garments | HC Apparel';
@@ -566,10 +563,6 @@ export default function ShopGarments() {
                   <GarmentProductCard
                     key={product.id}
                     product={product}
-                    onAddToCart={() => {
-                      addToCart(product);
-                      toast.success(`${product.name} added to cart!`);
-                    }}
                   />
                 ))}
               </div>

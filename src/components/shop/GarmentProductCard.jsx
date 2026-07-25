@@ -4,8 +4,9 @@ import { ShoppingCart, Eye, Star, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 
-export default function GarmentProductCard({ product, onAddToCart }) {
+export default function GarmentProductCard({ product }) {
   const [imgError, setImgError] = useState(false);
 
   const catLabel = getStorefrontCategoryLabel(product);
@@ -104,11 +105,14 @@ export default function GarmentProductCard({ product, onAddToCart }) {
               <Eye className="w-3.5 h-3.5" /> View Product
             </Button>
           </Link>
-          <Link to={`/ProductDetail?id=${product.id}`} className="block">
-            <Button size="sm" className="w-full h-8 gap-1 text-xs">
-              <ShoppingCart className="w-3.5 h-3.5" /> Customize &amp; Add to Cart
-            </Button>
-          </Link>
+          <ProductCustomizationDialog
+            product={product}
+            trigger={(
+              <Button size="sm" className="w-full h-8 gap-1 text-xs">
+                <ShoppingCart className="w-3.5 h-3.5" /> Customize &amp; Add to Cart
+              </Button>
+            )}
+          />
         </div>
       </div>
     </div>
