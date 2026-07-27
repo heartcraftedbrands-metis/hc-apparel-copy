@@ -91,8 +91,14 @@ export default function OrderConfirmation() {
         {/* Header */}
         <div className="text-center mb-8">
           <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
-          <h1 className="text-3xl font-bold mb-2">Order Confirmed!</h1>
-          <p className="text-gray-600">Thank you for your purchase</p>
+          <h1 className="text-3xl font-bold mb-2">
+            {order?.payment_status === 'paid' ? 'Payment Confirmed!' : 'Order Received'}
+          </h1>
+          <p className="text-gray-600">
+            {order?.payment_status === 'paid'
+              ? 'Your paid customized order is ready for preparation.'
+              : 'Payment confirmation is still required.'}
+          </p>
         </div>
 
         {/* Payment Status Message */}
@@ -237,6 +243,22 @@ export default function OrderConfirmation() {
                         <p className="font-medium">{item.product_name}</p>
                         {item.color && <p className="text-xs text-gray-500">Color: {item.color}</p>}
                         {item.size && <p className="text-xs text-gray-500">Size: {item.size}</p>}
+                        {item.artwork_file_name && <p className="text-xs text-gray-500">Artwork: {item.artwork_file_name}</p>}
+                        {item.decoration_method && (
+                          <p className="text-xs text-gray-500">
+                            Decoration: {item.decoration_method.replace(/_/g, ' ')}
+                          </p>
+                        )}
+                        {item.print_placement && (
+                          <p className="text-xs text-gray-500">
+                            Placement: {item.print_placement.replace(/_/g, ' ')}
+                          </p>
+                        )}
+                        {item.print_size_option && (
+                          <p className="text-xs text-gray-500">
+                            Print size: {item.print_size_option.replace(/_/g, ' ')}
+                          </p>
+                        )}
                         <p className="text-xs text-gray-500 mt-1">Qty: {item.quantity}</p>
                       </div>
                       <div className="text-right">
@@ -307,7 +329,7 @@ export default function OrderConfirmation() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-gray-600">
-                Your physical items will be prepared and shipped soon. You'll receive a shipping confirmation email with tracking information.
+                Your physical items will move into preparation after payment confirmation and artwork review.
               </p>
             </CardContent>
           </Card>
@@ -334,10 +356,12 @@ export default function OrderConfirmation() {
           </Link>
         </div>
 
-        {/* Confirmation Message */}
+        {/* Notification draft status */}
         <div className="mt-8 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
           <p className="text-sm text-green-700">
-            A confirmation email has been sent to <strong>{order?.customer_email}</strong>
+            {order?.payment_status === 'paid'
+              ? <>Order confirmation and artwork-received notification drafts are prepared for <strong>{order?.customer_email}</strong>. Nothing is sent automatically unless email delivery is configured.</>
+              : <>Payment is not yet confirmed. No vendor order has been created or submitted.</>}
           </p>
         </div>
       </div>

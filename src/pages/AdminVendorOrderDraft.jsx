@@ -24,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
 import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
+import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
 
 const emptyItem = () => ({
   product_name: '',
@@ -39,31 +40,13 @@ const emptyItem = () => ({
   notes: '',
 });
 
-const addressValue = (address, ...keys) => {
-  for (const key of keys) {
-    if (address?.[key]) return address[key];
-  }
-  return '';
-};
-
 function validationWarnings(draft) {
-  const warnings = [];
+  const warnings = getVendorDraftWarnings(draft);
   const items = Array.isArray(draft?.items) ? draft.items : [];
-  if (!items.length) warnings.push('No product items');
-  if (items.some((item) => !String(item.sku || '').trim())) warnings.push('Missing SKU');
   if (items.some((item) => !String(item.size || '').trim())) warnings.push('Missing size');
   if (items.some((item) => !String(item.color || '').trim())) warnings.push('Missing color');
-  if (items.some((item) => Number(item.quantity) <= 0)) warnings.push('Missing quantity');
-  const address = draft?.shipping_address || {};
-  if (
-    !addressValue(address, 'street', 'line1', 'address1') ||
-    !address.city ||
-    !address.state ||
-    !addressValue(address, 'zip', 'postal_code') ||
-    !draft?.shipping_method
-  ) warnings.push('Missing shipping address or shipping method');
-  if (draft?.payment_status !== 'paid') warnings.push('Unpaid order');
-  return warnings;
+  if (!draft?.shipping_method) warnings.push('Missing shipping method');
+  return [...new Set(warnings)];
 }
 
 export default function AdminVendorOrderDraft() {

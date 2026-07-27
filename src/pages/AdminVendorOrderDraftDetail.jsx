@@ -16,6 +16,7 @@ import ProductionPacket from '@/components/orders/ProductionPacket';
 import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { format } from 'date-fns';
+import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
 
 const STATUS_MAP = {
   draft:               { label: 'Draft',                color: 'bg-gray-100 text-gray-600' },
@@ -60,6 +61,10 @@ function ItemWarnings({ item }) {
   if (!item.sku)               warns.push('SKU missing — do not order until fixed.');
   if (!item.image_url)         warns.push('Image missing — verify garment manually.');
   if (!item.color || !item.size) warns.push('Color/Size missing — do not order until fixed.');
+  if (!item.artwork_file_url) warns.push('Artwork missing - vendor draft is incomplete.');
+  if (!item.decoration_method) warns.push('Decoration method missing - vendor draft is incomplete.');
+  if (!item.print_placement) warns.push('Print placement missing - vendor draft is incomplete.');
+  if (Number(item.quantity) <= 0) warns.push('Quantity missing - vendor draft is incomplete.');
   if (!warns.length) return null;
   return (
     <div className="mt-2 space-y-1">
@@ -410,6 +415,7 @@ export default function AdminVendorOrderDraftDetail() {
   const items = draft.items || [];
   const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
   const anyWarn = draft.has_sku_warnings || draft.has_image_warnings || draft.has_missing_warnings;
+  const checkoutWarnings = getVendorDraftWarnings(draft);
 
   const draftTemplateVars = {
     customer_name: draft.customer_name || '',
@@ -438,6 +444,17 @@ export default function AdminVendorOrderDraftDetail() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-8 space-y-8">
+
+        {checkoutWarnings.length > 0 && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            <p className="mb-2 flex items-center gap-2 font-bold">
+              <AlertTriangle className="h-4 w-4" /> Paid-order draft warnings
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm">
+              {checkoutWarnings.map(warning => <li key={warning}>{warning}</li>)}
+            </ul>
+          </div>
+        )}
 
         {/* Action Bar */}
         <div className="flex flex-wrap gap-2">

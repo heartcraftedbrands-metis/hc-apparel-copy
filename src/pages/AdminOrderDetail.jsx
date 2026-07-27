@@ -134,6 +134,7 @@ export default function AdminOrderDetail() {
   const [shipNoTracking, setShipNoTracking] = useState(false);
   const [savingShipment, setSavingShipment] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState(null);
+  const [creatingSafeDraft, setCreatingSafeDraft] = useState(false);
 
   const handleRepairGarmentItems = async () => {
     if (!form?.order_items?.length) return;
@@ -236,6 +237,28 @@ export default function AdminOrderDetail() {
   }, [order]);
 
   const set = (k) => (e) => setForm(p => ({ ...p, [k]: e?.target ? e.target.value : e }));
+
+  const handleCreateSafeVendorDraft = async () => {
+    if (form?.payment_status !== 'paid') {
+      toast.error('Payment must be confirmed before creating a vendor order draft.');
+      return;
+    }
+    setCreatingSafeDraft(true);
+    try {
+      const { data } = await base44.functions.invoke('createVendorDraftFromPaidOrder', {
+        order_id: form.id,
+      });
+      await qc.invalidateQueries({ queryKey: ['vendor-drafts-for-order', orderId] });
+      await refetchOrder();
+      toast.success(data.created
+        ? 'Safe vendor draft created. No S&S order was placed.'
+        : 'This paid order already has a safe vendor draft.');
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setCreatingSafeDraft(false);
+    }
+  };
 
   const handleMarkShipped = async () => {
     if (!form.tracking_number?.trim() && !shipNoTracking) {
@@ -1070,6 +1093,30 @@ export default function AdminOrderDetail() {
                   draftId={linkedVendorDrafts[0].id}
                   quoteRequestId={linkedVendorDrafts[0].quote_request_id}
                 />
+              </Section>
+            )}
+
+            {linkedVendorDrafts.length === 0 && form.checkout_source === 'customized_small_order' && (
+              <Section title="Paid Order to Vendor Draft" icon={<ClipboardList className="w-4 h-4" />} adminOnly>
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Creates a private, test-only S&S vendor draft with the order artwork, customization,
+                  shipping, and payment details. It cannot place a live vendor order.
+                </p>
+                {form.payment_status !== 'paid' && (
+                  <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Payment must be confirmed before a vendor draft can be created.
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handleCreateSafeVendorDraft}
+                  disabled={form.payment_status !== 'paid' || creatingSafeDraft}
+                >
+                  {creatingSafeDraft
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <ClipboardList className="mr-2 h-4 w-4" />}
+                  Create Vendor Draft
+                </Button>
               </Section>
             )}
 

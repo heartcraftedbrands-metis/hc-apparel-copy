@@ -208,6 +208,12 @@ const functions = {
       submitQuoteRequest: ['submit_quote_request', { payload: body }],
       subscribeNewsletter: ['subscribe_newsletter', { subscriber_email: body.email }],
       trackOrder: ['track_order', { order_fragment: body.order_number, customer_email: body.email }],
+      createSmallOrderCheckout: ['create_small_order_checkout', { payload: body }],
+      getPublicPaymentSettings: ['get_public_payment_settings', {}],
+      createVendorDraftFromPaidOrder: [
+        'create_vendor_draft_from_paid_order',
+        { p_order_id: body.order_id },
+      ],
     }[name];
     if (rpc) {
       const data = requireData(await supabase.rpc(rpc[0], rpc[1]));

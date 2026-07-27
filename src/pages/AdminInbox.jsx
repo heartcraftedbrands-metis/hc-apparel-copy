@@ -320,6 +320,12 @@ export default function AdminInbox() {
         customer_line_total: (item.price || 0) * (item.quantity || 1),
         vendor_cost,
         notes: item.notes || '',
+        artwork_file_url: item.artwork_file_url || '',
+        artwork_file_name: item.artwork_file_name || '',
+        decoration_method: item.decoration_method || '',
+        print_placement: item.print_placement || '',
+        print_size_option: item.print_size_option || '',
+        print_notes: item.print_notes || '',
       });
     }
     return enriched;
@@ -335,50 +341,18 @@ export default function AdminInbox() {
     setCreatingDraft(true);
     try {
       const items = await enrichOrderItems(order.order_items || []);
-
-      const hasSkuWarnings     = items.some(i => !i.sku);
-      const hasImageWarnings   = items.some(i => !i.image_url);
-      const hasMissingWarnings = items.some(i => !i.color || !i.size);
-      const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
-      const orderNum = `#${order.id.slice(-6).toUpperCase()}`;
-      const vendorOrderNumber = `VO-${Date.now().toString().slice(-8)}`;
-
-      const draft = await base44.entities.VendorOrderDraft.create({
-        vendor_order_number: vendorOrderNumber,
-        customer_order_id: order.id,
-        customer_order_number: orderNum,
-        customer_name: order.customer_name,
-        customer_email: order.customer_email,
-        customer_phone: order.customer_phone || '',
-        order_date: order.created_date,
-        vendor_status: 'draft',
-        vendor_name: 'S&S Activewear',
-        workflow_status: 'vendor_order_draft_created',
-        items,
-        shipping_address: order.shipping_address || {},
-        shipping_method: order.shipping_address?.shipping_method || 'standard',
-        garment_cost: items.reduce((sum, item) => sum + ((item.vendor_cost || 0) * (item.quantity || 0)), 0),
-        sale_price: order.total_amount || 0,
-        estimated_profit: order.estimated_profit || 0,
-        payment_status: 'paid',
-        payment_received_at: order.payment_date || new Date().toISOString(),
-        customer_notes: order.notes || '',
-        admin_notes: 'Created from a paid customer order. Review all fields before test validation.',
-        live_submission_enabled: false,
-        safety_mode_message: 'Do Not Submit Live Order Yet',
-        has_sku_warnings: hasSkuWarnings,
-        has_image_warnings: hasImageWarnings,
-        has_missing_warnings: hasMissingWarnings,
-        total_quantity: totalQty,
-        item_count: items.length,
-        notes: '',
+      if (items.some(item => !item.artwork_file_url || !item.decoration_method || !item.print_placement)) {
+        showToast('Artwork and customization fields must be complete before creating a vendor draft.');
+        return;
+      }
+      const { data } = await base44.functions.invoke('createVendorDraftFromPaidOrder', {
+        order_id: order.id,
       });
-
-      // Move customer order fulfillment status to processing
       patchOrder(order.id, { fulfillment_status: 'vendor_order_needed' });
-
-      setDraftCreated({ draftId: draft.id, orderId: order.id });
-      showToast('Vendor Order Draft created. No vendor order has been placed.');
+      setDraftCreated({ draftId: data.draft_id, orderId: order.id });
+      showToast(data.created
+        ? 'Vendor Order Draft created. No vendor order has been placed.'
+        : 'The existing vendor order draft was opened. No vendor order has been placed.');
     } finally {
       setCreatingDraft(false);
     }

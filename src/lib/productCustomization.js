@@ -149,6 +149,8 @@ export function buildCustomizedCartItem(product, customization) {
     product_id: product.id,
     name: product.name,
     product_name: product.name,
+    brand: product.brand || String(product.name || '').split(/\s+/)[0] || '',
+    style_number: product.style_number || product.supplier_sku || '',
     price,
     image_url: variant?.image_url || product.image_url || '',
     selectedColor: variant?.color || customization.selectedColor,
