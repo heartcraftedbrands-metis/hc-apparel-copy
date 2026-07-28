@@ -73,7 +73,7 @@ export default function HomeQuoteRequest() {
               <MessageSquare className="w-7 h-7 text-accent-foreground" />
             </div>
             <h2 className="text-3xl font-bold mb-2">Bulk Quote 50+</h2>
-            <p className="text-muted-foreground">Bulk pricing is for 50 or more items. For 1–49, use Request Order Help on a product page.</p>
+            <p className="text-muted-foreground">Bulk pricing is for 50 or more items. For 1–49, shop blanks or add optional custom printing on a product page.</p>
           </div>
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl border shadow-sm p-8 space-y-4">
             <div className="grid sm:grid-cols-2 gap-4">
@@ -108,7 +108,7 @@ export default function HomeQuoteRequest() {
             <p className={`text-xs ${showQuantityError ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
               {showQuantityError
                 ? BULK_QUOTE_MINIMUM_MESSAGE
-                : '1–49 items = Request Order Help. 50+ items = Bulk Quote.'}
+                : '1–49 items = Shop blanks or add optional printing. 50+ items = Bulk Quote.'}
             </p>
             <div>
               <label className="text-sm font-medium mb-1 block">Project Description</label>

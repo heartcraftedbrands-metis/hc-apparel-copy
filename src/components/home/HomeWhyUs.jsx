@@ -42,7 +42,7 @@ export default function HomeWhyUs() {
               Need your design printed?
             </h3>
             <p className="text-primary-foreground/80 text-sm leading-relaxed mb-8">
-              For 1–49 items, choose a product and use Request Order Help. For 50 or more, start a bulk quote.
+              Buy blanks directly, or add optional custom printing before checkout. For 50 or more, start a bulk quote.
             </p>
             <Link to="/RequestQuote">
               <Button className="bg-accent text-accent-foreground hover:bg-accent/90 font-bold gap-2 px-6">

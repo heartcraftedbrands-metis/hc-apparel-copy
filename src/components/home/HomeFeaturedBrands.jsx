@@ -11,7 +11,7 @@ const FEATURED_BRANDS = [
   {
     name: 'Shaka Wear',
     description: 'Heavyweight streetwear blanks for bold custom looks.',
-    href: '/ShopGarments?brand=shaka-wear',
+    href: '/ShopGarments?brand=shaka_wear',
   },
   {
     name: 'Champion',
