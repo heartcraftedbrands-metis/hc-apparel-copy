@@ -13,6 +13,8 @@ export const SS_ACTIVEWEAR_BRANDS = [
   'Lane Seven',
   'American Apparel',
   'Tultex',
+  'Columbia',
+  'Independent Trading Co',
 ];
 
 export function brandFilterValue(brand) {

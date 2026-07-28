@@ -418,6 +418,7 @@ export default function ShopGarments() {
     't_shirts',
     'hoodies',
     'crewnecks',
+    'outerwear',
     'long_sleeve',
     'tank_tops',
     'womens',

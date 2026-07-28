@@ -211,8 +211,9 @@ export default function AdminSSLaunchBatch() {
                     {workflowStatus.pause_message || 'Product loading is paused. Current catalog is stable.'}
                   </h2>
                   <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                    No Batch 4 can be created. Private QA, post-publish QA, and batch suspension remain available.
-                    S&amp;S API tools remain available only for pricing and inventory checks.
+                    Automatic batches remain disabled. The intentionally controlled cold-weather private batch is the
+                    only exception; it cannot publish without private QA and separate admin approval. Private QA,
+                    post-publish QA, and batch suspension remain available.
                   </p>
                 </div>
               </div>

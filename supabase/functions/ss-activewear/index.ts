@@ -3,6 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const allowedOrigins = new Set([
   'http://127.0.0.1:4174',
   'http://localhost:4174',
+  'https://hc-apparel-copy.vercel.app',
   'https://ilovehcapparel.net',
   'https://www.ilovehcapparel.net',
 ]);
@@ -22,7 +23,21 @@ const approvedBrands = [
   'Lane Seven',
   'American Apparel',
   'Tultex',
+  'Columbia',
+  'Independent Trading Co',
 ];
+
+const coldWeatherBrands = new Set([
+  'Columbia',
+  'Gildan',
+  'Champion',
+  'Lane Seven',
+  'Independent Trading Co',
+  'Comfort Colors',
+  'Tultex',
+  'adidas',
+  'Oakley',
+]);
 
 const normalizeBrand = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const canonicalBrands = new Map(approvedBrands.map((brand) => [normalizeBrand(brand), brand]));
@@ -125,6 +140,19 @@ function collectApprovedStyles(result: unknown) {
   return { counts, samples, styles };
 }
 
+function isColdWeatherStyle(style: Record<string, unknown> & { canonicalBrand: string }) {
+  if (!coldWeatherBrands.has(style.canonicalBrand)) return false;
+  const text = [
+    style.styleName,
+    style.title,
+    style.baseCategory,
+    style.partNumber,
+  ].map((value) => String(value || '').toLowerCase()).join(' ');
+
+  return /(hood|hoodie|fleece|jacket|pullover|outerwear|coat|beanie|hat|cap|crewneck|crew neck|sweatshirt|soft shell|shell|vest)/i
+    .test(text);
+}
+
 function corsHeaders(request: Request) {
   const origin = request.headers.get('origin') || '';
   return {
@@ -174,11 +202,11 @@ Deno.serve(async (request) => {
     return json(request, { error: 'Server configuration error' }, 500);
   }
 
+  const jwt = authorization.replace(/^Bearer\s+/i, '');
   const userClient = createClient(supabaseUrl, publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: authorization } },
   });
-  const jwt = authorization.replace(/^Bearer\s+/i, '');
   const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
   if (authError || !authData.user) {
     return json(request, { error: 'Invalid or expired session' }, 401);
@@ -192,6 +220,8 @@ Deno.serve(async (request) => {
   if (!isAdmin) {
     return json(request, { error: 'Administrator access required' }, 403);
   }
+  const actorUserId = authData.user.id;
+  const actorEmail = authData.user.email || '';
 
   let payload: { action?: string; brand?: string; draft_id?: string };
   try {
@@ -203,6 +233,7 @@ Deno.serve(async (request) => {
     'test_connection',
     'preview_catalog',
     'stage_styles',
+    'stage_cold_weather_styles',
     'sync_brand_products',
     'validate_vendor_order_draft',
   ].includes(payload.action || '')) {
@@ -337,8 +368,8 @@ Deno.serve(async (request) => {
         status: 'running',
         started_at: runStartedAt,
         completed_at: null,
-        owner_user_id: authData.user.id,
-        created_by_email: authData.user.email || '',
+        owner_user_id: actorUserId,
+        created_by_email: actorEmail,
         total_styles: styleIds.length,
         total_skus: 0,
         skipped_rows: 0,
@@ -434,8 +465,8 @@ Deno.serve(async (request) => {
         return {
           style_session_id: latest.import_session_id,
           sync_run_id: syncRun.id,
-          owner_user_id: authData.user.id,
-          created_by_email: authData.user.email || '',
+          owner_user_id: actorUserId,
+          created_by_email: actorEmail,
           fetched_at: fetchedAt,
           brand,
           style_id: styleId,
@@ -584,15 +615,28 @@ Deno.serve(async (request) => {
     }
 
     const result = await response.json();
-    if (payload.action === 'preview_catalog' || payload.action === 'stage_styles') {
+    if (
+      payload.action === 'preview_catalog'
+      || payload.action === 'stage_styles'
+      || payload.action === 'stage_cold_weather_styles'
+    ) {
       const { counts, samples, styles } = collectApprovedStyles(result);
 
-      if (payload.action === 'stage_styles') {
-        const sessionId = `ss-api-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
-        const rows = styles.map((style, index) => ({
+      if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles') {
+        const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
+        const selectedStyles = coldWeatherOnly ? styles.filter(isColdWeatherStyle) : styles;
+        if (selectedStyles.length === 0) {
+          return json(request, { error: 'No eligible cold-weather S&S styles were available' }, 409);
+        }
+
+        const sessionPrefix = coldWeatherOnly ? 'ss-cold-weather' : 'ss-api';
+        const sessionId = `${sessionPrefix}-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
+        const rows = selectedStyles.map((style, index) => ({
           import_session_id: sessionId,
-          file_name: 'ss-activewear-api-v2-styles',
-          total_staged_rows: styles.length,
+          file_name: coldWeatherOnly
+            ? 'ss-activewear-api-v2-cold-weather-styles'
+            : 'ss-activewear-api-v2-styles',
+          total_staged_rows: selectedStyles.length,
           row_number: index + 1,
           raw_row_data: JSON.stringify(style),
           brand: style.canonicalBrand,
@@ -601,8 +645,8 @@ Deno.serve(async (request) => {
           product_category: style.baseCategory || null,
           image_url: imageUrl(style.styleImage),
           row_status: 'pending',
-          owner_user_id: authData.user.id,
-          created_by_email: authData.user.email || '',
+          owner_user_id: actorUserId,
+          created_by_email: actorEmail,
         }));
 
         for (let index = 0; index < rows.length; index += 200) {
@@ -622,6 +666,13 @@ Deno.serve(async (request) => {
           import_session_id: sessionId,
           staged_styles: rows.length,
           approved_brands: approvedBrands.length,
+          cold_weather_only: coldWeatherOnly,
+          brand_counts: approvedBrands
+            .map((brand) => ({
+              brand,
+              styles: selectedStyles.filter((style) => style.canonicalBrand === brand).length,
+            }))
+            .filter(({ styles: count }) => count > 0),
           rate_limit_remaining: response.headers.get('x-rate-limit-remaining'),
           staged_at: new Date().toISOString(),
         });

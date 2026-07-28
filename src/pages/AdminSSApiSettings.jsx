@@ -35,7 +35,7 @@ export default function AdminSSApiSettings() {
     const loadWorkflowStatus = async () => {
       const { data } = await supabase
         .from('ss_catalog_workflow_status')
-        .select('product_loading_paused,pause_message,api_read_checks_enabled')
+        .select('product_loading_paused,pause_message,api_read_checks_enabled,controlled_cold_weather_batch_allowed')
         .eq('id', true)
         .maybeSingle();
 
@@ -116,6 +116,27 @@ export default function AdminSSApiSettings() {
     setStaging(false);
   };
 
+  const handleColdWeatherStage = async () => {
+    if (!window.confirm(
+      'Stage eligible Columbia and approved cold-weather styles as private admin data? Nothing will be published.',
+    )) return;
+    setStaging(true);
+    setStagedResult(null);
+    setStagingError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'stage_cold_weather_styles' },
+    });
+
+    if (invokeError) {
+      setStagingError(await invokeMessage(invokeError, 'Cold-weather staging failed.'));
+    } else if (!data?.staged) {
+      setStagingError(data?.error || 'S&S did not complete the cold-weather staging import.');
+    } else {
+      setStagedResult(data);
+    }
+    setStaging(false);
+  };
+
   return (
     <div className="min-h-screen bg-muted/30">
       <div className="bg-primary text-primary-foreground py-6 px-4">
@@ -145,7 +166,9 @@ export default function AdminSSApiSettings() {
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Connection tests, catalog previews, and private pricing/inventory data refreshes remain available.
-                New product batches cannot be created.
+                Automatic product loading remains disabled.
+                {workflowStatus.controlled_cold_weather_batch_allowed
+                  && ' One controlled private cold-weather batch is allowed and still requires QA and approval.'}
               </p>
             </div>
           </div>
@@ -244,6 +267,17 @@ export default function AdminSSApiSettings() {
                 <Button className="w-full gap-2" onClick={handleStageStyles} disabled={staging}>
                   {staging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
                   {staging ? 'Refreshing private data...' : `Refresh ${preview.matching_styles} styles for data checks`}
+                </Button>
+              )}
+              {workflowStatus?.controlled_cold_weather_batch_allowed && !stagedResult && (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleColdWeatherStage}
+                  disabled={staging}
+                >
+                  {staging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                  {staging ? 'Staging cold-weather catalog...' : 'Stage Columbia + cold-weather styles privately'}
                 </Button>
               )}
               {stagingError && (
