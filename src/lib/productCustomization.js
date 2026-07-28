@@ -1,3 +1,5 @@
+import { getProductPrice } from './shopGarmentFilters.js';
+
 export const ARTWORK_ACCEPT = '.png,.jpg,.jpeg,.pdf,.svg,.ai,.eps,.psd';
 export const ARTWORK_EXTENSIONS = ['png', 'jpg', 'jpeg', 'pdf', 'svg', 'ai', 'eps', 'psd'];
 export const BULK_QUOTE_MESSAGE = 'Orders of 50 or more require a Bulk Quote 50+.';
@@ -141,8 +143,7 @@ export function buildCustomizedCartItem(product, customization) {
     customization.selectedColor,
     customization.selectedSize,
   );
-  const price = variant?.price
-    ?? Number(product?.sale_price ?? product?.price ?? 0);
+  const price = getProductPrice(product) || variant?.price || 0;
 
   return {
     id: product.id,

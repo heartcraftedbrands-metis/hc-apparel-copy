@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart, Eye, Star, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 
 export default function GarmentProductCard({ product }) {
@@ -13,7 +13,7 @@ export default function GarmentProductCard({ product }) {
 
   const colors = product.available_colors || [];
   const sizes = product.available_sizes || [];
-  const displayPrice = product.sale_price || product.price;
+  const displayPrice = getProductPrice(product);
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
   const isCustomPrint = product.product_subtype === 'custom_printed';
@@ -54,6 +54,9 @@ export default function GarmentProductCard({ product }) {
           {isOnSale && (
             <Badge className="bg-red-500 text-white text-xs px-2 py-0.5 w-fit">Sale</Badge>
           )}
+          {product.is_premium && (
+            <Badge className="bg-slate-900 text-white text-xs px-2 py-0.5 w-fit">Premium</Badge>
+          )}
         </div>
       </Link>
 
@@ -70,6 +73,9 @@ export default function GarmentProductCard({ product }) {
             <span className="text-xs text-muted-foreground line-through">${product.price?.toFixed(2)}</span>
           )}
         </div>
+        <p className="text-[11px] text-muted-foreground -mt-1 mb-2">
+          Blank garment · Customization priced separately
+        </p>
 
         {/* Colors preview */}
         {colors.length > 0 && (

@@ -10,6 +10,7 @@
     "lint:fix": "eslint . --fix",
     "test:quote-flow": "node scripts/test_quote_order_flow.mjs",
     "test:shop-filters": "node scripts/test_shop_garment_filters.mjs",
+    "test:storefront-pricing": "node scripts/test_storefront_pricing.mjs",
     "test:customization": "node scripts/test_product_customization.mjs",
     "test:checkout-vendor-draft": "node scripts/test_checkout_vendor_draft_flow.mjs",
     "typecheck": "tsc -p ./jsconfig.json",

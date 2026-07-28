@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
-import { getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
@@ -332,7 +332,7 @@ export default function ProductDetail() {
   const displayImage = variantImage || colorImage || productMainImage || null;
 
   // Price
-  const displayPrice = selectedVariant?.price ?? product?.price ?? 0;
+  const displayPrice = getProductPrice(product) || selectedVariant?.price || 0;
 
   const selectedInventory = selectedVariant?.inventory;
   const inStock = selectedVariant
@@ -449,6 +449,7 @@ export default function ProductDetail() {
                 {catLabel && <Badge className="bg-primary/10 text-primary text-xs">{catLabel}</Badge>}
                 {product.is_featured && <Badge className="bg-accent/20 text-accent-foreground text-xs gap-1"><Sparkles className="w-3 h-3" />Featured</Badge>}
                 {product.is_best_seller && <Badge className="bg-orange-100 text-orange-700 text-xs gap-1"><Star className="w-3 h-3" />Best Seller</Badge>}
+                {product.is_premium && <Badge className="bg-slate-900 text-white text-xs">Premium</Badge>}
                 {isOnSale && <Badge className="bg-red-100 text-red-700 text-xs">On Sale</Badge>}
               </div>
               <h1 className="text-2xl md:text-3xl font-black text-foreground leading-tight">
@@ -461,6 +462,9 @@ export default function ProductDetail() {
               <span className="text-4xl font-black text-primary">${displayPrice.toFixed(2)}</span>
               {isOnSale && <span className="text-xl text-muted-foreground line-through">${product.price?.toFixed(2)}</span>}
             </div>
+            <p className="text-sm text-muted-foreground">
+              Blank garment price. Artwork and decoration are priced separately.
+            </p>
 
             {/* Colors */}
             {variantColors.length > 0 && (
