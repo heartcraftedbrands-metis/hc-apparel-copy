@@ -9,9 +9,10 @@ const hero = read('src/components/home/HomeHero.jsx');
 const brands = read('src/components/home/HomeFeaturedBrands.jsx');
 const home = read('src/pages/Home.jsx');
 
-assert.ok(hero.includes('Premium Apparel Blanks'), 'hero promotes premium apparel blanks');
-assert.ok(hero.includes('Made Simple'), 'hero completes the preferred headline');
+assert.ok(hero.includes('Affordable Apparel Blanks for Brands, Teams &amp; Creators'), 'hero uses the approved affordable apparel headline');
+assert.ok(!hero.includes('Made Simple'), 'hero no longer says Made Simple');
 assert.ok(!hero.includes('Custom Garments'), 'hero no longer says Custom Garments');
+assert.ok(hero.includes('Shop brand-name blanks for creators, brands, families, teams, and businesses'), 'hero uses the approved blank-first subheadline');
 assert.ok(hero.includes('Shop Blanks'), 'primary CTA says Shop Blanks');
 assert.ok(hero.includes('to="/ShopGarments"'), 'Shop Blanks links to the public garment shop');
 assert.ok(hero.includes('Bulk Quote 50+'), 'secondary CTA remains Bulk Quote 50+');

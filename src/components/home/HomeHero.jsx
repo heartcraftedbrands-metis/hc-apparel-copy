@@ -16,11 +16,10 @@ export default function HomeHero() {
             Affordable Brand-Name Blanks
           </span>
           <h1 className="text-4xl md:text-5xl font-black leading-tight mb-5 tracking-tight">
-            Premium Apparel Blanks<br />
-            <span className="text-accent">Made Simple</span>
+            Affordable Apparel Blanks for Brands, Teams &amp; Creators
           </h1>
           <p className="text-lg text-primary-foreground/80 mb-5 max-w-xl leading-relaxed">
-            Shop affordable brand-name blanks for creators, brands, families, teams, and businesses — with custom printing available when you’re ready.
+            Shop brand-name blanks for creators, brands, families, teams, and businesses — with custom printing available when you’re ready.
           </p>
           <p className="mb-10 max-w-xl text-sm text-primary-foreground/70">
             Need printing too? Upload your artwork and customize your order before checkout.
