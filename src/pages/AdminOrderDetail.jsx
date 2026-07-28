@@ -894,7 +894,12 @@ export default function AdminOrderDetail() {
             <OrderHistorySection orderId={form.id} orderNumber={form.id.slice(-8).toUpperCase()} />
 
             {/* Customer Notifications (admin only) */}
-            <CustomerNotificationsSection orderId={form.id} order={form} />
+            <CustomerNotificationsSection
+              orderId={form.id}
+              order={form}
+              vendorDraft={linkedVendorDrafts[0] || null}
+              vendorOrder={linkedVendorOrders[0] || null}
+            />
 
             {/* Internal Notes (admin only) */}
             <Section title="Internal Notes" icon={<StickyNote className="w-4 h-4" />} adminOnly>

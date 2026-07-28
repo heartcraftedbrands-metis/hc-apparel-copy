@@ -239,7 +239,11 @@ export default function AdminVendorOrderDetail() {
             <ProductionPacket order={customerOrder || {}} vendorOrder={vendorOrder} />
 
             {customerOrder && (
-              <CustomerNotificationsSection orderId={customerOrder.id} order={customerOrder} />
+              <CustomerNotificationsSection
+                orderId={customerOrder.id}
+                order={customerOrder}
+                vendorOrder={vendorOrder}
+              />
             )}
 
             {/* Customer Shipping Address */}

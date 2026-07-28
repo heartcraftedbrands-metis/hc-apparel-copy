@@ -13,6 +13,7 @@
     "test:storefront-pricing": "node scripts/test_storefront_pricing.mjs",
     "test:customization": "node scripts/test_product_customization.mjs",
     "test:checkout-vendor-draft": "node scripts/test_checkout_vendor_draft_flow.mjs",
+    "test:notification-workflow": "node scripts/test_customer_notification_workflow.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },

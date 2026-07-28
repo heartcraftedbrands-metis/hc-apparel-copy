@@ -14,24 +14,37 @@ import {
   PRODUCTION_NOTIFICATION_STATUSES,
   PRODUCTION_STATUSES,
   PRODUCTION_STATUS_LABELS,
+  canTransitionProductionStatus,
 } from '@/lib/productionWorkflow';
 
-const PAID_EXEMPT_STATUSES = new Set(['order_received', 'issue_on_hold', 'cancelled']);
+const PAID_EXEMPT_STATUSES = new Set(['order_received', 'issue_on_hold', 'cancelled', 'refunded']);
 
-const orderPatchForStatus = (status, trackingNumber, carrier, holdReason) => {
+const orderPatchForStatus = (
+  status,
+  trackingNumber,
+  carrier,
+  holdReason,
+  artworkNeedsCorrection,
+  artworkAttention,
+) => {
   const patch = {
     production_status: status,
     production_hold_reason: status === 'issue_on_hold' ? holdReason.trim() : null,
+    artwork_needs_correction: status === 'artwork_under_review' && artworkNeedsCorrection,
+    artwork_attention_notes: status === 'artwork_under_review' && artworkNeedsCorrection
+      ? artworkAttention.trim()
+      : null,
   };
   if (trackingNumber.trim()) patch.tracking_number = trackingNumber.trim();
   if (carrier.trim()) patch.tracking_carrier = carrier.trim();
-  if (status === 'payment_confirmed') patch.status = 'paid';
+  if (status === 'payment_confirmed') Object.assign(patch, { status: 'paid', payment_status: 'paid' });
   if (status === 'sent_to_production') patch.status = 'in_production';
   if (status === 'shipped') Object.assign(patch, { status: 'shipped', fulfillment_status: 'shipped' });
   if (status === 'delivered') patch.fulfillment_status = 'delivered';
   if (status === 'completed') Object.assign(patch, { status: 'completed', fulfillment_status: 'completed' });
   if (status === 'issue_on_hold') patch.fulfillment_status = 'issue_hold';
   if (status === 'cancelled') patch.status = 'canceled';
+  if (status === 'refunded') Object.assign(patch, { status: 'refunded', payment_status: 'refunded' });
   return patch;
 };
 
@@ -46,6 +59,12 @@ export default function ProductionWorkflowPanel({
   const [trackingNumber, setTrackingNumber] = useState(order?.tracking_number || vendorDraft?.tracking_number || vendorOrder?.tracking_number || '');
   const [carrier, setCarrier] = useState(order?.tracking_carrier || vendorDraft?.tracking_carrier || vendorOrder?.tracking_carrier || '');
   const [holdReason, setHoldReason] = useState(order?.production_hold_reason || vendorDraft?.production_hold_reason || vendorOrder?.production_hold_reason || '');
+  const [artworkNeedsCorrection, setArtworkNeedsCorrection] = useState(Boolean(
+    order?.artwork_needs_correction || vendorDraft?.artwork_needs_correction || vendorOrder?.artwork_needs_correction,
+  ));
+  const [artworkAttention, setArtworkAttention] = useState(
+    order?.artwork_attention_notes || vendorDraft?.artwork_attention_notes || vendorOrder?.artwork_attention_notes || '',
+  );
   const [adminNote, setAdminNote] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -91,6 +110,10 @@ export default function ProductionWorkflowPanel({
   };
 
   const saveStatus = async () => {
+    if (!canTransitionProductionStatus(currentStatus, selectedStatus)) {
+      toast.error('The order must be shipped or delivered before it can be completed.');
+      return;
+    }
     if (!PAID_EXEMPT_STATUSES.has(selectedStatus) && order?.payment_status !== 'paid') {
       toast.error('Payment must be confirmed before advancing production.');
       return;
@@ -103,12 +126,23 @@ export default function ProductionWorkflowPanel({
       toast.error('Enter an on-hold reason.');
       return;
     }
+    if (selectedStatus === 'artwork_under_review' && artworkNeedsCorrection && !artworkAttention.trim()) {
+      toast.error('Describe what needs attention in the artwork.');
+      return;
+    }
 
     setSaving(true);
     try {
       let updatedOrder = order;
       if (order?.id) {
-        const patch = orderPatchForStatus(selectedStatus, trackingNumber, carrier, holdReason);
+        const patch = orderPatchForStatus(
+          selectedStatus,
+          trackingNumber,
+          carrier,
+          holdReason,
+          artworkNeedsCorrection,
+          artworkAttention,
+        );
         if (adminNote.trim()) {
           const stamp = format(new Date(), 'MMM d, yyyy h:mm a');
           patch.internal_notes = `${order.internal_notes || ''}${order.internal_notes ? '\n\n' : ''}[${stamp}] ${adminNote.trim()}`;
@@ -118,6 +152,10 @@ export default function ProductionWorkflowPanel({
       const linkedPatch = {
         production_status: selectedStatus,
         production_hold_reason: selectedStatus === 'issue_on_hold' ? holdReason.trim() : null,
+        artwork_needs_correction: selectedStatus === 'artwork_under_review' && artworkNeedsCorrection,
+        artwork_attention_notes: selectedStatus === 'artwork_under_review' && artworkNeedsCorrection
+          ? artworkAttention.trim()
+          : null,
         ...(trackingNumber.trim() ? { tracking_number: trackingNumber.trim() } : {}),
         ...(carrier.trim() ? { tracking_carrier: carrier.trim() } : {}),
       };
@@ -177,6 +215,31 @@ export default function ProductionWorkflowPanel({
             <Textarea className="mt-1" value={holdReason} onChange={(event) => setHoldReason(event.target.value)} rows={2} />
           </div>
         )}
+        {selectedStatus === 'artwork_under_review' && (
+          <div className="sm:col-span-2 space-y-2 rounded-lg border bg-white p-3">
+            <label className="flex items-center gap-2 text-xs font-medium">
+              <input
+                type="checkbox"
+                checked={artworkNeedsCorrection}
+                onChange={(event) => setArtworkNeedsCorrection(event.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+              Artwork needs a customer correction
+            </label>
+            {artworkNeedsCorrection && (
+              <div>
+                <Label className="text-xs text-muted-foreground">What Needs Attention *</Label>
+                <Textarea
+                  className="mt-1"
+                  value={artworkAttention}
+                  onChange={(event) => setArtworkAttention(event.target.value)}
+                  rows={2}
+                  placeholder="Customer-facing correction details included in the notification draft"
+                />
+              </div>
+            )}
+          </div>
+        )}
         <div className="sm:col-span-2">
           <Label className="text-xs text-muted-foreground">Admin Note</Label>
           <Textarea className="mt-1" value={adminNote} onChange={(event) => setAdminNote(event.target.value)} rows={2} placeholder="Optional internal note recorded with this update" />
@@ -223,4 +286,3 @@ export default function ProductionWorkflowPanel({
     </section>
   );
 }
-

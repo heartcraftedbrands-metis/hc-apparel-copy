@@ -779,7 +779,11 @@ export default function AdminVendorOrderDraftDetail() {
         />
 
         {customerOrder && (
-          <CustomerNotificationsSection orderId={customerOrder.id} order={customerOrder} />
+          <CustomerNotificationsSection
+            orderId={customerOrder.id}
+            order={customerOrder}
+            vendorDraft={draft}
+          />
         )}
 
         {/* Generate Message */}
