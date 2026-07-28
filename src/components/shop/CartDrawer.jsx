@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/com
 import {
   BULK_QUOTE_MESSAGE,
   getCartItemKey,
-  getCustomizedCartQuantity,
+  getSmallOrderCartQuantity,
 } from '@/lib/productCustomization';
 import { createPageUrl } from '@/utils';
 
@@ -17,8 +17,8 @@ const readableOption = (value) => String(value || '')
 
 export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, onRemoveItem }) {
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const customizedQuantity = getCustomizedCartQuantity(cart);
-  const bulkQuoteRequired = customizedQuantity >= 50;
+  const garmentQuantity = getSmallOrderCartQuantity(cart);
+  const bulkQuoteRequired = garmentQuantity >= 50;
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
@@ -87,7 +87,7 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                           variant="outline"
                           className="h-7 w-7"
                           onClick={() => onUpdateQuantity(itemKey, item.quantity + 1)}
-                          disabled={item.is_customized && customizedQuantity >= 49}
+                          disabled={(item.product_type || 'physical') === 'physical' && garmentQuantity >= 49}
                         >
                           <Plus className="h-3 w-3" />
                         </Button>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
-import { getCartItemKey, getCustomizedCartQuantity } from '@/lib/productCustomization';
+import { getCartItemKey, getSmallOrderCartQuantity } from '@/lib/productCustomization';
 
 const CartContext = createContext(null);
 
@@ -63,7 +63,10 @@ export function CartProvider({ children }) {
   const addToCart = useCallback((product) => {
     setCart(current => {
       const incomingQuantity = Number(product.quantity) || 1;
-      if (product.is_customized && getCustomizedCartQuantity(current) + incomingQuantity >= 50) {
+      if (
+        (product.product_type || 'physical') === 'physical'
+        && getSmallOrderCartQuantity(current) + incomingQuantity >= 50
+      ) {
         return current;
       }
 
@@ -90,9 +93,9 @@ export function CartProvider({ children }) {
     setCart(current => {
       const currentItem = current.find(item => getCartItemKey(item) === itemKey);
       let safeQuantity = quantity;
-      if (currentItem?.is_customized && quantity > 0) {
-        const otherCustomizedQuantity = getCustomizedCartQuantity(current) - Number(currentItem.quantity || 0);
-        safeQuantity = Math.min(quantity, Math.max(1, 49 - otherCustomizedQuantity));
+      if ((currentItem?.product_type || 'physical') === 'physical' && quantity > 0) {
+        const otherGarmentQuantity = getSmallOrderCartQuantity(current) - Number(currentItem.quantity || 0);
+        safeQuantity = Math.min(quantity, Math.max(1, 49 - otherGarmentQuantity));
       }
       const newCart = safeQuantity <= 0
         ? current.filter(i => getCartItemKey(i) !== itemKey)

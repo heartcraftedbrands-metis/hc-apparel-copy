@@ -10,6 +10,7 @@ import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
 import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
+import { isBlankFirstProduct } from "@/lib/productCustomization";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -385,6 +386,7 @@ export default function ProductDetail() {
 
   const cats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
   const catLabel = getStorefrontCategoryLabel(product);
+  const blankFirst = isBlankFirstProduct(product);
 
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
@@ -524,8 +526,6 @@ export default function ProductDetail() {
                       ? availableSizesForColor.includes(normS) && Boolean(v) && (v.inventory == null || v.inventory > 0)
                       : true;
                     const isSelected = normalize(selectedSize) === normS;
-                    const vPrice = v?.price;
-
                     return (
                       <button
                         key={i}
@@ -541,9 +541,6 @@ export default function ProductDetail() {
                         }`}
                       >
                         {s}
-                        {vPrice != null && vPrice !== product.price && available && !isSelected && (
-                          <span className="text-xs ml-1 opacity-60">${vPrice.toFixed(2)}</span>
-                        )}
                       </button>
                     );
                   })}
@@ -589,9 +586,13 @@ export default function ProductDetail() {
 
             {/* Ordering Note */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-primary mb-1">Custom Garment Ordering</p>
+              <p className="text-sm font-semibold text-primary mb-1">
+                {blankFirst ? 'Blank Apparel Ordering' : 'Custom Garment Ordering'}
+              </p>
               <p className="text-sm text-foreground">
-                Customize and add 1–49 garments to cart. Orders of 50 or more require Bulk Quote 50+.
+                {blankFirst
+                  ? 'Buy this garment blank, or choose optional custom printing before checkout. Orders of 50 or more require Bulk Quote 50+.'
+                  : 'Customize and add 1–49 garments to cart. Orders of 50 or more require Bulk Quote 50+.'}
               </p>
             </div>
 
@@ -603,9 +604,10 @@ export default function ProductDetail() {
                   initialColor={selectedColor}
                   initialSize={selectedSize}
                   initialQuantity={quantity}
+                  blankFirst={blankFirst}
                   trigger={(
                     <Button size="lg" type="button" className="w-full text-base font-bold gap-2">
-                      <ShoppingCart className="w-5 h-5" /> Customize &amp; Add to Cart
+                      <ShoppingCart className="w-5 h-5" /> {blankFirst ? 'Add Blank to Cart' : 'Customize & Add to Cart'}
                     </Button>
                   )}
                 />

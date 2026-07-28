@@ -55,6 +55,21 @@ assert.ok(
   'cart with missing artwork cannot checkout',
 );
 assert.deepEqual(validateCheckoutCart([completeItem]), [], 'complete customization reaches checkout');
+const blankItem = {
+  ...completeItem,
+  is_customized: false,
+  purchase_mode: 'blank',
+  artwork_file_url: '',
+  artwork_file_name: '',
+  decoration_method: '',
+  print_placement: '',
+  print_size_option: '',
+};
+assert.deepEqual(
+  validateCheckoutCart([blankItem]),
+  [],
+  'blank apparel checkout does not require artwork or decoration',
+);
 assert.deepEqual(validateCheckoutCustomer(customer), [], 'complete customer and addresses pass');
 
 const payload = buildSmallOrderCheckoutPayload([completeItem], customer);
@@ -65,6 +80,9 @@ assert.equal(payload.items[0].print_size_option, 'standard_front');
 assert.equal(payload.items[0].style_number, '5000');
 assert.equal(payload.shipping_address.zip, '43215');
 assert.equal(payload.order_total, 12.99);
+const blankPayload = buildSmallOrderCheckoutPayload([blankItem], customer);
+assert.equal(blankPayload.items[0].purchase_mode, 'blank');
+assert.equal(blankPayload.items[0].is_customized, false);
 
 assert.ok(
   getVendorDraftWarnings({ items: [completeItem], shipping_address: customer.shipping_address, payment_status: 'unpaid' })
@@ -76,9 +94,18 @@ assert.deepEqual(
   [],
   'paid complete draft has no checkout warnings',
 );
+assert.deepEqual(
+  getVendorDraftWarnings({
+    items: [blankItem],
+    shipping_address: customer.shipping_address,
+    payment_status: 'paid',
+  }),
+  [],
+  'paid blank-apparel draft does not warn about optional artwork',
+);
 
 const [migration, checkout, adapter, confirmation, adminOrder, createPayment, verifyPayment] = await Promise.all([
-  readFile(new URL('../supabase/migrations/202607240014_checkout_paid_vendor_draft.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../supabase/migrations/202607280010_blank_first_storefront_fix.sql', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/Checkout.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/api/base44Client.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/OrderConfirmation.jsx', import.meta.url), 'utf8'),
@@ -87,21 +114,15 @@ const [migration, checkout, adapter, confirmation, adminOrder, createPayment, ve
   readFile(new URL('../supabase/functions/verifyStripePayment/index.ts', import.meta.url), 'utf8'),
 ]);
 
-assert.match(migration, /create or replace function public\.create_small_order_checkout/);
-assert.match(migration, /payment_status <> 'paid'/);
-assert.match(migration, /Payment must be confirmed before creating a vendor order draft/);
-assert.match(migration, /create trigger orders_create_paid_small_order_draft/);
+assert.match(migration, /create or replace function public\.small_order_required_data_errors/);
+assert.match(migration, /v_is_customized/);
 assert.match(migration, /artwork_file_url/);
 assert.match(migration, /decoration_method/);
 assert.match(migration, /print_placement/);
 assert.match(migration, /print_size_option/);
 assert.match(migration, /shipping_address/);
-assert.match(migration, /order_received_payment_confirmed/);
-assert.match(migration, /artwork_received/);
-assert.match(migration, /Copy-to-email draft only\. Nothing was sent automatically\./);
-assert.match(migration, /live_submission_enabled[\s\S]*false/);
-assert.match(migration, /'ss_order_submitted', false/);
-assert.match(migration, /'zerotouch_submitted', false/);
+assert.match(migration, /v_product\.sale_price, v_product\.price/);
+assert.match(migration, /live_submission_enabled is true/);
 assert.match(migration, /product_loading_paused is not true or max_batch_sequence <> 3/);
 assert.doesNotMatch(migration, /\b(insert into|update|delete from)\s+public\.products\b/i);
 

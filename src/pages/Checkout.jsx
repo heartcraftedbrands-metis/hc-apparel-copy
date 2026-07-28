@@ -257,8 +257,14 @@ export default function Checkout() {
                       </p>
                     </div>
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p>Artwork: {item.artwork_file_name || 'Missing'}</p>
-                      <p>Method: {String(item.decoration_method || '').replace(/_/g, ' ')}</p>
+                      {item.is_customized ? (
+                        <>
+                          <p>Artwork: {item.artwork_file_name || 'Missing'}</p>
+                          <p>Method: {String(item.decoration_method || '').replace(/_/g, ' ')}</p>
+                        </>
+                      ) : (
+                        <p>Blank garment — no artwork required</p>
+                      )}
                       <p>Placement: {String(item.print_placement || '').replace(/_/g, ' ')}</p>
                       <p>Print size: {String(item.print_size_option || '').replace(/_/g, ' ')}</p>
                       {item.print_notes && <p>Notes: {item.print_notes}</p>}

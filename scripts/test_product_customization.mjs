@@ -9,7 +9,9 @@ import {
   getCustomizationColors,
   getCustomizationSizes,
   getCustomizedCartQuantity,
+  getSmallOrderCartQuantity,
   isAcceptedArtworkFile,
+  isBlankFirstProduct,
   validateCustomization,
 } from '../src/lib/productCustomization.js';
 
@@ -81,10 +83,30 @@ assert.equal(item.print_placement, 'front_center', 'cart saves placement');
 assert.equal(item.print_size_option, 'standard_front', 'cart saves print size');
 assert.equal(item.print_notes, complete.print_notes, 'cart saves print notes');
 assert.equal(getCustomizedCartQuantity([item, { quantity: 20 }]), 1, 'only customized garments count toward bulk threshold');
+assert.equal(getSmallOrderCartQuantity([item, { quantity: 20 }]), 21, 'all physical garments count toward the small-order threshold');
 assert.notEqual(
   getCartItemKey(item),
   getCartItemKey({ ...item, customization_id: 'different-artwork' }),
   'different customization setups remain separate cart lines',
+);
+
+const blankForm = {
+  selectedColor: 'Black',
+  selectedSize: 'M',
+  quantity: 1,
+  customization_requested: false,
+};
+assert.deepEqual(validateCustomization(blankForm), [], 'blank garment does not require artwork or decoration');
+const blankItem = buildCustomizedCartItem(product, blankForm);
+assert.equal(blankItem.is_customized, false, 'blank cart line is not marked customized');
+assert.equal(blankItem.purchase_mode, 'blank', 'blank cart line records blank purchase mode');
+assert.equal(blankItem.artwork_file_url, '', 'blank cart line has no artwork requirement');
+assert.equal(blankItem.price, 9.25, 'blank cart line uses storefront product price');
+assert.equal(isBlankFirstProduct(product), true, 'physical blank apparel is blank-first');
+assert.equal(
+  isBlankFirstProduct({ ...product, product_subtype: 'custom_printed' }),
+  false,
+  'custom-print products retain customization-first flow',
 );
 
 const dialogSource = fs.readFileSync(
@@ -99,5 +121,6 @@ assert.match(dialogSource, /bucket:\s*'customer-files'/, 'artwork uses the priva
 assert.match(dialogSource, /Upload your print-ready artwork\. PNG with transparent background is preferred\./);
 assert.match(cardSource, /ProductCustomizationDialog/, 'product-card CTA opens the customization dialog');
 assert.doesNotMatch(cardSource, /Request Order Help/, 'product cards do not show Request Order Help');
+assert.match(cardSource, /Add Blank to Cart/, 'blank product cards use blank-first wording');
 
-console.log('Product customization tests passed (28 assertions).');
+console.log('Product customization and blank-cart tests passed.');

@@ -103,10 +103,16 @@ export function isAcceptedArtworkFile(file) {
   return Boolean(extension && ARTWORK_EXTENSIONS.includes(extension));
 }
 
+export function isBlankFirstProduct(product) {
+  if (!product || (product.product_type || 'physical') !== 'physical') return false;
+  return !['custom_printed', 'print_support'].includes(product.product_subtype);
+}
+
 export function validateCustomization(customization, options = {}) {
   const errors = [];
   const quantity = Number(customization?.quantity);
   const existingCartQuantity = Number(options.existingCartQuantity) || 0;
+  const customizationRequested = customization?.customization_requested !== false;
 
   if (!customization?.selectedColor) errors.push('Select a color.');
   if (!customization?.selectedSize) errors.push('Select a size.');
@@ -119,10 +125,12 @@ export function validateCustomization(customization, options = {}) {
   ) {
     errors.push(BULK_QUOTE_MESSAGE);
   }
-  if (!customization?.decoration_method) errors.push('Select a decoration method.');
-  if (!customization?.print_placement) errors.push('Select a print placement.');
-  if (!customization?.print_size_option) errors.push('Select a print size.');
-  if (!customization?.artwork_file_url) errors.push('Upload artwork before adding this item to cart.');
+  if (customizationRequested) {
+    if (!customization?.decoration_method) errors.push('Select a decoration method.');
+    if (!customization?.print_placement) errors.push('Select a print placement.');
+    if (!customization?.print_size_option) errors.push('Select a print size.');
+    if (!customization?.artwork_file_url) errors.push('Upload artwork before adding this item to cart.');
+  }
 
   const inventory = options.inventory;
   if (
@@ -144,6 +152,7 @@ export function buildCustomizedCartItem(product, customization) {
     customization.selectedSize,
   );
   const price = getProductPrice(product) || variant?.price || 0;
+  const isCustomized = customization?.customization_requested !== false;
 
   return {
     id: product.id,
@@ -162,15 +171,20 @@ export function buildCustomizedCartItem(product, customization) {
     quantity: Number(customization.quantity),
     product_type: product.product_type || 'physical',
     stock: variant?.inventory ?? product.stock,
-    is_customized: true,
-    customization_id: globalThis.crypto?.randomUUID?.()
-      || `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    artwork_file_url: customization.artwork_file_url,
-    artwork_file_name: customization.artwork_file_name,
-    decoration_method: customization.decoration_method,
-    print_placement: customization.print_placement,
-    print_size_option: customization.print_size_option,
-    print_notes: customization.print_notes?.trim() || '',
+    purchase_mode: isCustomized ? 'customized' : 'blank',
+    is_customized: isCustomized,
+    customization_id: isCustomized
+      ? (
+        globalThis.crypto?.randomUUID?.()
+        || `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      )
+      : '',
+    artwork_file_url: isCustomized ? customization.artwork_file_url : '',
+    artwork_file_name: isCustomized ? customization.artwork_file_name : '',
+    decoration_method: isCustomized ? customization.decoration_method : '',
+    print_placement: isCustomized ? customization.print_placement : '',
+    print_size_option: isCustomized ? customization.print_size_option : '',
+    print_notes: isCustomized ? customization.print_notes?.trim() || '' : '',
   };
 }
 
@@ -186,5 +200,11 @@ export function getCartItemKey(item) {
 export function getCustomizedCartQuantity(cart) {
   return (cart || []).reduce((total, item) => (
     total + (item?.is_customized ? Number(item.quantity) || 0 : 0)
+  ), 0);
+}
+
+export function getSmallOrderCartQuantity(cart) {
+  return (cart || []).reduce((total, item) => (
+    total + ((item?.product_type || 'physical') === 'physical' ? Number(item.quantity) || 0 : 0)
   ), 0);
 }

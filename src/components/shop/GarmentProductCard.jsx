@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
+import { isBlankFirstProduct } from "@/lib/productCustomization";
 
 export default function GarmentProductCard({ product }) {
   const [imgError, setImgError] = useState(false);
@@ -18,6 +19,7 @@ export default function GarmentProductCard({ product }) {
 
   const isCustomPrint = product.product_subtype === 'custom_printed';
   const isPrintSupport = product.product_subtype === 'print_support';
+  const blankFirst = isBlankFirstProduct(product);
 
   return (
     <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 group flex flex-col">
@@ -113,9 +115,10 @@ export default function GarmentProductCard({ product }) {
           </Link>
           <ProductCustomizationDialog
             product={product}
+            blankFirst={blankFirst}
             trigger={(
               <Button size="sm" className="w-full h-8 gap-1 text-xs">
-                <ShoppingCart className="w-3.5 h-3.5" /> Customize &amp; Add to Cart
+                <ShoppingCart className="w-3.5 h-3.5" /> {blankFirst ? 'Add Blank to Cart' : 'Customize & Add to Cart'}
               </Button>
             )}
           />

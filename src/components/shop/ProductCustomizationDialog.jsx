@@ -27,7 +27,7 @@ import {
   findCustomizationVariant,
   getCustomizationColors,
   getCustomizationSizes,
-  getCustomizedCartQuantity,
+  getSmallOrderCartQuantity,
   isAcceptedArtworkFile,
   validateCustomization,
 } from '@/lib/productCustomization';
@@ -36,6 +36,7 @@ const emptyCustomization = {
   selectedColor: '',
   selectedSize: '',
   quantity: 1,
+  customization_requested: true,
   artwork_file_url: '',
   artwork_file_name: '',
   decoration_method: '',
@@ -50,6 +51,7 @@ export default function ProductCustomizationDialog({
   initialColor = '',
   initialSize = '',
   initialQuantity = 1,
+  blankFirst = false,
 }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyCustomization);
@@ -65,10 +67,11 @@ export default function ProductCustomizationDialog({
       selectedColor: initialColor || '',
       selectedSize: initialSize || '',
       quantity: Math.max(1, Number(initialQuantity) || 1),
+      customization_requested: !blankFirst,
     });
     setErrors([]);
     setSignInRequired(false);
-  }, [initialColor, initialQuantity, initialSize, open, product?.id]);
+  }, [blankFirst, initialColor, initialQuantity, initialSize, open, product?.id]);
 
   const colors = useMemo(() => getCustomizationColors(product), [product]);
   const sizes = useMemo(
@@ -79,7 +82,7 @@ export default function ProductCustomizationDialog({
     () => findCustomizationVariant(product, form.selectedColor, form.selectedSize),
     [form.selectedColor, form.selectedSize, product],
   );
-  const existingCartQuantity = getCustomizedCartQuantity(cart);
+  const existingCartQuantity = getSmallOrderCartQuantity(cart);
   const bulkQuoteRequired = (
     Number(form.quantity) >= 50
     || existingCartQuantity + (Number(form.quantity) || 0) >= 50
@@ -139,7 +142,11 @@ export default function ProductCustomizationDialog({
 
     const cartItem = buildCustomizedCartItem(product, form);
     addToCart(cartItem);
-    toast.success(`${product.name} customized and added to cart.`);
+    toast.success(
+      form.customization_requested
+        ? `${product.name} customized and added to cart.`
+        : `${product.name} blank added to cart.`,
+    );
     setOpen(false);
     window.dispatchEvent(new CustomEvent('hc:open-cart'));
   };
@@ -151,9 +158,11 @@ export default function ProductCustomizationDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Customize &amp; Add to Cart</DialogTitle>
+          <DialogTitle>{blankFirst ? 'Add Blank to Cart' : 'Customize & Add to Cart'}</DialogTitle>
           <DialogDescription>
-            Choose the garment options and attach the artwork HC Apparel should print.
+            {blankFirst
+              ? 'Choose your blank garment options. Custom printing is optional.'
+              : 'Choose the garment options and attach the artwork HC Apparel should print.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -214,7 +223,7 @@ export default function ProductCustomizationDialog({
           {bulkQuoteRequired && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">{BULK_QUOTE_MESSAGE}</p>
-              <p className="mt-1">The combined customized garment quantity in this cart must remain between 1 and 49.</p>
+              <p className="mt-1">The combined garment quantity in this cart must remain between 1 and 49.</p>
               <Link to={quoteUrl} onClick={() => setOpen(false)}>
                 <Button type="button" variant="outline" className="mt-3 border-amber-400">
                   Bulk Quote 50+
@@ -223,6 +232,31 @@ export default function ProductCustomizationDialog({
             </div>
           )}
 
+          {blankFirst && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-muted/30 p-4">
+              <input
+                type="checkbox"
+                checked={form.customization_requested}
+                onChange={(event) => {
+                  setForm(current => ({
+                    ...current,
+                    customization_requested: event.target.checked,
+                  }));
+                  setErrors([]);
+                }}
+                className="mt-1 h-4 w-4"
+              />
+              <span>
+                <span className="block text-sm font-semibold">Add custom printing</span>
+                <span className="block text-xs text-muted-foreground">
+                  Need printing? Custom printing is available before checkout.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {form.customization_requested && (
+            <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor={`custom-method-${product?.id}`}>Decoration method *</Label>
@@ -289,6 +323,8 @@ export default function ProductCustomizationDialog({
               </p>
             )}
           </div>
+            </>
+          )}
 
           <div>
             <Label htmlFor={`custom-notes-${product?.id}`}>Customer print notes</Label>
@@ -329,7 +365,7 @@ export default function ProductCustomizationDialog({
             disabled={uploading || bulkQuoteRequired}
           >
             {uploading ? <FileUp className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
-            Add Customized Item to Cart
+            {form.customization_requested ? 'Add Customized Item to Cart' : 'Add Blank to Cart'}
           </Button>
         </div>
       </DialogContent>
