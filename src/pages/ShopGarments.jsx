@@ -417,6 +417,7 @@ export default function ShopGarments() {
     'bags',
     't_shirts',
     'hoodies',
+    'fleece',
     'crewnecks',
     'outerwear',
     'long_sleeve',

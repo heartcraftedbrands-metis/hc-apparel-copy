@@ -6,6 +6,7 @@ export const CATEGORY_FILTERS = [
   { value: 'bags', label: 'Bags' },
   { value: 't_shirts', label: 'T-Shirts' },
   { value: 'hoodies', label: 'Hoodies' },
+  { value: 'fleece', label: 'Fleece' },
   { value: 'crewnecks', label: 'Crewnecks / Sweatshirts' },
   { value: 'outerwear', label: 'Outerwear' },
   { value: 'long_sleeve', label: 'Long Sleeve' },
@@ -21,6 +22,7 @@ export const CATEGORY_FILTERS = [
 export const STOREFRONT_CATEGORY_LABELS = {
   t_shirts: 'T-Shirt',
   hoodies: 'Hoodie',
+  fleece: 'Fleece',
   crewnecks: 'Crewneck / Sweatshirt',
   outerwear: 'Outerwear',
   long_sleeve: 'Long Sleeve T-Shirt',
@@ -49,6 +51,7 @@ const VENDOR_CATEGORY_GROUPS = {
   t_shirts: ['short_sleeve_shirts', 'mens_short_sleeve_shirts', 'womens_short_sleeve_shirts', 't_shirts'],
   long_sleeve: ['long_sleeve_shirts', 'mens_long_sleeve_shirts', 'womens_long_sleeve_shirts', 'youth_long_sleeve_shirts'],
   hoodies: ['hoodies', 'mens_hoodies', 'womens_hoodies', 'youth_hoodies'],
+  fleece: ['fleece', 'pullovers'],
   crewnecks: ['crewnecks', 'mens_crewnecks', 'womens_crewnecks', 'youth_crewnecks', 'sweatshirts'],
   outerwear: [
     'outerwear',
@@ -56,8 +59,6 @@ const VENDOR_CATEGORY_GROUPS = {
     'mens_jackets',
     'womens_jackets',
     'youth_jackets',
-    'fleece',
-    'pullovers',
   ],
   tank_tops: ['tank_tops', 'mens_tank_tops', 'womens_tank_tops', 'youth_tank_tops'],
   sportswear: ['sportswear', 'mens_sportswear', 'womens_sportswear', 'youth_sportswear', 'performance_shirts'],
@@ -260,11 +261,11 @@ export function getStorefrontCategory(product) {
   if (hasAnyTerm(text, ['hoodie', 'hooded', 'pullover hood', 'hooded sweatshirt', 'fleece hood'])) return 'hoodies';
   if (
     hasAnyTerm(text, ['jacket', 'outerwear', 'coat', 'soft shell', 'softshell', 'shell jacket', 'vest'])
-    || (
-      brand === 'columbia'
-      && hasAnyTerm(text, ['fleece', 'pullover', 'quarter zip', 'half zip', 'full zip'])
-    )
   ) return 'outerwear';
+  if (
+    hasAnyTerm(text, ['fleece jacket', 'fleece vest', 'fleece pullover', 'fleece full zip', 'fleece quarter zip'])
+    || (brand === 'columbia' && hasAnyTerm(text, ['fleece', 'pullover', 'quarter zip', 'half zip', 'full zip']))
+  ) return 'fleece';
   if (hasAnyTerm(text, ['crewneck', 'crew neck', 'fleece crew', 'sweatshirt', 'sweater'])) return 'crewnecks';
   if (hasAnyTerm(text, ['tank top', 'tank', 'sleeveless', 'muscle tee', 'muscle shirt'])) return 'tank_tops';
   if (hasAnyTerm(text, ['backpack', 'tote', 'duffel', 'duffle', 'bag'])) return 'bags';
@@ -276,6 +277,7 @@ export function getStorefrontCategory(product) {
 
   // Vendor categories are fallback signals only after stronger title/style rules.
   if (hasAnyVendorCategory(categories, 'hoodies')) return 'hoodies';
+  if (hasAnyVendorCategory(categories, 'fleece')) return 'fleece';
   if (hasAnyVendorCategory(categories, 'outerwear')) return 'outerwear';
   if (hasAnyVendorCategory(categories, 'crewnecks')) return 'crewnecks';
   if (hasAnyVendorCategory(categories, 'tank_tops')) return 'tank_tops';

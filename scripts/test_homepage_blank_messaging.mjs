@@ -20,5 +20,8 @@ assert.ok(hero.includes('to="/RequestQuote"'), 'bulk quote CTA links to the quot
 assert.ok(hero.includes('Upload your artwork'), 'custom printing is retained as secondary support text');
 assert.ok(brands.includes('Columbia') && brands.includes('Shaka Wear') && brands.includes('Champion'), 'required blank brands remain featured');
 assert.ok(home.includes('<HomeFeaturedBrands />'), 'featured brand collections render on the homepage');
+assert.ok(hero.includes('md:grid-cols-2'), 'desktop hero uses a true two-column split');
+assert.ok(hero.includes('data-testid="hero-visual-panel"'), 'hero includes a dedicated visual panel');
+assert.ok(hero.includes("const HERO_BRANDS = ['Columbia', 'Shaka Wear', 'Champion']"), 'hero visual retains Columbia, Shaka Wear, and Champion');
 
-console.log('Homepage blank-first messaging checks passed (10 assertions).');
+console.log('Homepage blank-first split-screen checks passed (13 assertions).');

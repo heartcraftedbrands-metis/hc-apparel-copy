@@ -164,7 +164,7 @@ assert.equal(getStorefrontCategory({ name: 'Lane Seven LS14004', style_number: '
 assert.equal(getStorefrontCategory({ name: 'Independent Trading Co SS4500', style_number: 'SS4500' }), 'hoodies', 'known Independent hoodie styles normalize from style metadata');
 assert.equal(getStorefrontCategory({ name: 'Oakley 22L Sport Backpack' }), 'bags', 'backpacks normalize to Bags');
 assert.equal(getStorefrontCategory({ name: 'Adidas Structured Trucker Cap' }), 'hats', 'caps normalize to Hats');
-assert.equal(getStorefrontCategory({ name: 'Columbia Steens Mountain Fleece Full-Zip 2.0', brand: 'Columbia' }), 'outerwear', 'Columbia fleece normalizes to Outerwear');
+assert.equal(getStorefrontCategory({ name: 'Columbia Steens Mountain Fleece Full-Zip 2.0', brand: 'Columbia' }), 'fleece', 'Columbia fleece normalizes to Fleece');
 assert.equal(getStorefrontCategory({ name: 'Columbia Watertight II Jacket', brand: 'Columbia' }), 'outerwear', 'Columbia jackets normalize to Outerwear');
 assert.equal(getStorefrontCategory({ name: 'Columbia Hooded Fleece Hoodie', brand: 'Columbia' }), 'hoodies', 'Columbia hoodies normalize to Hoodies before the broader fleece rule');
 assert.equal(getStorefrontCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }), 'kids', 'Rabbit Skins products normalize to Youth / Kids');
