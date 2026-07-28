@@ -53,7 +53,7 @@ export default function HomeFeaturedCategories() {
       <div className="container mx-auto px-4">
         <div className="text-center mb-10">
           <h2 className="text-2xl md:text-3xl font-black mb-2">Browse by Category</h2>
-          <p className="text-muted-foreground text-sm">Quality blanks and custom print options for every use case</p>
+          <p className="text-muted-foreground text-sm">Affordable apparel blanks first, with custom printing available when you need it</p>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {CATEGORIES.map((cat) => (

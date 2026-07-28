@@ -13,19 +13,22 @@ export default function HomeHero() {
       <div className="container mx-auto px-4 py-20 md:py-28 relative z-10">
         <div className="max-w-2xl">
           <span className="inline-block bg-accent text-accent-foreground text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-6">
-            Premium Apparel & Custom Printing
+            Affordable Brand-Name Blanks
           </span>
           <h1 className="text-4xl md:text-5xl font-black leading-tight mb-5 tracking-tight">
-            Custom Garments &<br />
-            <span className="text-accent">Printing Made Simple</span>
+            Premium Apparel Blanks<br />
+            <span className="text-accent">Made Simple</span>
           </h1>
-          <p className="text-lg text-primary-foreground/80 mb-10 max-w-xl leading-relaxed">
-            Choose quality blanks, request custom printing, and build apparel for your brand, family, team, or event.
+          <p className="text-lg text-primary-foreground/80 mb-5 max-w-xl leading-relaxed">
+            Shop affordable brand-name blanks for creators, brands, families, teams, and businesses — with custom printing available when you’re ready.
+          </p>
+          <p className="mb-10 max-w-xl text-sm text-primary-foreground/70">
+            Need printing too? Upload your artwork and customize your order before checkout.
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
             <Link to="/ShopGarments">
               <Button size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90 font-bold px-8 text-base gap-2">
-                Shop Garments <ArrowRight className="w-5 h-5" />
+                Shop Blanks <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
             <Link to="/RequestQuote">
