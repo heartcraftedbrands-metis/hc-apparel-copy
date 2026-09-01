@@ -1,5 +1,7 @@
 **Welcome to your Base44 project** 
 
+<!-- Deployment trigger: 2026-09-01 (repository public) -->
+
 **About**
 
 View and Edit  your app on [Base44.com](http://Base44.com) 
