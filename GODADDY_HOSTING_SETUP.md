@@ -188,3 +188,4 @@ This hosting preparation does not change application or backend data:
 - No real S&S order may be placed during setup.
 - The public frontend and domain remain disconnected until final approval.
 
+<!-- Vercel deployment trigger: 2026-09-01 -->
