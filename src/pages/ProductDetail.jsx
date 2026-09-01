@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
-import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 
@@ -195,11 +195,13 @@ function buildVariantMap(product) {
     map[key] = {
       color,
       size,
-      price: entry.price,
+      price: Number(entry.price),
       image_url: entry.image_url || '',
       sku: entry.sku || '',
       inventory: entry.inventory == null ? null : Number(entry.inventory),
       color_hex: entry.color_hex || '',
+      color_code: entry.color_code || '',
+      color_swatch_image: entry.color_swatch_image || '',
     };
   }
   return map;
@@ -224,12 +226,18 @@ function getVariantColors(product) {
     const slashIdx = raw.indexOf(' / ');
     if (slashIdx === -1) continue;
     const color = raw.substring(0, slashIdx).trim();
+    if (!color || ['?', 'unknown', 'color unavailable'].includes(normalize(color))) continue;
     if (!seen.has(color)) {
       seen.add(color);
       colors.push(color);
     }
   }
   return colors;
+}
+
+function getFirstVariantForColor(variantMap, normColor) {
+  return Object.entries(variantMap)
+    .find(([key]) => key.split('|||')[0] === normColor)?.[1] || null;
 }
 
 // Get all sizes available for a given color (normalized)
@@ -333,7 +341,8 @@ export default function ProductDetail() {
   const displayImage = variantImage || colorImage || productMainImage || null;
 
   // Price
-  const displayPrice = getProductPrice(product) || selectedVariant?.price || 0;
+  const priceRange = getProductPriceRange(product);
+  const displayPrice = selectedVariant?.price ?? priceRange.minimum;
 
   const selectedInventory = selectedVariant?.inventory;
   const inStock = selectedVariant
@@ -460,9 +469,18 @@ export default function ProductDetail() {
             </div>
 
             {/* Price */}
-            <div className="flex items-baseline gap-3">
-              <span className="text-4xl font-black text-primary">${displayPrice.toFixed(2)}</span>
-              {isOnSale && <span className="text-xl text-muted-foreground line-through">${product.price?.toFixed(2)}</span>}
+            <div>
+              <p className="mb-1 text-sm font-semibold text-muted-foreground">
+                {selectedVariant
+                  ? 'Selected price'
+                  : priceRange.hasVariablePricing
+                    ? 'Starting at'
+                    : 'Blank garment price'}
+              </p>
+              <div className="flex items-baseline gap-3">
+                <span className="text-4xl font-black text-primary">${displayPrice.toFixed(2)}</span>
+                {isOnSale && <span className="text-xl text-muted-foreground line-through">${product.price?.toFixed(2)}</span>}
+              </div>
             </div>
             <p className="text-sm text-muted-foreground">
               Blank garment price. Artwork and decoration are priced separately.
@@ -477,29 +495,30 @@ export default function ProductDetail() {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {variantColors.map((colorName, i) => {
-                    const { hex, matched } = resolveColorHex(colorName);
+                    const colorVariant = getFirstVariantForColor(variantMap, normalize(colorName));
+                    const { hex } = resolveColorHex(colorName, colorVariant);
                     const isLight = isLightColor(hex);
                     const isSelected = normalize(colorName) === normSelectedColor;
-                    const isUnknown = matched === 'unknown';
                     return (
                       <button
                         key={i}
                         title={colorName}
                         onClick={() => { setSelectedColor(colorName); setSelectedSize(''); }}
-                        className={`w-9 h-9 rounded-full border-2 transition-all shadow-sm flex items-center justify-center relative ${
+                        className={`min-h-10 rounded-full border-2 px-2.5 transition-all shadow-sm flex items-center gap-2 relative ${
                           isSelected
                             ? 'scale-110 shadow-md ring-2 ring-primary/40 border-primary'
                             : isLight
                             ? 'border-gray-400 hover:border-primary/60'
                             : 'border-transparent hover:border-primary/60'
                         }`}
-                        style={{ backgroundColor: hex }}
                       >
+                        <span
+                          className="h-5 w-5 flex-shrink-0 rounded-full border border-black/10"
+                          style={{ backgroundColor: hex }}
+                        />
+                        <span className="text-xs font-medium text-foreground">{colorName}</span>
                         {isSelected && (
-                          <span style={{ color: isLight ? '#111' : '#fff', fontSize: 15, lineHeight: 1, fontWeight: 'bold' }}>✓</span>
-                        )}
-                        {isUnknown && !isSelected && (
-                          <span style={{ color: '#555', fontSize: 10, lineHeight: 1 }}>?</span>
+                          <span className="text-sm font-bold text-primary">✓</span>
                         )}
                       </button>
                     );
@@ -579,10 +598,49 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {/* Description */}
-            {product.description && (
-              <p className="text-muted-foreground leading-relaxed text-sm border-t pt-4">{product.description}</p>
-            )}
+            <div className="space-y-5 border-t pt-5">
+              {product.description && (
+                <section>
+                  <h2 className="mb-2 text-lg font-bold">Description</h2>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                    {product.description}
+                  </p>
+                </section>
+              )}
+              {(product.fabric_material || product.garment_weight || product.fit
+                || (Array.isArray(product.features) && product.features.length > 0)
+                || (Array.isArray(product.vendor_specs) && product.vendor_specs.length > 0)) && (
+                <section>
+                  <h2 className="mb-2 text-lg font-bold">Specs</h2>
+                  <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                    {product.fabric_material && (
+                      <div><dt className="font-semibold">Fabric / material</dt><dd className="text-muted-foreground">{product.fabric_material}</dd></div>
+                    )}
+                    {product.garment_weight && (
+                      <div><dt className="font-semibold">Weight</dt><dd className="text-muted-foreground">{product.garment_weight}</dd></div>
+                    )}
+                    {product.fit && (
+                      <div><dt className="font-semibold">Fit</dt><dd className="text-muted-foreground">{product.fit}</dd></div>
+                    )}
+                    {product.supplier_sku && (
+                      <div><dt className="font-semibold">Style</dt><dd className="text-muted-foreground">{product.supplier_sku}</dd></div>
+                    )}
+                  </dl>
+                  {Array.isArray(product.features) && product.features.length > 0 && (
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {product.features.map(feature => <li key={feature}>{feature}</li>)}
+                    </ul>
+                  )}
+                </section>
+              )}
+              <section>
+                <h2 className="mb-2 text-lg font-bold">Colors &amp; Sizes</h2>
+                <p className="text-sm text-muted-foreground">
+                  {variantColors.length} colors and {product.available_sizes?.length || 0} sizes are currently available.
+                  Select a color and size above for SKU-level price and inventory.
+                </p>
+              </section>
+            </div>
 
             {/* Ordering Note */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4">

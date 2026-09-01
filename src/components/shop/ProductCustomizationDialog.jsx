@@ -31,6 +31,7 @@ import {
   isAcceptedArtworkFile,
   validateCustomization,
 } from '@/lib/productCustomization';
+import { getProductPriceRange } from '@/lib/shopGarmentFilters';
 
 const emptyCustomization = {
   selectedColor: '',
@@ -82,6 +83,8 @@ export default function ProductCustomizationDialog({
     () => findCustomizationVariant(product, form.selectedColor, form.selectedSize),
     [form.selectedColor, form.selectedSize, product],
   );
+  const priceRange = useMemo(() => getProductPriceRange(product), [product]);
+  const displayedPrice = variant?.price ?? priceRange.minimum;
   const existingCartQuantity = getSmallOrderCartQuantity(cart);
   const bulkQuoteRequired = (
     Number(form.quantity) >= 50
@@ -171,6 +174,11 @@ export default function ProductCustomizationDialog({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected product</p>
             <p className="font-semibold">{product?.name}</p>
             {variant?.sku && <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>}
+            <p className="mt-1 text-sm font-semibold text-primary">
+              {variant
+                ? `Selected price: $${displayedPrice.toFixed(2)}`
+                : `${priceRange.hasVariablePricing ? 'Starting at ' : ''}$${displayedPrice.toFixed(2)}`}
+            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">

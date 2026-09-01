@@ -101,7 +101,7 @@ const blankItem = buildCustomizedCartItem(product, blankForm);
 assert.equal(blankItem.is_customized, false, 'blank cart line is not marked customized');
 assert.equal(blankItem.purchase_mode, 'blank', 'blank cart line records blank purchase mode');
 assert.equal(blankItem.artwork_file_url, '', 'blank cart line has no artwork requirement');
-assert.equal(blankItem.price, 9.25, 'blank cart line uses storefront product price');
+assert.equal(blankItem.price, 9.75, 'blank cart line uses selected S&S variant price');
 assert.equal(isBlankFirstProduct(product), true, 'physical blank apparel is blank-first');
 assert.equal(
   isBlankFirstProduct({ ...product, product_subtype: 'custom_printed' }),

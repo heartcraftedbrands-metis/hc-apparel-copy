@@ -28,6 +28,9 @@ export default function AdminSSApiSettings() {
   const [staging, setStaging] = useState(false);
   const [stagedResult, setStagedResult] = useState(null);
   const [stagingError, setStagingError] = useState('');
+  const [contentRefreshing, setContentRefreshing] = useState(false);
+  const [contentRefreshResult, setContentRefreshResult] = useState(null);
+  const [contentRefreshError, setContentRefreshError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -135,6 +138,29 @@ export default function AdminSSApiSettings() {
       setStagedResult(data);
     }
     setStaging(false);
+  };
+
+  const handleContentRefresh = async () => {
+    if (!window.confirm(
+      'Refresh descriptions and manufacturer specifications for existing S&S products? '
+      + 'This does not add, publish, price, or order products.',
+    )) return;
+
+    setContentRefreshing(true);
+    setContentRefreshResult(null);
+    setContentRefreshError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'refresh_public_style_content' },
+    });
+
+    if (invokeError) {
+      setContentRefreshError(await invokeMessage(invokeError, 'S&S content refresh failed.'));
+    } else if (!data?.refreshed) {
+      setContentRefreshError(data?.error || 'S&S did not complete the content refresh.');
+    } else {
+      setContentRefreshResult(data);
+    }
+    setContentRefreshing(false);
   };
 
   return (
@@ -296,6 +322,48 @@ export default function AdminSSApiSettings() {
                 </Alert>
               )}
             </div>
+          )}
+        </div>
+
+        <div className="mt-6 bg-white rounded-2xl border shadow-sm p-6">
+          <div className="flex gap-3">
+            <Database className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-bold">Refresh product descriptions and specs</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Imports S&amp;S style descriptions and manufacturer specification rows for products already in
+                the catalog. This read-only vendor lookup cannot add products, publish products, change prices,
+                or place an order.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            className="w-full mt-5 gap-2"
+            onClick={handleContentRefresh}
+            disabled={contentRefreshing}
+          >
+            {contentRefreshing
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Database className="w-4 h-4" />}
+            {contentRefreshing ? 'Refreshing S&S content...' : 'Refresh S&S descriptions and specs'}
+          </Button>
+          {contentRefreshError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{contentRefreshError}</AlertDescription>
+            </Alert>
+          )}
+          {contentRefreshResult && (
+            <Alert className="mt-4">
+              <CheckCircle2 className="w-4 h-4" />
+              <AlertDescription>
+                Reviewed {contentRefreshResult.products_reviewed} existing products and updated{' '}
+                {contentRefreshResult.products_updated}. Descriptions are available for{' '}
+                {contentRefreshResult.products_with_description}; manufacturer specs are available for{' '}
+                {contentRefreshResult.products_with_specs}. No products were added or published and no S&amp;S
+                order was submitted.
+              </AlertDescription>
+            </Alert>
           )}
         </div>
       </div>

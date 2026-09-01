@@ -181,10 +181,42 @@ export function getProductColors(product) {
   )];
 }
 
-export function getProductPrice(product) {
+export function getProductVariantPrices(product, { inStockOnly = true } = {}) {
+  return asArray(product?.size_prices)
+    .filter(variant => variant && typeof variant === 'object')
+    .filter(variant => {
+      if (!inStockOnly) return true;
+      const inventory = variant.inventory ?? variant.inventory_qty ?? variant.quantity;
+      return inventory === undefined || inventory === null || Number(inventory) > 0;
+    })
+    .map(variant => Number(variant.price))
+    .filter(price => Number.isFinite(price) && price > 0);
+}
+
+export function getProductPriceRange(product) {
+  const variantPrices = getProductVariantPrices(product);
+  if (variantPrices.length) {
+    return {
+      minimum: Math.min(...variantPrices),
+      maximum: Math.max(...variantPrices),
+      hasVariablePricing: new Set(variantPrices.map(price => price.toFixed(2))).size > 1,
+      source: 'variant',
+    };
+  }
+
   const preferred = product?.sale_price ?? product?.price;
   const price = Number(preferred);
-  return Number.isFinite(price) ? price : 0;
+  const fallback = Number.isFinite(price) ? price : 0;
+  return {
+    minimum: fallback,
+    maximum: fallback,
+    hasVariablePricing: false,
+    source: 'product',
+  };
+}
+
+export function getProductPrice(product) {
+  return getProductPriceRange(product).minimum;
 }
 
 export function getProductBrand(product) {

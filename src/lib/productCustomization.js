@@ -151,7 +151,7 @@ export function buildCustomizedCartItem(product, customization) {
     customization.selectedColor,
     customization.selectedSize,
   );
-  const price = getProductPrice(product) || variant?.price || 0;
+  const price = variant?.price ?? getProductPrice(product);
   const isCustomized = customization?.customization_requested !== false;
 
   return {

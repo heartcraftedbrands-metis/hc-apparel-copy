@@ -26,6 +26,7 @@ const [
   vendorMigration,
   minimumMigration,
   smallOrderMigration,
+  checkoutMigration,
 ] = await Promise.all([
   read('src/pages/RequestQuote.jsx'),
   read('src/components/home/HomeQuoteRequest.jsx'),
@@ -39,6 +40,7 @@ const [
   read('supabase/migrations/202607240008_ss_vendor_order_workflow.sql'),
   read('supabase/migrations/202607240009_bulk_quote_minimum.sql'),
   read('supabase/migrations/202607240010_small_order_help_flow.sql'),
+  read('supabase/migrations/202607240014_checkout_paid_vendor_draft.sql'),
 ]);
 
 const pass = (label) => console.log(`PASS: ${label}`);
@@ -83,8 +85,11 @@ assert.match(smallOrderMigration, /'unpaid'/);
 assert.match(smallOrderMigration, /'vendor_order_created', false/);
 assert.match(smallOrderMigration, /customer_files_owner_insert/);
 assert.doesNotMatch(smallOrderMigration, /\b(insert into|update|delete from)\s+public\.products\b/i);
-assert.match(productDetail, /createOrderHelpUrl/);
-assert.match(garmentCard, /createOrderHelpUrl/);
+assert.match(productDetail, /ProductCustomizationDialog/);
+assert.match(productDetail, /Customize &amp; Add to Cart/);
+assert.match(garmentCard, /ProductCustomizationDialog/);
+assert.match(garmentCard, /Customize &amp; Add to Cart/);
+assert.doesNotMatch(garmentCard, /createOrderHelpUrl/);
 pass('Quantity 1–49 uses a separate custom-order flow with secure artwork upload');
 
 assert.match(adminQuotes, /r\.quantity/);
@@ -98,8 +103,9 @@ assert.match(vendorMigration, /live_submission_enabled = false/);
 pass('Approved and paid quotes retain the vendor draft workflow with live submission disabled');
 
 assert.match(adminInbox, /Payment must be received before a vendor order draft can be created/);
-assert.match(adminInbox, /live_submission_enabled: false/);
-assert.match(adminInbox, /safety_mode_message: 'Do Not Submit Live Order Yet'/);
+assert.match(checkoutMigration, /'live_submission_enabled', false/);
+assert.match(checkoutMigration, /safety_mode_message/);
+assert.match(checkoutMigration, /Do Not Submit Live Order Yet/);
 assert.match(smallOrderMigration, /v_product_loading_paused is distinct from true/);
 assert.match(smallOrderMigration, /v_max_batch_sequence is distinct from 3/);
 pass('Paid small orders can create safe vendor drafts while live S&S submission and Batch 4 remain blocked');

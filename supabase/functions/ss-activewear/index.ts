@@ -174,6 +174,25 @@ function json(request: Request, body: Record<string, unknown>, status = 200) {
   });
 }
 
+function importedDescriptionLines(value: unknown) {
+  const description = String(value || '')
+    .replace(/<(br|\/p|\/li)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r/g, '\n');
+
+  return [...new Set(
+    description
+      .split(/\n|[•]+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter((line) => line.length >= 3),
+  )];
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(request) });
@@ -202,39 +221,58 @@ Deno.serve(async (request) => {
     return json(request, { error: 'Server configuration error' }, 500);
   }
 
-  const jwt = authorization.replace(/^Bearer\s+/i, '');
-  const userClient = createClient(supabaseUrl, publishableKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: authorization } },
-  });
-  const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
-  if (authError || !authData.user) {
-    return json(request, { error: 'Invalid or expired session' }, 401);
-  }
-
-  const { data: isAdmin, error: roleError } = await userClient.rpc('is_admin');
-  if (roleError) {
-    console.error('Admin role check failed', roleError.message);
-    return json(request, { error: 'Unable to verify administrator access' }, 500);
-  }
-  if (!isAdmin) {
-    return json(request, { error: 'Administrator access required' }, 403);
-  }
-  const actorUserId = authData.user.id;
-  const actorEmail = authData.user.email || '';
-
   let payload: { action?: string; brand?: string; draft_id?: string };
   try {
     payload = await request.json();
   } catch {
     return json(request, { error: 'Invalid request body' }, 400);
   }
+
+  const jwt = authorization.replace(/^Bearer\s+/i, '');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const serviceMaintenance = Boolean(
+    serviceRoleKey
+    && jwt === serviceRoleKey
+    && payload.action === 'refresh_public_style_content'
+  );
+  const userClient = createClient(
+    supabaseUrl,
+    serviceMaintenance ? serviceRoleKey! : publishableKey,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: authorization } },
+    },
+  );
+
+  let actorUserId: string | null = null;
+  let actorEmail = '';
+  if (serviceMaintenance) {
+    actorEmail = 'service-maintenance';
+  } else {
+    const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
+    if (authError || !authData.user) {
+      return json(request, { error: 'Invalid or expired session' }, 401);
+    }
+
+    const { data: isAdmin, error: roleError } = await userClient.rpc('is_admin');
+    if (roleError) {
+      console.error('Admin role check failed', roleError.message);
+      return json(request, { error: 'Unable to verify administrator access' }, 500);
+    }
+    if (!isAdmin) {
+      return json(request, { error: 'Administrator access required' }, 403);
+    }
+    actorUserId = authData.user.id;
+    actorEmail = authData.user.email || '';
+  }
+
   if (![
     'test_connection',
     'preview_catalog',
     'stage_styles',
     'stage_cold_weather_styles',
     'sync_brand_products',
+    'refresh_public_style_content',
     'validate_vendor_order_draft',
   ].includes(payload.action || '')) {
     return json(request, { error: 'Unsupported action' }, 400);
@@ -306,6 +344,196 @@ Deno.serve(async (request) => {
 
   if (!accountNumber || !apiKey) {
     return json(request, { error: 'S&S credentials are not configured' }, 503);
+  }
+
+  if (payload.action === 'refresh_public_style_content') {
+    const { data: products, error: productsError } = await userClient
+      .from('products')
+      .select('id,name,supplier_sku,brand')
+      .eq('product_type', 'physical')
+      .ilike('vendor_source', 'S&S Activewear%')
+      .not('supplier_sku', 'is', null)
+      .limit(1000);
+    if (productsError) {
+      console.error('Unable to read S&S public product styles', productsError.message);
+      return json(request, { error: 'Unable to read S&S product styles' }, 500);
+    }
+
+    const normalizedIdentifier = (value: unknown) => String(value || '').trim().toUpperCase();
+    const productsByIdentifier = new Map<string, Array<Record<string, unknown>>>();
+    for (const product of products || []) {
+      const identifier = normalizedIdentifier(product.supplier_sku);
+      if (!identifier) continue;
+      const brand = normalizedIdentifier(product.brand);
+      const keys = brand ? [`${brand}::${identifier}`] : [`*::${identifier}`];
+      for (const key of keys) {
+        const matches = productsByIdentifier.get(key) || [];
+        matches.push(product);
+        productsByIdentifier.set(key, matches);
+      }
+    }
+
+    let allStyles: Array<Record<string, unknown>> = [];
+    let apiRequests = 0;
+    try {
+      const styleUrl = new URL('https://api.ssactivewear.com/v2/styles/');
+      styleUrl.searchParams.set(
+        'fields',
+        'StyleID,PartNumber,BrandName,StyleName,Title,Description,BaseCategory,Categories,StyleImage',
+      );
+      styleUrl.searchParams.set('mediatype', 'json');
+      const styleResponse = await fetch(styleUrl, {
+        headers: {
+          'Authorization': `Basic ${btoa(`${accountNumber}:${apiKey}`)}`,
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+      apiRequests += 1;
+      if (!styleResponse.ok) {
+        console.error('S&S style content lookup failed', styleResponse.status);
+        return json(request, { error: 'S&S style content lookup failed' }, 502);
+      }
+      const fetchedStyles = await styleResponse.json();
+      allStyles = Array.isArray(fetchedStyles) ? fetchedStyles : [];
+    } catch (error) {
+      console.error('S&S public style content lookup failed', error);
+      return json(request, { error: 'Unable to retrieve S&S public style content' }, 502);
+    }
+
+    const styleRows: Array<Record<string, unknown>> = [];
+    const productsByResolvedPartNumber = new Map<string, Array<Record<string, unknown>>>();
+    const resolvedStyleIds = new Set<string>();
+    for (const style of allStyles) {
+      const brand = normalizedIdentifier(style.brandName ?? style.BrandName);
+      const styleName = normalizedIdentifier(style.styleName ?? style.StyleName);
+      const partNumber = normalizedIdentifier(style.partNumber ?? style.PartNumber);
+      const styleId = normalizedIdentifier(style.styleID ?? style.StyleID);
+      const matchedProducts = new Map<string, Record<string, unknown>>();
+
+      for (const identifier of [styleName, partNumber]) {
+        if (!identifier) continue;
+        for (const key of [`${brand}::${identifier}`, `*::${identifier}`]) {
+          for (const product of productsByIdentifier.get(key) || []) {
+            matchedProducts.set(String(product.id), product);
+          }
+        }
+      }
+      if (!matchedProducts.size || !partNumber) continue;
+
+      styleRows.push(style);
+      productsByResolvedPartNumber.set(partNumber, [...matchedProducts.values()]);
+      if (styleId) resolvedStyleIds.add(styleId);
+    }
+
+    const specRows: Array<Record<string, unknown>> = [];
+    try {
+      const styleIds = [...resolvedStyleIds];
+      for (let index = 0; index < styleIds.length; index += 20) {
+        const styleIdChunk = styleIds.slice(index, index + 20);
+        const specUrl = new URL('https://api.ssactivewear.com/v2/specs/');
+        specUrl.searchParams.set('style', styleIdChunk.join(','));
+        specUrl.searchParams.set(
+          'fields',
+          'SpecID,StyleID,PartNumber,BrandName,StyleName,SizeName,SizeOrder,SpecName,Value',
+        );
+        specUrl.searchParams.set('mediatype', 'json');
+        const specResponse = await fetch(specUrl, {
+          headers: {
+            'Authorization': `Basic ${btoa(`${accountNumber}:${apiKey}`)}`,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(30000),
+        });
+        apiRequests += 1;
+        if (!specResponse.ok) {
+          console.error('S&S style specs lookup failed', specResponse.status);
+          return json(request, { error: 'S&S style specs lookup failed' }, 502);
+        }
+        const fetchedSpecs = await specResponse.json();
+        specRows.push(...(Array.isArray(fetchedSpecs) ? fetchedSpecs : []));
+      }
+    } catch (error) {
+      console.error('S&S public style content refresh failed', error);
+      return json(request, { error: 'Unable to refresh S&S public style content' }, 502);
+    }
+
+    const specsByPartNumber = new Map<string, Array<Record<string, unknown>>>();
+    for (const spec of specRows) {
+      const partNumber = String(spec.partNumber ?? spec.PartNumber ?? '').trim().toUpperCase();
+      if (!partNumber) continue;
+      const matches = specsByPartNumber.get(partNumber) || [];
+      matches.push({
+        size: textValue(spec.sizeName ?? spec.SizeName),
+        size_order: textValue(spec.sizeOrder ?? spec.SizeOrder),
+        spec_name: textValue(spec.specName ?? spec.SpecName),
+        value: textValue(spec.value ?? spec.Value),
+      });
+      specsByPartNumber.set(partNumber, matches);
+    }
+
+    let updatedProducts = 0;
+    let productsWithDescription = 0;
+    let productsWithSpecs = 0;
+    for (const style of styleRows) {
+      const partNumber = normalizedIdentifier(style.partNumber ?? style.PartNumber);
+      const matchedProducts = productsByResolvedPartNumber.get(partNumber) || [];
+      if (!matchedProducts.length) continue;
+
+      const brand = textValue(style.brandName ?? style.BrandName);
+      const styleName = textValue(style.styleName ?? style.StyleName);
+      const title = textValue(style.title ?? style.Title);
+      const lines = importedDescriptionLines(style.description ?? style.Description);
+      const description = lines.join('\n');
+      const specs = specsByPartNumber.get(partNumber) || [];
+      const fabricLine = lines.find((line) =>
+        /(cotton|polyester|rayon|spandex|nylon|wool|fleece|fabric)/i.test(line)
+      ) || null;
+      const weightLine = lines.find((line) =>
+        /(\d+(?:\.\d+)?\s*oz\.?(?:\/yd²|\/yd2|\.?)?|\d+\s*gsm)/i.test(line)
+      ) || null;
+      const fitLine = lines.find((line) =>
+        /(fit|unisex|women'?s|men'?s|youth|oversized|relaxed)/i.test(line)
+      ) || null;
+
+      for (const product of matchedProducts) {
+        const updates = {
+          brand,
+          style_number: styleName || partNumber,
+          name: [brand, styleName, title].filter(Boolean).join(' - '),
+          description: description || null,
+          fabric_material: fabricLine,
+          garment_weight: weightLine,
+          fit: fitLine,
+          features: lines,
+          vendor_specs: specs,
+          vendor_data_refreshed_at: new Date().toISOString(),
+        };
+        const { error: updateError } = await userClient
+          .from('products')
+          .update(updates)
+          .eq('id', product.id);
+        if (updateError) {
+          console.error('Unable to save imported S&S style content', updateError.message);
+          return json(request, { error: 'Unable to save imported S&S style content' }, 500);
+        }
+        updatedProducts += 1;
+        if (description) productsWithDescription += 1;
+        if (specs.length) productsWithSpecs += 1;
+      }
+    }
+
+    return json(request, {
+      refreshed: true,
+      products_reviewed: products?.length || 0,
+      products_updated: updatedProducts,
+      products_with_description: productsWithDescription,
+      products_with_specs: productsWithSpecs,
+      api_requests: apiRequests,
+      live_submission_enabled: false,
+      ss_order_submitted: false,
+      zerotouch_submitted: false,
+    });
   }
 
   if (payload.action === 'sync_brand_products') {

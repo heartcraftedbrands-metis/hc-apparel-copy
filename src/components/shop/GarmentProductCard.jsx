@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart, Eye, Star, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getProductPrice, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
+import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 
@@ -14,7 +14,8 @@ export default function GarmentProductCard({ product }) {
 
   const colors = product.available_colors || [];
   const sizes = product.available_sizes || [];
-  const displayPrice = getProductPrice(product);
+  const priceRange = getProductPriceRange(product);
+  const displayPrice = priceRange.minimum;
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
   const isCustomPrint = product.product_subtype === 'custom_printed';
@@ -70,6 +71,9 @@ export default function GarmentProductCard({ product }) {
 
         {/* Price */}
         <div className="flex items-baseline gap-1.5 mb-2">
+          {priceRange.hasVariablePricing && (
+            <span className="text-xs font-medium text-muted-foreground">Starting at</span>
+          )}
           <span className="text-accent font-bold text-base">${displayPrice?.toFixed(2)}</span>
           {isOnSale && (
             <span className="text-xs text-muted-foreground line-through">${product.price?.toFixed(2)}</span>
@@ -82,14 +86,21 @@ export default function GarmentProductCard({ product }) {
         {/* Colors preview */}
         {colors.length > 0 && (
           <div className="flex items-center gap-1 mb-2 flex-wrap">
-            {colors.slice(0, 7).map((c, i) => (
-              <div
-                key={i}
-                title={c.name}
-                className="w-3.5 h-3.5 rounded-full border border-border/60 shadow-sm flex-shrink-0"
-                style={{ backgroundColor: c.hex || '#ccc' }}
-              />
-            ))}
+            {colors.slice(0, 7).map((c, i) => {
+              const colorName = typeof c === 'object'
+                ? c.name ?? c.color ?? c.label ?? ''
+                : c;
+              const colorHex = typeof c === 'object' ? c.hex ?? c.color_hex : '';
+              return (
+                <div
+                  key={`${colorName}-${i}`}
+                  title={colorName}
+                  aria-label={colorName}
+                  className="w-3.5 h-3.5 rounded-full border border-border/60 shadow-sm flex-shrink-0"
+                  style={{ backgroundColor: colorHex || '#d1d5db' }}
+                />
+              );
+            })}
             {colors.length > 7 && (
               <span className="text-xs text-muted-foreground">+{colors.length - 7}</span>
             )}
