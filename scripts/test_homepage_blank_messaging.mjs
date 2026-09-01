@@ -20,8 +20,15 @@ assert.ok(hero.includes('to="/RequestQuote"'), 'bulk quote CTA links to the quot
 assert.ok(hero.includes('Upload your artwork'), 'custom printing is retained as secondary support text');
 assert.ok(brands.includes('Columbia') && brands.includes('Shaka Wear') && brands.includes('Champion'), 'required blank brands remain featured');
 assert.ok(home.includes('<HomeFeaturedBrands />'), 'featured brand collections render on the homepage');
-assert.ok(hero.includes('md:grid-cols-2'), 'desktop hero uses a true two-column split');
+assert.ok(hero.includes('lg:grid-cols-2'), 'desktop hero uses a true two-column split');
 assert.ok(hero.includes('data-testid="hero-visual-panel"'), 'hero includes a dedicated visual panel');
 assert.ok(hero.includes("const HERO_BRANDS = ['Columbia', 'Shaka Wear', 'Champion']"), 'hero visual retains Columbia, Shaka Wear, and Champion');
+assert.ok(hero.includes('lg:grid-cols-2'), 'desktop hero uses a bounded 50/50 split at desktop widths');
+assert.ok(hero.includes('grid-cols-1'), 'hero stacks into one column below desktop widths');
+assert.ok(hero.includes('min-w-0'), 'hero grid cells may shrink without causing horizontal overflow');
+assert.ok(!hero.includes('100vw'), 'hero does not use viewport-width padding that can overflow a split column');
+assert.ok(hero.includes('getHeroProductImage'), 'hero resolves approved images from product and variant image fields');
+assert.ok(hero.includes('onError={() => setImageFailed(true)}'), 'broken catalog images fall back to a styled brand panel');
+assert.ok(hero.includes('Shop {brand} Blanks'), 'featured brand cards expose a clear shop CTA');
 
-console.log('Homepage blank-first split-screen checks passed (13 assertions).');
+console.log('Homepage blank-first split-screen checks passed (20 assertions).');

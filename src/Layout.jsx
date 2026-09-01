@@ -71,13 +71,13 @@ function LayoutInner({ children }) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background">
       <MobileHeader />
 
       {/* Desktop header */}
       <header className="hidden md:block bg-primary text-primary-foreground sticky top-0 z-40 shadow-md">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16 gap-6">
+        <div className="container mx-auto max-w-full px-4">
+          <div className="flex h-16 min-w-0 items-center justify-between gap-2 xl:gap-6">
             <Link to="/" className="flex-shrink-0">
               <img
                 src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
@@ -86,14 +86,14 @@ function LayoutInner({ children }) {
               />
             </Link>
 
-            <nav className="hidden lg:flex items-center gap-0.5">
+            <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 lg:flex">
               {NAV_LINKS.map(({ to, label }) => {
                 const active = location.pathname === to || location.pathname.startsWith(to + '/');
                 return (
                   <Link
                     key={to}
                     to={to}
-                    className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                    className={`whitespace-nowrap rounded-lg px-2 py-2 text-xs font-medium transition-colors xl:px-3.5 xl:text-sm ${
                       active
                         ? 'bg-primary-foreground/15 text-primary-foreground'
                         : 'text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary-foreground/10'
@@ -105,8 +105,8 @@ function LayoutInner({ children }) {
               })}
             </nav>
 
-            <div className="flex items-center gap-2 ml-auto">
-              <div className="hidden lg:flex items-center relative">
+            <div className="ml-auto flex shrink-0 items-center gap-1 xl:gap-2">
+              <div className="relative hidden items-center xl:flex">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground" />
                 <Input
                   placeholder="Search garments..."

@@ -6,6 +6,8 @@
 html, body {
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Disable text selection on interactive UI elements */
