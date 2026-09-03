@@ -159,8 +159,12 @@ export default function ProductCustomizationDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-h-[90vh] max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl overflow-hidden p-0">
+        <div
+          data-product-modal-scroll-region
+          className="max-h-[90vh] max-h-[90dvh] touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-6 py-6 [-webkit-overflow-scrolling:touch]"
+        >
+        <DialogHeader className="pr-8">
           <DialogTitle>{blankFirst ? 'Add Blank to Cart' : 'Customize & Add to Cart'}</DialogTitle>
           <DialogDescription>
             {blankFirst
@@ -375,6 +379,7 @@ export default function ProductCustomizationDialog({
             {uploading ? <FileUp className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
             {form.customization_requested ? 'Add Customized Item to Cart' : 'Add Blank to Cart'}
           </Button>
+        </div>
         </div>
       </DialogContent>
     </Dialog>
