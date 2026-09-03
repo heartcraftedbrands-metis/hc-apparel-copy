@@ -11,6 +11,7 @@
     "test:quote-flow": "node scripts/test_quote_order_flow.mjs",
     "test:shop-filters": "node scripts/test_shop_garment_filters.mjs",
     "test:storefront-pricing": "node scripts/test_storefront_pricing.mjs",
+    "test:storefront-recovery": "node scripts/test_storefront_recovery.mjs",
     "test:cold-weather": "node scripts/test_cold_weather_pricing.mjs",
     "test:homepage-messaging": "node scripts/test_homepage_blank_messaging.mjs",
     "test:customization": "node scripts/test_product_customization.mjs",

@@ -36,6 +36,12 @@ const optionLabel = (value) => {
 };
 
 const normalized = (value) => optionLabel(value).toLowerCase().replace(/\s+/g, ' ').trim();
+const INVALID_COLOR_NAMES = new Set(['', '?', 'unknown', 'color unavailable']);
+
+const safeColorName = (value) => {
+  const color = optionLabel(value);
+  return INVALID_COLOR_NAMES.has(normalized(color)) ? 'Standard' : color;
+};
 
 const isAvailable = (value) => {
   if (!value || typeof value !== 'object') return true;
@@ -47,12 +53,16 @@ const isAvailable = (value) => {
 const parseVariant = (entry) => {
   const raw = String(entry?.size ?? '').trim();
   const separator = raw.indexOf(' / ');
-  if (separator === -1) return null;
+  const size = separator === -1 ? raw : raw.slice(separator + 3).trim();
+  if (!size) return null;
+  const numericPrice = Number(entry?.price);
   return {
-    color: raw.slice(0, separator).trim(),
-    size: raw.slice(separator + 3).trim(),
+    color: safeColorName(
+      separator === -1 ? (entry?.color_name || entry?.color) : raw.slice(0, separator),
+    ),
+    size,
     sku: String(entry?.sku ?? '').trim(),
-    price: Number.isFinite(Number(entry?.price)) ? Number(entry.price) : null,
+    price: Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null,
     inventory: entry?.inventory === null || entry?.inventory === undefined
       ? null
       : Number(entry.inventory),
@@ -72,7 +82,7 @@ export function getCustomizationColors(product) {
     .map(variant => variant.color);
   const fallback = (product?.available_colors || [])
     .filter(isAvailable)
-    .map(optionLabel);
+    .map(safeColorName);
   return [...new Set((variants.length ? variants : fallback).filter(Boolean))];
 }
 

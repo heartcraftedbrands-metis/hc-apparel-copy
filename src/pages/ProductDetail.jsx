@@ -180,6 +180,13 @@ function normalize(str) {
   return (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+const INVALID_COLOR_NAMES = new Set(['', '?', 'unknown', 'color unavailable']);
+
+function safeColorName(value) {
+  const color = String(value || '').trim();
+  return INVALID_COLOR_NAMES.has(normalize(color)) ? 'Standard' : color;
+}
+
 // Parse size_prices where each entry is { size: "Color / Size", price, image_url?, sku? }
 // Returns a map keyed by "normColor|||normSize" with SKU-level price and stock.
 function buildVariantMap(product) {
@@ -188,14 +195,17 @@ function buildVariantMap(product) {
   for (const entry of sp) {
     const raw = entry.size || '';
     const slashIdx = raw.indexOf(' / ');
-    if (slashIdx === -1) continue;
-    const color = raw.substring(0, slashIdx).trim();
-    const size = raw.substring(slashIdx + 3).trim();
+    const color = safeColorName(
+      slashIdx === -1 ? (entry.color_name || entry.color) : raw.substring(0, slashIdx),
+    );
+    const size = (slashIdx === -1 ? raw : raw.substring(slashIdx + 3)).trim();
+    if (!size) continue;
+    const numericPrice = Number(entry.price);
     const key = `${normalize(color)}|||${normalize(size)}`;
     map[key] = {
       color,
       size,
-      price: Number(entry.price),
+      price: Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null,
       image_url: entry.image_url || '',
       sku: entry.sku || '',
       inventory: entry.inventory == null ? null : Number(entry.inventory),
@@ -224,9 +234,11 @@ function getVariantColors(product) {
   for (const entry of sp) {
     const raw = entry.size || '';
     const slashIdx = raw.indexOf(' / ');
-    if (slashIdx === -1) continue;
-    const color = raw.substring(0, slashIdx).trim();
-    if (!color || ['?', 'unknown', 'color unavailable'].includes(normalize(color))) continue;
+    const color = safeColorName(
+      slashIdx === -1 ? (entry.color_name || entry.color) : raw.substring(0, slashIdx),
+    );
+    const size = (slashIdx === -1 ? raw : raw.substring(slashIdx + 3)).trim();
+    if (!size) continue;
     if (!seen.has(color)) {
       seen.add(color);
       colors.push(color);
@@ -271,6 +283,12 @@ function cleanProductName(name) {
     if (parts[1].startsWith(prefix) || parts[1].includes(parts[0])) return parts[1];
   }
   return name;
+}
+
+function formatSpecLabel(key) {
+  return String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
 export default function ProductDetail() {
@@ -396,6 +414,24 @@ export default function ProductDetail() {
   const cats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
   const catLabel = getStorefrontCategoryLabel(product);
   const blankFirst = isBlankFirstProduct(product);
+  const vendorSpecEntries = (
+    product.vendor_specs
+    && !Array.isArray(product.vendor_specs)
+    && typeof product.vendor_specs === 'object'
+  )
+    ? Object.entries(product.vendor_specs).filter(([, value]) => (
+      value !== null && value !== undefined && String(value).trim()
+    ))
+    : [];
+  const hasProductSpecs = Boolean(
+    product.fabric_material
+    || product.garment_weight
+    || product.fit
+    || product.style_number
+    || product.supplier_sku
+    || (Array.isArray(product.features) && product.features.length > 0)
+    || vendorSpecEntries.length > 0
+  );
 
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
@@ -607,11 +643,10 @@ export default function ProductDetail() {
                   </p>
                 </section>
               )}
-              {(product.fabric_material || product.garment_weight || product.fit
-                || (Array.isArray(product.features) && product.features.length > 0)
-                || (Array.isArray(product.vendor_specs) && product.vendor_specs.length > 0)) && (
-                <section>
-                  <h2 className="mb-2 text-lg font-bold">Specs</h2>
+              <section>
+                <h2 className="mb-2 text-lg font-bold">Specs</h2>
+                {hasProductSpecs ? (
+                  <>
                   <dl className="grid gap-2 text-sm sm:grid-cols-2">
                     {product.fabric_material && (
                       <div><dt className="font-semibold">Fabric / material</dt><dd className="text-muted-foreground">{product.fabric_material}</dd></div>
@@ -622,17 +657,26 @@ export default function ProductDetail() {
                     {product.fit && (
                       <div><dt className="font-semibold">Fit</dt><dd className="text-muted-foreground">{product.fit}</dd></div>
                     )}
-                    {product.supplier_sku && (
-                      <div><dt className="font-semibold">Style</dt><dd className="text-muted-foreground">{product.supplier_sku}</dd></div>
+                    {(product.style_number || product.supplier_sku) && (
+                      <div><dt className="font-semibold">Style</dt><dd className="text-muted-foreground">{product.style_number || product.supplier_sku}</dd></div>
                     )}
+                    {vendorSpecEntries.map(([key, value]) => (
+                      <div key={key}>
+                        <dt className="font-semibold">{formatSpecLabel(key)}</dt>
+                        <dd className="text-muted-foreground">{Array.isArray(value) ? value.join(', ') : String(value)}</dd>
+                      </div>
+                    ))}
                   </dl>
                   {Array.isArray(product.features) && product.features.length > 0 && (
                     <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                       {product.features.map(feature => <li key={feature}>{feature}</li>)}
                     </ul>
                   )}
-                </section>
-              )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Specs coming soon.</p>
+                )}
+              </section>
               <section>
                 <h2 className="mb-2 text-lg font-bold">Colors &amp; Sizes</h2>
                 <p className="text-sm text-muted-foreground">

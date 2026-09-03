@@ -86,9 +86,9 @@ assert.match(smallOrderMigration, /'vendor_order_created', false/);
 assert.match(smallOrderMigration, /customer_files_owner_insert/);
 assert.doesNotMatch(smallOrderMigration, /\b(insert into|update|delete from)\s+public\.products\b/i);
 assert.match(productDetail, /ProductCustomizationDialog/);
-assert.match(productDetail, /Customize &amp; Add to Cart/);
+assert.match(productDetail, /Customize (?:&amp;|&) Add to Cart/);
 assert.match(garmentCard, /ProductCustomizationDialog/);
-assert.match(garmentCard, /Customize &amp; Add to Cart/);
+assert.match(garmentCard, /Customize (?:&amp;|&) Add to Cart/);
 assert.doesNotMatch(garmentCard, /createOrderHelpUrl/);
 pass('Quantity 1–49 uses a separate custom-order flow with secure artwork upload');
 

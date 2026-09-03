@@ -23,8 +23,14 @@ const DIGITAL_KEYWORDS = [
  * based on its type, category, or name keywords.
  */
 export function isDigitalProduct(product) {
-  if (product.product_type === 'digital') return true;
+  if (!product) return false;
   if (product.visibility === 'admin_archive') return true;
+  if (product.product_type === 'digital') return true;
+
+  // An explicit physical type is authoritative. Imported garment descriptions
+  // commonly contain words such as "file", "artwork", or "digital printing";
+  // those words must never turn a physical storefront product into an archive.
+  if (product.product_type === 'physical') return false;
 
   const cats = product.categories?.length
     ? product.categories
@@ -48,15 +54,31 @@ export function isDigitalProduct(product) {
  * UNLESS they are digital.
  */
 export function isPublicProduct(product) {
+  if (!product || product.archived === true || product.hidden === true) return false;
   if (isDigitalProduct(product)) return false;
 
+  const active = product.is_active ?? product.active;
+  if (active === false) return false;
+
   // New visibility system
-  if (product.visibility) {
-    return product.visibility === 'public';
+  if (product.visibility !== undefined && product.visibility !== null && product.visibility !== '') {
+    return String(product.visibility).trim().toLowerCase() === 'public';
+  }
+
+  const publicStatus = product.public_status ?? product.status;
+  if (product.is_public === false) return false;
+  if (publicStatus !== undefined && publicStatus !== null && publicStatus !== '') {
+    return ['public', 'published', 'live', 'active'].includes(
+      String(publicStatus).trim().toLowerCase(),
+    );
+  }
+
+  if (product.is_public !== undefined && product.is_public !== null) {
+    return product.is_public === true;
   }
 
   // Legacy fallback: treat is_active=true as public for physical products
-  return product.is_active !== false;
+  return active !== false;
 }
 
 /**

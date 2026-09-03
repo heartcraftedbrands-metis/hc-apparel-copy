@@ -12,7 +12,12 @@ export default function GarmentProductCard({ product }) {
 
   const catLabel = getStorefrontCategoryLabel(product);
 
-  const colors = product.available_colors || [];
+  const colors = (product.available_colors || []).filter((color) => {
+    const name = typeof color === 'object'
+      ? color.name ?? color.color ?? color.label ?? ''
+      : color;
+    return name && !['?', 'unknown', 'color unavailable'].includes(String(name).trim().toLowerCase());
+  });
   const sizes = product.available_sizes || [];
   const priceRange = getProductPriceRange(product);
   const displayPrice = priceRange.minimum;

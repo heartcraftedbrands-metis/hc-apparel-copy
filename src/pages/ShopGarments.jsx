@@ -332,9 +332,16 @@ export default function ShopGarments() {
     setBrand(matchedBrand ? brandFilterValue(matchedBrand) : 'all');
   }, [location.search]);
 
-  const { data: allProducts = [], isLoading } = useQuery({
+  const {
+    data: allProducts = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['shop-garments'],
-    queryFn: () => base44.entities.Product.filter({ is_active: true }, '-created_date'),
+    // The anonymous Product source is already the restricted storefront view.
+    // Avoid requiring any particular visibility column a second time here.
+    queryFn: () => base44.entities.Product.list('-created_date'),
   });
 
   const products = useMemo(() => filterPublicProducts(allProducts), [allProducts]);
@@ -553,6 +560,17 @@ export default function ShopGarments() {
             {isLoading ? (
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
                 {[...Array(8)].map((_, index) => <div key={index} className="aspect-[3/4] animate-pulse rounded-2xl bg-white" />)}
+              </div>
+            ) : isError ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-12 text-center">
+                <p className="mb-2 font-semibold text-foreground">Garments could not be loaded.</p>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  The catalog connection returned an error. Please refresh or try again shortly.
+                </p>
+                <Button variant="outline" onClick={() => window.location.reload()}>Refresh Catalog</Button>
+                {import.meta.env.DEV && error?.message && (
+                  <p className="mt-4 text-xs text-muted-foreground">{error.message}</p>
+                )}
               </div>
             ) : filtered.length === 0 ? (
               <div className="py-20 text-center">

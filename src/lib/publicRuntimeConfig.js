@@ -1,17 +1,27 @@
 const SUPABASE_URL_ENV_NAME = 'VITE_SUPABASE_URL';
-const SUPABASE_KEY_ENV_NAME = 'VITE_SUPABASE_PUBLISHABLE_KEY';
+const SUPABASE_PUBLISHABLE_KEY_ENV_NAME = 'VITE_SUPABASE_PUBLISHABLE_KEY';
+const SUPABASE_ANON_KEY_ENV_NAME = 'VITE_SUPABASE_ANON_KEY';
+const SUPABASE_KEY_ENV_NAMES = [
+  SUPABASE_PUBLISHABLE_KEY_ENV_NAME,
+  SUPABASE_ANON_KEY_ENV_NAME,
+];
 
 export const REQUIRED_PUBLIC_ENV_VARS = [
   SUPABASE_URL_ENV_NAME,
-  SUPABASE_KEY_ENV_NAME,
+  `${SUPABASE_PUBLISHABLE_KEY_ENV_NAME} or ${SUPABASE_ANON_KEY_ENV_NAME}`,
 ];
 
 export function validatePublicRuntimeConfig(env = {}) {
   const supabaseUrl = String(env[SUPABASE_URL_ENV_NAME] || '').trim();
-  const supabasePublishableKey = String(env[SUPABASE_KEY_ENV_NAME] || '').trim();
-  const missingVariables = REQUIRED_PUBLIC_ENV_VARS.filter((name) => {
-    return !String(env[name] || '').trim();
-  });
+  const supabaseKeyEnvName = SUPABASE_KEY_ENV_NAMES.find(name => String(env[name] || '').trim());
+  const supabasePublishableKey = String(env[supabaseKeyEnvName] || '').trim();
+  const missingVariables = [];
+  if (!supabaseUrl) missingVariables.push(SUPABASE_URL_ENV_NAME);
+  if (!supabaseKeyEnvName) {
+    missingVariables.push(
+      `${SUPABASE_PUBLISHABLE_KEY_ENV_NAME} or ${SUPABASE_ANON_KEY_ENV_NAME}`,
+    );
+  }
   const errors = [];
 
   if (supabaseUrl) {
@@ -31,7 +41,7 @@ export function validatePublicRuntimeConfig(env = {}) {
     && !supabasePublishableKey.startsWith('eyJ')
   ) {
     errors.push(
-      `${SUPABASE_KEY_ENV_NAME} must be a Supabase publishable key or legacy public anon key.`,
+      `${supabaseKeyEnvName || SUPABASE_PUBLISHABLE_KEY_ENV_NAME} must be a Supabase publishable key or legacy public anon key.`,
     );
   }
 
@@ -41,6 +51,6 @@ export function validatePublicRuntimeConfig(env = {}) {
     errors,
     supabaseUrl,
     supabasePublishableKey,
+    supabaseKeyEnvName,
   };
 }
-
