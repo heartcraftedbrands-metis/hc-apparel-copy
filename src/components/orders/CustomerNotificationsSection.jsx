@@ -13,9 +13,10 @@ import { toast } from 'sonner';
 import {
   buildMailtoUrl,
   buildNotificationTemplate,
-  NOTIFICATION_TEMPLATE_LABELS,
   PRODUCTION_NOTIFICATION_STATUSES,
   SUPPORT_EMAIL,
+  getAvailableNotificationTemplates,
+  resolveNotificationTemplateKey,
   validateNotificationDraft,
 } from '@/lib/productionWorkflow';
 
@@ -59,6 +60,7 @@ export default function CustomerNotificationsSection({
     const linked = vendorDraft || vendorOrder || {};
     return {
       ...order,
+      order_items: order?.order_items || linked.items || [],
       product_name: linked.product_name || order?.product_name,
       quantity: linked.quantity || order?.quantity,
       production_status: linked.production_status || order?.production_status || 'order_received',
@@ -69,7 +71,11 @@ export default function CustomerNotificationsSection({
       artwork_attention_notes: linked.artwork_attention_notes || order?.artwork_attention_notes,
     };
   }, [order, vendorDraft, vendorOrder]);
-  const currentTemplateKey = PRODUCTION_NOTIFICATION_STATUSES[notificationOrder.production_status] || 'order_received';
+  const currentTemplateKey = resolveNotificationTemplateKey(
+    PRODUCTION_NOTIFICATION_STATUSES[notificationOrder.production_status] || 'order_received',
+    notificationOrder,
+  );
+  const availableTemplateEntries = getAvailableNotificationTemplates(notificationOrder);
   const [showForm, setShowForm] = useState(false);
   const [templateKey, setTemplateKey] = useState(currentTemplateKey);
   const [formData, setFormData] = useState(() => draftFromTemplate(currentTemplateKey, notificationOrder));
@@ -276,7 +282,7 @@ export default function CustomerNotificationsSection({
             <Select value={templateKey} onValueChange={chooseTemplate}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {Object.entries(NOTIFICATION_TEMPLATE_LABELS).map(([key, label]) => (
+                {availableTemplateEntries.map(([key, label]) => (
                   <SelectItem key={key} value={key}>{label}</SelectItem>
                 ))}
                 <SelectItem value={CUSTOM_UPDATE}>Custom update</SelectItem>

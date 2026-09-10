@@ -12,9 +12,10 @@ import { toast } from 'sonner';
 import {
   buildNotificationTemplate,
   PRODUCTION_NOTIFICATION_STATUSES,
-  PRODUCTION_STATUSES,
   PRODUCTION_STATUS_LABELS,
   canTransitionProductionStatus,
+  getAvailableProductionStatuses,
+  isBlankOnlyOrder,
 } from '@/lib/productionWorkflow';
 
 const PAID_EXEMPT_STATUSES = new Set(['order_received', 'issue_on_hold', 'cancelled', 'refunded']);
@@ -27,18 +28,27 @@ const orderPatchForStatus = (
   artworkNeedsCorrection,
   artworkAttention,
 ) => {
+  const correctionStatus = (
+    status === 'artwork_correction_needed'
+    || (status === 'artwork_under_review' && artworkNeedsCorrection)
+  );
   const patch = {
     production_status: status,
     production_hold_reason: status === 'issue_on_hold' ? holdReason.trim() : null,
-    artwork_needs_correction: status === 'artwork_under_review' && artworkNeedsCorrection,
-    artwork_attention_notes: status === 'artwork_under_review' && artworkNeedsCorrection
+    artwork_needs_correction: correctionStatus,
+    artwork_attention_notes: correctionStatus
       ? artworkAttention.trim()
       : null,
   };
   if (trackingNumber.trim()) patch.tracking_number = trackingNumber.trim();
   if (carrier.trim()) patch.tracking_carrier = carrier.trim();
   if (status === 'payment_confirmed') Object.assign(patch, { status: 'paid', payment_status: 'paid' });
+  if (status === 'vendor_draft_ready') patch.fulfillment_status = 'vendor_order_needed';
   if (status === 'sent_to_production') patch.status = 'in_production';
+  if (status === 'sent_to_fulfillment') Object.assign(patch, {
+    status: 'in_production',
+    fulfillment_status: 'ordered_from_vendor',
+  });
   if (status === 'shipped') Object.assign(patch, { status: 'shipped', fulfillment_status: 'shipped' });
   if (status === 'delivered') patch.fulfillment_status = 'delivered';
   if (status === 'completed') Object.assign(patch, { status: 'completed', fulfillment_status: 'completed' });
@@ -67,6 +77,14 @@ export default function ProductionWorkflowPanel({
   );
   const [adminNote, setAdminNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const linkedRecord = vendorDraft || vendorOrder || {};
+  const workflowOrder = {
+    ...linkedRecord,
+    ...(order || {}),
+    order_items: order?.order_items || linkedRecord.items || [],
+  };
+  const availableStatuses = getAvailableProductionStatuses(workflowOrder);
+  const blankOnly = isBlankOnlyOrder(workflowOrder);
 
   const { data: history = [], refetch: refetchHistory } = useQuery({
     queryKey: ['production-status-history', order?.id],
@@ -85,13 +103,13 @@ export default function ProductionWorkflowPanel({
   const createNotificationDraft = async (status, updatedOrder) => {
     const templateKey = PRODUCTION_NOTIFICATION_STATUSES[status];
     if (!templateKey || !updatedOrder?.id) return;
+    const template = buildNotificationTemplate(templateKey, updatedOrder);
     const existing = await base44.entities.CustomerNotification.filter(
-      { order_id: updatedOrder.id, related_status: status },
+      { order_id: updatedOrder.id, notification_type: template.notification_type },
       '-created_date',
       1,
     );
     if (existing.length) return;
-    const template = buildNotificationTemplate(templateKey, updatedOrder);
     await base44.entities.CustomerNotification.create({
       order_id: updatedOrder.id,
       order_number: updatedOrder.id,
@@ -100,18 +118,22 @@ export default function ProductionWorkflowPanel({
       notification_type: template.notification_type,
       subject: template.subject,
       customer_message: template.customer_message,
-      related_status: status,
+      related_status: template.related_status,
       sent_status: 'draft',
       customer_visible: true,
       admin_note: `Created for ${PRODUCTION_STATUS_LABELS[status]}. Nothing was sent automatically.`,
       auto_generated: true,
-      trigger_event: `production_status:${status}`,
+      trigger_event: `production_status:${template.notification_type}`,
     });
   };
 
   const saveStatus = async () => {
-    if (!canTransitionProductionStatus(currentStatus, selectedStatus)) {
-      toast.error('The order must be shipped or delivered before it can be completed.');
+    if (!canTransitionProductionStatus(currentStatus, selectedStatus, workflowOrder)) {
+      toast.error(
+        selectedStatus === 'completed'
+          ? 'The order must be shipped or delivered before it can be completed.'
+          : 'That production status is not available for this order type.',
+      );
       return;
     }
     if (!PAID_EXEMPT_STATUSES.has(selectedStatus) && order?.payment_status !== 'paid') {
@@ -126,7 +148,11 @@ export default function ProductionWorkflowPanel({
       toast.error('Enter an on-hold reason.');
       return;
     }
-    if (selectedStatus === 'artwork_under_review' && artworkNeedsCorrection && !artworkAttention.trim()) {
+    if (
+      (selectedStatus === 'artwork_correction_needed'
+        || (selectedStatus === 'artwork_under_review' && artworkNeedsCorrection))
+      && !artworkAttention.trim()
+    ) {
       toast.error('Describe what needs attention in the artwork.');
       return;
     }
@@ -152,8 +178,14 @@ export default function ProductionWorkflowPanel({
       const linkedPatch = {
         production_status: selectedStatus,
         production_hold_reason: selectedStatus === 'issue_on_hold' ? holdReason.trim() : null,
-        artwork_needs_correction: selectedStatus === 'artwork_under_review' && artworkNeedsCorrection,
-        artwork_attention_notes: selectedStatus === 'artwork_under_review' && artworkNeedsCorrection
+        artwork_needs_correction: (
+          selectedStatus === 'artwork_correction_needed'
+          || (selectedStatus === 'artwork_under_review' && artworkNeedsCorrection)
+        ),
+        artwork_attention_notes: (
+          selectedStatus === 'artwork_correction_needed'
+          || (selectedStatus === 'artwork_under_review' && artworkNeedsCorrection)
+        )
           ? artworkAttention.trim()
           : null,
         ...(trackingNumber.trim() ? { tracking_number: trackingNumber.trim() } : {}),
@@ -191,7 +223,7 @@ export default function ProductionWorkflowPanel({
           <Select value={selectedStatus} onValueChange={setSelectedStatus}>
             <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {PRODUCTION_STATUSES.map((status) => (
+              {availableStatuses.map((status) => (
                 <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
               ))}
             </SelectContent>
@@ -215,13 +247,14 @@ export default function ProductionWorkflowPanel({
             <Textarea className="mt-1" value={holdReason} onChange={(event) => setHoldReason(event.target.value)} rows={2} />
           </div>
         )}
-        {selectedStatus === 'artwork_under_review' && (
+        {['artwork_under_review', 'artwork_correction_needed'].includes(selectedStatus) && (
           <div className="sm:col-span-2 space-y-2 rounded-lg border bg-white p-3">
             <label className="flex items-center gap-2 text-xs font-medium">
               <input
                 type="checkbox"
-                checked={artworkNeedsCorrection}
+                checked={selectedStatus === 'artwork_correction_needed' || artworkNeedsCorrection}
                 onChange={(event) => setArtworkNeedsCorrection(event.target.checked)}
+                disabled={selectedStatus === 'artwork_correction_needed'}
                 className="h-4 w-4 rounded border-border accent-primary"
               />
               Artwork needs a customer correction
@@ -257,7 +290,10 @@ export default function ProductionWorkflowPanel({
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
           Save Production Status
         </Button>
-        {['artwork_approved', 'production_packet_ready', 'sent_to_production', 'shipped', 'completed'].map((status) => (
+        {(blankOnly
+          ? ['order_reviewed', 'vendor_draft_ready', 'sent_to_fulfillment', 'shipped', 'completed']
+          : ['artwork_approved', 'production_packet_ready', 'sent_to_production', 'shipped', 'completed']
+        ).map((status) => (
           <Button key={status} size="sm" variant="outline" onClick={() => setSelectedStatus(status)}>
             {PRODUCTION_STATUS_LABELS[status]}
           </Button>

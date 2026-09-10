@@ -7,6 +7,11 @@ import {
   SUPPORT_EMAIL,
   buildNotificationTemplate,
   canTransitionProductionStatus,
+  getAvailableNotificationTemplates,
+  getAvailableProductionStatuses,
+  isBlankOnlyOrder,
+  orderHasArtwork,
+  resolveNotificationTemplateKey,
   validateNotificationDraft,
 } from '../src/lib/productionWorkflow.js';
 
@@ -25,6 +30,12 @@ const baseOrder = {
     {
       product_name: 'Gildan 5000 T-Shirt',
       quantity: 3,
+      purchase_mode: 'customized',
+      is_customized: true,
+      artwork_file_url: 'supabase://customer-files/uploads/customer/artwork.png',
+      decoration_method: 'DTF',
+      print_placement: 'front_center',
+      print_size_option: 'standard_front',
     },
   ],
 };
@@ -41,8 +52,8 @@ const contextForStatus = (status) => ({
   } : {}),
 });
 
-check(PRODUCTION_STATUSES.length === 13, 'All 13 production lifecycle statuses must be available.');
-check(Object.keys(NOTIFICATION_TEMPLATE_LABELS).length === 13, 'All 13 customer notification templates must be available.');
+check(PRODUCTION_STATUSES.length === 18, 'All 18 production lifecycle statuses must be available.');
+check(Object.keys(NOTIFICATION_TEMPLATE_LABELS).length === 18, 'All 18 customer notification templates must be available.');
 
 for (const status of PRODUCTION_STATUSES) {
   const templateKey = PRODUCTION_NOTIFICATION_STATUSES[status.value];
@@ -100,8 +111,95 @@ check(
 check(canTransitionProductionStatus('shipped', 'completed'), 'Shipped orders may be completed.');
 check(canTransitionProductionStatus('delivered', 'completed'), 'Delivered orders may be completed.');
 
+const blankOrder = {
+  ...baseOrder,
+  order_items: [{
+    product_name: 'Shaka Wear 012C2 SHGMT',
+    sku: 'B012C2504',
+    color: 'Black',
+    size: 'M',
+    quantity: 1,
+    purchase_mode: 'blank',
+    is_customized: false,
+    artwork_file_url: '',
+    decoration_method: '',
+    print_placement: '',
+    print_size_option: '',
+  }],
+};
+check(isBlankOnlyOrder(blankOrder), 'Blank-only orders must be detected from line-item metadata.');
+check(!orderHasArtwork(blankOrder), 'Blank-only orders must not be treated as having artwork.');
+check(
+  !getAvailableProductionStatuses(blankOrder).some(status => status.value.startsWith('artwork_')),
+  'Blank-only production status choices must exclude artwork lifecycle states.',
+);
+check(
+  !getAvailableNotificationTemplates(blankOrder).some(([key]) => key.startsWith('artwork_')),
+  'Blank-only notification template choices must exclude artwork templates.',
+);
+const blankPaymentTemplate = buildNotificationTemplate('payment_confirmed', blankOrder);
+check(
+  blankPaymentTemplate.customer_message.includes('blank apparel order'),
+  'Blank payment copy must identify a blank apparel order.',
+);
+const guardedBlankArtworkTemplate = buildNotificationTemplate('artwork_received', blankOrder);
+check(
+  guardedBlankArtworkTemplate.notification_type === 'vendor_draft_ready',
+  'An artwork-received request for a blank order must resolve to vendor-draft-ready.',
+);
+check(
+  !/artwork/i.test(guardedBlankArtworkTemplate.subject + guardedBlankArtworkTemplate.customer_message),
+  'Blank-order fallback copy must not mention artwork.',
+);
+check(
+  validateNotificationDraft('artwork_received', blankOrder)
+    .some(error => error.includes('not available for blank apparel orders')),
+  'Blank orders must reject artwork notification drafts.',
+);
+check(
+  !canTransitionProductionStatus('payment_confirmed', 'artwork_received', blankOrder),
+  'Blank orders must not transition into artwork production states.',
+);
+
+const customWithoutArtwork = {
+  ...baseOrder,
+  artwork_needs_correction: false,
+  order_items: [{
+    ...baseOrder.order_items[0],
+    artwork_file_url: '',
+  }],
+};
+check(!isBlankOnlyOrder(customWithoutArtwork), 'A selected custom-print option is not a blank order.');
+check(!orderHasArtwork(customWithoutArtwork), 'Missing custom-print artwork must be detected.');
+check(
+  resolveNotificationTemplateKey('artwork_received', customWithoutArtwork) === 'artwork_needed',
+  'Custom print without artwork must use artwork-needed instead of artwork-received.',
+);
+const artworkNeededTemplate = buildNotificationTemplate('artwork_received', customWithoutArtwork);
+check(
+  artworkNeededTemplate.notification_type === 'artwork_needed'
+    && /artwork (?:is still )?needed/i.test(artworkNeededTemplate.customer_message),
+  'Missing-artwork copy must clearly request artwork.',
+);
+check(
+  validateNotificationDraft('artwork_received', customWithoutArtwork)
+    .some(error => error.includes('Artwork has not been uploaded')),
+  'Artwork-received must validate as unavailable until custom-print artwork exists.',
+);
+check(
+  buildNotificationTemplate('artwork_received', baseOrder).notification_type === 'artwork_received',
+  'Custom print with uploaded artwork must retain artwork-received.',
+);
+check(
+  resolveNotificationTemplateKey('artwork_approved', {
+    ...customWithoutArtwork,
+    artwork_needs_correction: true,
+  }) === 'artwork_correction_needed',
+  'A custom order needing correction must use artwork-correction-needed when artwork is missing.',
+);
+
 const migrationPath = new URL(
-  '../supabase/migrations/202607240016_customer_notification_draft_workflow.sql',
+  '../supabase/migrations/202609100001_fix_blank_order_notification_statuses.sql',
   import.meta.url,
 );
 const migration = fs.readFileSync(migrationPath, 'utf8').toLowerCase();
@@ -109,17 +207,21 @@ const migration = fs.readFileSync(migrationPath, 'utf8').toLowerCase();
 for (const expected of [
   'artwork_needs_correction',
   'artwork_attention_notes',
-  'copied_at',
-  'copied_by_email',
-  'manually_sent_at',
-  'manually_sent_by_email',
+  'customer_notification_order_context',
+  'enforce_customer_notification_order_kind',
+  "'artwork_needed'",
+  "'artwork_correction_needed'",
+  "'order_reviewed'",
+  "'vendor_draft_ready'",
+  "'sent_to_fulfillment'",
   "'refunded'",
   "'artwork_under_review'",
   "'production_packet_ready'",
   "'cancelled'",
-  'product_loading_paused',
-  'batch_sequence > 3',
+  'blank apparel order',
+  "new.sent_status := 'draft'",
   'live_submission_enabled',
+  'zerotouch_enabled',
 ]) {
   check(migration.includes(expected), `Migration must include ${expected}.`);
 }
