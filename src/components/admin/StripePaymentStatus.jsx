@@ -65,16 +65,9 @@ export default function StripePaymentStatus() {
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Publishable Key:</span>
-          <span className={`font-mono ${status?.publishable_key_detected ? 'text-green-700' : 'text-red-600'}`}>
-            {status?.publishable_key_detected ? '✓ Configured' : '✗ Missing'}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Secret Key:</span>
-          <span className={`font-mono ${status?.secret_key_detected ? 'text-green-700' : 'text-red-600'}`}>
-            {status?.secret_key_detected ? '✓ Configured' : '✗ Missing'}
+          <span className="text-muted-foreground">Server API Key:</span>
+          <span className={`font-mono ${status?.server_key_detected ? 'text-green-700' : 'text-red-600'}`}>
+            {status?.server_key_detected ? '✓ Configured' : '✗ Missing'}
           </span>
         </div>
 

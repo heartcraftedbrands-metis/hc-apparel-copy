@@ -11,6 +11,13 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 });
 
+const getServiceRoleKey = () => {
+  const legacyKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (legacyKey) return legacyKey;
+  const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}');
+  return keys.default;
+};
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -22,7 +29,7 @@ Deno.serve(async (request) => {
       const publishableKeys = JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') || '{}');
       publishableKey = publishableKeys.default;
     }
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceRoleKey = getServiceRoleKey();
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
       return json({ error: 'Payment service is not configured' }, 503);

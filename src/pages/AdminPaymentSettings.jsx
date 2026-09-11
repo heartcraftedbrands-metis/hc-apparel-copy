@@ -12,7 +12,7 @@ const PAYMENT_MODES = {
   demo: { label: 'Demo / Test Mode', description: 'Customers can place test orders. No real payment collected.' },
   manual: { label: 'Manual Payment / Invoice', description: 'Customers place orders; HC Apparel sends payment instructions.' },
   pay_later: { label: 'Pay Later', description: 'Customers can defer payment. Admin marks as paid when received.' },
-  stripe: { label: 'Stripe Checkout', description: 'Connect Stripe for online payments (coming soon).' },
+  stripe: { label: 'Stripe Checkout', description: 'Use secure Stripe-hosted checkout after the server connection and signed webhook are verified.' },
 };
 
 export default function AdminPaymentSettings() {
@@ -32,6 +32,15 @@ export default function AdminPaymentSettings() {
   });
 
   const settingsRecord = settings[0] || null;
+
+  const { data: stripeStatus, isLoading: stripeStatusLoading } = useQuery({
+    queryKey: ['stripe-status'],
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getStripeStatus', {});
+      return response.data;
+    },
+    retry: false,
+  });
 
   useEffect(() => {
     if (settingsRecord) {
@@ -55,7 +64,15 @@ export default function AdminPaymentSettings() {
 
   const handleSave = (e) => {
     e.preventDefault();
-    upsert.mutate(form);
+    if (form.payment_mode === 'stripe' && !stripeStatus?.checkout_enabled) {
+      toast.error('Stripe Checkout cannot be enabled until the test key and signed webhook are configured.');
+      return;
+    }
+    upsert.mutate({
+      ...form,
+      stripe_connected: Boolean(stripeStatus?.checkout_enabled),
+      test_mode_enabled: stripeStatus?.mode === 'Test',
+    });
   };
 
   const updateForm = (key, value) => {
@@ -106,9 +123,25 @@ export default function AdminPaymentSettings() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Stripe Status</span>
-                  <Badge variant="outline" className="bg-gray-100 text-gray-700">Not Connected</Badge>
+                  <Badge
+                    variant="outline"
+                    className={stripeStatus?.checkout_enabled
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-gray-100 text-gray-700'}
+                  >
+                    {stripeStatusLoading
+                      ? 'Checking…'
+                      : (stripeStatus?.checkout_enabled ? `${stripeStatus.mode} Connected` : 'Not Connected')}
+                  </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">Stripe checkout integration coming soon. Contact support to enable.</p>
+                <p className="text-xs text-muted-foreground">
+                  Secret keys stay in Supabase Edge Function secrets. This page never receives or displays them.
+                </p>
+                {stripeStatus && !stripeStatus.checkout_enabled && (
+                  <p className="text-xs text-amber-700">
+                    Configure both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before selecting Stripe Checkout.
+                  </p>
+                )}
               </div>
             </Card>
 
