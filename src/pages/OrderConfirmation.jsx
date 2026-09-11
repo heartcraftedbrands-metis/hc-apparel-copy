@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Download, Package, AlertCircle, Printer, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
+import { isBlankOnlyOrder, orderHasArtwork } from '@/lib/productionWorkflow';
 
 
 export default function OrderConfirmation() {
@@ -77,6 +78,8 @@ export default function OrderConfirmation() {
 
   const digitalItems = order?.order_items?.filter(item => item.product_type === 'digital') || [];
   const physicalItems = order?.order_items?.filter(item => item.product_type === 'physical') || [];
+  const isBlankOrder = isBlankOnlyOrder(order);
+  const hasArtwork = orderHasArtwork(order);
   
   // Check if this is a test/manual order
   const isTestOrder = order?.notes?.includes('Payment Method:') && !order?.notes?.includes('Stripe');
@@ -96,7 +99,11 @@ export default function OrderConfirmation() {
           </h1>
           <p className="text-gray-600">
             {order?.payment_status === 'paid'
-              ? 'Your paid customized order is ready for preparation.'
+              ? (isBlankOrder
+                ? 'Your paid blank apparel order is ready for fulfillment preparation.'
+                : (hasArtwork
+                  ? 'Your paid custom print order is ready for artwork review and preparation.'
+                  : 'Your paid custom print order is waiting for artwork.'))
               : 'Payment confirmation is still required.'}
           </p>
         </div>
@@ -329,7 +336,11 @@ export default function OrderConfirmation() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-gray-600">
-                Your physical items will move into preparation after payment confirmation and artwork review.
+                {isBlankOrder
+                  ? 'Your blank apparel items will move into fulfillment preparation after payment confirmation.'
+                  : (hasArtwork
+                    ? 'Your custom print items will move into preparation after payment confirmation and artwork review.'
+                    : 'Your custom print items will move forward after payment confirmation and artwork upload.')}
               </p>
             </CardContent>
           </Card>
@@ -360,7 +371,14 @@ export default function OrderConfirmation() {
         <div className="mt-8 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
           <p className="text-sm text-green-700">
             {order?.payment_status === 'paid'
-              ? <>Order confirmation and artwork-received notification drafts are prepared for <strong>{order?.customer_email}</strong>. Nothing is sent automatically unless email delivery is configured.</>
+              ? <>
+                {isBlankOrder
+                  ? 'Order confirmation and blank-order notification drafts are prepared for '
+                  : (hasArtwork
+                    ? 'Order confirmation and artwork-received notification drafts are prepared for '
+                    : 'Order confirmation and artwork-needed notification drafts are prepared for ')}
+                <strong>{order?.customer_email}</strong>. Nothing is sent automatically unless email delivery is configured.
+              </>
               : <>Payment is not yet confirmed. No vendor order has been created or submitted.</>}
           </p>
         </div>

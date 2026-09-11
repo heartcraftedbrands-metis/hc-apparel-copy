@@ -11,6 +11,7 @@ const categories = read('src/components/home/HomeFeaturedCategories.jsx');
 const catalogImage = read('src/components/home/CatalogEditorialImage.jsx');
 const catalogImageHelper = read('src/lib/homeCatalogImages.js');
 const home = read('src/pages/Home.jsx');
+const layout = read('src/Layout.jsx');
 
 assert.ok(hero.includes('Affordable Apparel Blanks for Brands, Teams &amp; Creators'), 'hero uses the approved affordable apparel headline');
 assert.ok(!hero.includes('Made Simple'), 'hero no longer says Made Simple');
@@ -76,5 +77,11 @@ assert.ok(categories.includes('lg:grid-cols-12'), 'desktop category layout uses 
 assert.ok(categories.includes('grid-cols-1') && categories.includes('sm:grid-cols-2'), 'category cards stack without horizontal scrolling on small screens');
 assert.ok(!categories.includes('emoji'), 'category cards do not use emoji placeholders');
 assert.ok(brands.includes('Shop {brand.name} Blanks'), 'brand cards keep the approved brand-specific CTA wording');
+assert.ok(!categories.includes('The Blank Edit'), 'the removed category eyebrow copy stays removed');
+assert.ok(!categories.includes('Quality apparel blanks, curated by silhouette and purpose.'), 'the removed category supporting sentence stays removed');
+assert.ok(
+  layout.includes('border-primary-foreground/40 bg-transparent text-primary-foreground'),
+  'the desktop Login control remains visible against the olive header',
+);
 
-console.log('Homepage blank-first editorial checks passed (52 assertions).');
+console.log('Homepage blank-first editorial checks passed (55 assertions).');

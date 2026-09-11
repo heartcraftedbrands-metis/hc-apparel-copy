@@ -132,6 +132,15 @@ assert.match(checkout, /createSmallOrderCheckout/);
 assert.match(adapter, /createSmallOrderCheckout: \['create_small_order_checkout'/);
 assert.match(adapter, /createVendorDraftFromPaidOrder/);
 assert.match(confirmation, /notification drafts are prepared/);
+assert.match(confirmation, /isBlankOnlyOrder/);
+assert.match(confirmation, /orderHasArtwork/);
+assert.match(confirmation, /blank-order notification drafts are prepared/);
+assert.match(confirmation, /artwork-needed notification drafts are prepared/);
+assert.match(confirmation, /artwork-received notification drafts are prepared/);
+assert.doesNotMatch(
+  confirmation,
+  /Your physical items will move into preparation after payment confirmation and artwork review/,
+);
 assert.match(adminOrder, /Create Vendor Draft/);
 assert.match(createPayment, /checkout_source !== 'customized_small_order'/);
 assert.match(createPayment, /STRIPE_SECRET_KEY/);
