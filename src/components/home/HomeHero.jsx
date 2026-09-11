@@ -1,37 +1,13 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, MessageSquare } from 'lucide-react';
 
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
+import { getCatalogProductImage as getHeroProductImage } from '@/lib/homeCatalogImages';
 import { getProductBrand } from '@/lib/shopGarmentFilters';
-import { isPublicProduct } from '@/lib/productVisibility';
 import { brandFilterValue } from '@/lib/ssBrands';
 
 const HERO_BRANDS = ['Columbia', 'Shaka Wear', 'Champion'];
-
-function isUsableImage(value) {
-  return typeof value === 'string'
-    && /^https?:\/\//i.test(value)
-    && !/(placeholder|no[-_ ]?image|image[-_ ]?unavailable|coming[-_ ]?soon)/i.test(value);
-}
-
-function firstImageFrom(value) {
-  if (!Array.isArray(value)) return '';
-  for (const item of value) {
-    const candidate = typeof item === 'string'
-      ? item
-      : item?.image_url || item?.url || item?.src || '';
-    if (isUsableImage(candidate)) return candidate;
-  }
-  return '';
-}
-
-export function getHeroProductImage(product) {
-  if (isUsableImage(product?.image_url)) return product.image_url;
-  return firstImageFrom(product?.mockup_images) || firstImageFrom(product?.size_prices);
-}
 
 function normalizeBrand(value) {
   return String(value || '').trim().toLowerCase();
@@ -79,15 +55,9 @@ function FeaturedBrandCard({ brand, product }) {
   );
 }
 
-export default function HomeHero() {
-  const { data: products = [] } = useQuery({
-    queryKey: ['home-hero-products'],
-    queryFn: () => base44.entities.Product.filter({ is_active: true }, '-created_date'),
-  });
-
-  const publicProducts = products.filter(product => product?.is_active !== false && isPublicProduct(product));
+export default function HomeHero({ products = [] }) {
   const heroProducts = new Map(HERO_BRANDS.map(brand => {
-    const product = publicProducts.find(item => (
+    const product = products.find(item => (
       normalizeBrand(getProductBrand(item)) === normalizeBrand(brand)
       && getHeroProductImage(item)
     ));

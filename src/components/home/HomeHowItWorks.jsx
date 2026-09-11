@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingBag, Palette, CreditCard, CheckCircle2 } from 'lucide-react';
+import { ShoppingBag, Palette, CreditCard, CheckCircle2, ArrowRight } from 'lucide-react';
 
 const STEPS = [
   {
@@ -32,28 +32,29 @@ const STEPS = [
 
 export default function HomeHowItWorks() {
   return (
-    <section className="py-16 bg-muted/30">
-      <div className="container mx-auto px-4">
-        <div className="text-center mb-12">
-          <h2 className="text-2xl md:text-3xl font-black mb-2">How It Works</h2>
-          <p className="text-muted-foreground text-sm">From browsing to delivery — simple every step</p>
+    <section className="bg-[#f8f4ee] py-20 sm:py-24">
+      <div className="container mx-auto px-4 sm:px-6">
+        <div className="mb-12 text-center">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.24em] text-primary">Simple by design</p>
+          <h2 className="mb-3 text-3xl font-black tracking-[-0.035em] md:text-5xl">How It Works</h2>
+          <p className="text-sm text-muted-foreground">From browsing to delivery — clear at every step.</p>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          {STEPS.map((step, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-border p-6 relative shadow-sm hover:shadow-md transition-shadow">
-              <span className="absolute top-4 right-4 text-xs font-black text-primary/20 text-2xl leading-none">{step.number}</span>
-              <div className="w-11 h-11 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-                <step.icon className="w-5 h-5 text-primary" />
+        <div className="mb-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map(step => (
+            <div key={step.number} className="relative rounded-[1.25rem] border border-[#ded5c4] bg-white/75 p-6 shadow-[0_18px_45px_-35px_rgba(31,43,21,0.65)] transition duration-300 hover:-translate-y-1 hover:border-primary/35">
+              <span className="absolute right-5 top-5 text-3xl font-black leading-none text-primary/15">{step.number}</span>
+              <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <step.icon className="h-5 w-5" strokeWidth={1.8} />
               </div>
-              <h3 className="font-bold text-sm mb-2">{step.title}</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">{step.desc}</p>
+              <h3 className="mb-2 text-sm font-black">{step.title}</h3>
+              <p className="text-xs leading-5 text-muted-foreground">{step.desc}</p>
             </div>
           ))}
         </div>
         <div className="text-center">
-          <Link to="/ShopGarments">
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-8">
-              Start Shopping
+          <Link to="/ShopGarments" className="inline-flex">
+            <Button className="gap-2 rounded-full bg-primary px-8 font-bold text-primary-foreground hover:bg-primary/90">
+              Start Shopping <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
         </div>
