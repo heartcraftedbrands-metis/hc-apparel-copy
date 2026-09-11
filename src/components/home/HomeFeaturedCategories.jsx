@@ -107,16 +107,10 @@ export default function HomeFeaturedCategories({ products = [] }) {
     <section className="relative overflow-hidden bg-[#f4efe4] py-20 sm:py-24">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(232,169,16,0.10),transparent_26%),radial-gradient(circle_at_92%_88%,rgba(74,94,42,0.12),transparent_30%)]" />
       <div className="container relative mx-auto px-4 sm:px-6">
-        <div className="mb-10 grid items-end gap-5 md:grid-cols-[1fr_auto] md:gap-10">
-          <div className="max-w-3xl">
-            <p className="mb-3 text-xs font-black uppercase tracking-[0.24em] text-primary">The Blank Edit</p>
-            <h2 className="text-4xl font-black leading-[0.95] tracking-[-0.04em] text-foreground sm:text-5xl lg:text-6xl">
-              Browse by Category
-            </h2>
-          </div>
-          <p className="max-w-md text-sm leading-6 text-muted-foreground md:text-right">
-            Quality apparel blanks, curated by silhouette and purpose. Add custom printing only when the project calls for it.
-          </p>
+        <div className="mb-10 text-center">
+          <h2 className="text-4xl font-black leading-[0.95] tracking-[-0.04em] text-foreground sm:text-5xl lg:text-6xl">
+            Browse by Category
+          </h2>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[270px] lg:grid-cols-12">
