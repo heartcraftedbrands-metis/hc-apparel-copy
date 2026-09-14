@@ -16,6 +16,7 @@ import {
   validateCheckoutCart,
   validateCheckoutCustomer,
 } from '@/lib/smallOrderCheckout';
+import { markCheckoutPending } from '@/lib/checkoutCompletion';
 
 const emptyAddress = {
   street: '',
@@ -65,7 +66,7 @@ function AddressFields({ title, value, onChange }) {
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const { cart, clearCart } = useCart();
+  const { cart } = useCart();
   const [form, setForm] = useState(initialForm);
   const [settings, setSettings] = useState({ payment_mode: 'manual', stripe_connected: false });
   const [loading, setLoading] = useState(true);
@@ -131,13 +132,12 @@ export default function Checkout() {
         });
         const paymentUrl = payment.data?.checkout_url || payment.data?.sessionUrl;
         if (paymentUrl) {
-          clearCart();
+          markCheckoutPending(window.localStorage, orderId);
           window.location.assign(paymentUrl);
           return;
         }
       }
 
-      clearCart();
       toast.success('Order created securely. Payment confirmation is still required.');
       navigate(`/OrderConfirmation?orderId=${encodeURIComponent(orderId)}`);
     } catch (error) {

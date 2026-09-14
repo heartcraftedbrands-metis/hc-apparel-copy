@@ -1,40 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { useCart } from '@/components/shop/CartContext';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Download, Package, AlertCircle, Printer, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import { isBlankOnlyOrder, orderHasArtwork } from '@/lib/productionWorkflow';
+import {
+  isCheckoutCompleted,
+  isCheckoutPending,
+  markCheckoutCompleted,
+} from '@/lib/checkoutCompletion';
 
 
 export default function OrderConfirmation() {
-  const [orderId, setOrderId] = useState('');
-  const [verifying, setVerifying] = useState(false);
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderId = urlParams.get('orderId') || '';
+  const sessionId = urlParams.get('session_id') || '';
+  const { cartReady, clearCart } = useCart();
+  const [verifying, setVerifying] = useState(Boolean(sessionId && orderId));
+  const [verifiedPaidOrderId, setVerifiedPaidOrderId] = useState('');
+  const [cartCleared, setCartCleared] = useState(false);
 
-  // Get orderId and sessionId from URL and persist it
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const id = urlParams.get('orderId');
-    const sessionId = urlParams.get('session_id');
-    
-    if (id) setOrderId(id);
-
-    // Verify Stripe payment if session_id is present
-    if (sessionId && id) {
-      setVerifying(true);
-      base44.functions.invoke('verifyStripePayment', { sessionId })
-        .then(result => {
-          if (result.data?.paid) {
-            console.log('Payment verified:', result.data);
-          }
-        })
-        .catch(err => console.error('Payment verification error:', err))
-        .finally(() => setVerifying(false));
-    }
-  }, []);
-
-  const { data: order, isLoading } = useQuery({
+  const { data: order, isLoading, refetch: refetchOrder } = useQuery({
     queryKey: ['order', orderId],
     queryFn: async () => {
       if (!orderId) return null;
@@ -42,9 +31,47 @@ export default function OrderConfirmation() {
       return orders[0];
     },
     enabled: !!orderId,
-    staleTime: Infinity,
-    retry: 1
+    staleTime: 0,
+    retry: 1,
   });
+
+  useEffect(() => {
+    let active = true;
+    if (sessionId && orderId) {
+      base44.functions.invoke('verifyStripePayment', { sessionId })
+        .then(result => {
+          if (!active) return;
+          if (result.data?.paid && result.data?.order_id === orderId) {
+            setVerifiedPaidOrderId(orderId);
+            return refetchOrder();
+          }
+        })
+        .catch(err => console.error('Payment verification error:', err))
+        .finally(() => active && setVerifying(false));
+    } else {
+      setVerifying(false);
+    }
+    return () => { active = false; };
+  }, [orderId, refetchOrder, sessionId]);
+
+  useEffect(() => {
+    if (!cartReady || !orderId || cartCleared || isCheckoutCompleted(window.localStorage, orderId)) return;
+
+    const paymentConfirmed = verifiedPaidOrderId === orderId
+      || (isCheckoutPending(window.localStorage, orderId) && order?.payment_status === 'paid');
+    if (!paymentConfirmed) return;
+
+    let active = true;
+    clearCart()
+      .then(() => {
+        if (!active) return;
+        markCheckoutCompleted(window.localStorage, orderId);
+        setCartCleared(true);
+      })
+      .catch(error => console.error('Paid-order cart clearing failed:', error));
+
+    return () => { active = false; };
+  }, [cartCleared, cartReady, clearCart, order?.payment_status, orderId, verifiedPaidOrderId]);
 
   const { data: paymentSettings } = useQuery({
     queryKey: ['payment-settings'],

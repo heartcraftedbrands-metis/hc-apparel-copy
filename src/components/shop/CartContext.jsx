@@ -7,6 +7,7 @@ const CartContext = createContext(null);
 export function CartProvider({ children }) {
   const [cart, setCart] = useState([]);
   const [cartRecord, setCartRecord] = useState(null);
+  const [cartReady, setCartReady] = useState(false);
 
   useEffect(() => {
     init();
@@ -48,6 +49,8 @@ export function CartProvider({ children }) {
       // Guest — use localStorage
       const local = JSON.parse(localStorage.getItem('hc_cart') || '[]');
       setCart(local);
+    } finally {
+      setCartReady(true);
     }
   };
 
@@ -113,15 +116,15 @@ export function CartProvider({ children }) {
     });
   }, [cartRecord, persist]);
 
-  const clearCart = useCallback(() => {
-    persist([], cartRecord);
-    setCart([]);
+  const clearCart = useCallback(async () => {
+    localStorage.removeItem('hc_cart');
+    await persist([], cartRecord);
   }, [cartRecord, persist]);
 
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ cart, cartItemCount, addToCart, updateQuantity, removeItem, clearCart }}>
+    <CartContext.Provider value={{ cart, cartItemCount, cartReady, addToCart, updateQuantity, removeItem, clearCart }}>
       {children}
     </CartContext.Provider>
   );
