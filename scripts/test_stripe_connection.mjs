@@ -30,7 +30,10 @@ assert.match(webhook, /\.neq\('payment_status', 'paid'\)/);
 assert.doesNotMatch(webhook, /api\.ssactivewear\.com|zero[\s-]?touch\/orders/i);
 
 assert.match(checkout, /STRIPE_SECRET_KEY/);
-assert.match(checkout, /getSupabaseServiceKey/);
+assert.match(checkout, /getSupabaseServiceCredential/);
+assert.match(checkout, /selected: serviceCredential\.source/);
+assert.match(checkout, /present: serviceCredential\.present/);
+assert.doesNotMatch(checkout, /console\.(?:info|log)\([^\n]*serviceRoleKey/);
 assert.match(checkout, /checkout\.sessions\.create/);
 assert.match(checkout, /internal_order_id: order\.id/);
 assert.match(checkout, /\.from\('orders'\)/);

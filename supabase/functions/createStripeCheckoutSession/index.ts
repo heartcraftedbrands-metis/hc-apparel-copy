@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17';
 import {
   getSupabasePublishableKey,
-  getSupabaseServiceKey,
+  getSupabaseServiceCredential,
 } from '../_shared/supabaseCredentials.ts';
 
 const corsHeaders = {
@@ -22,8 +22,13 @@ Deno.serve(async (request) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getSupabasePublishableKey();
-    const serviceRoleKey = getSupabaseServiceKey();
+    const serviceCredential = getSupabaseServiceCredential();
+    const serviceRoleKey = serviceCredential.key;
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+    console.info('Supabase service credential configuration', {
+      selected: serviceCredential.source,
+      present: serviceCredential.present,
+    });
     if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
       return json({ error: 'Payment service is not configured' }, 503);
     }
