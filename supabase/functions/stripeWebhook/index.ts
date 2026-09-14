@@ -1,17 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17';
+import { getSupabaseServiceKey } from '../_shared/supabaseCredentials.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'Content-Type': 'application/json' },
 });
-
-const getServiceRoleKey = () => {
-  const legacyKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (legacyKey) return legacyKey;
-  const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}');
-  return keys.default;
-};
 
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -55,16 +49,23 @@ Deno.serve(async (request) => {
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceRoleKey = getServiceRoleKey();
+  const serviceRoleKey = getSupabaseServiceKey();
   if (!supabaseUrl || !serviceRoleKey) return json({ error: 'Supabase is not configured' }, 503);
 
-  const admin = createClient(supabaseUrl, serviceRoleKey);
+  const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
   const { data: order, error: orderError } = await admin
     .from('orders')
     .select('id,owner_user_id,total_amount,payment_status,checkout_source')
     .eq('id', orderId)
-    .single();
-  if (orderError || !order) return json({ error: 'Customer order not found' }, 404);
+    .maybeSingle();
+  if (orderError) {
+    console.error('Stripe webhook order lookup failed', {
+      code: orderError.code,
+      message: orderError.message,
+    });
+    return json({ error: 'Unable to load customer order' }, 500);
+  }
+  if (!order) return json({ error: 'Customer order not found' }, 404);
   if (order.owner_user_id !== ownerUserId || order.checkout_source !== 'customized_small_order') {
     return json({ error: 'Checkout session does not match the order' }, 403);
   }

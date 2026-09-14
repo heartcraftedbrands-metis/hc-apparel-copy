@@ -1,5 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17';
+import {
+  getSupabasePublishableKey,
+  getSupabaseServiceKey,
+} from '../_shared/supabaseCredentials.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,25 +15,14 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 });
 
-const getServiceRoleKey = () => {
-  const legacyKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (legacyKey) return legacyKey;
-  const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}');
-  return keys.default;
-};
-
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    let publishableKey = Deno.env.get('SUPABASE_ANON_KEY');
-    if (!publishableKey) {
-      const publishableKeys = JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') || '{}');
-      publishableKey = publishableKeys.default;
-    }
-    const serviceRoleKey = getServiceRoleKey();
+    const publishableKey = getSupabasePublishableKey();
+    const serviceRoleKey = getSupabaseServiceKey();
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
       return json({ error: 'Payment service is not configured' }, 503);
@@ -43,17 +36,27 @@ Deno.serve(async (request) => {
     if (userError || !user) return json({ error: 'Authentication required' }, 401);
 
     const { orderId, successUrl, cancelUrl } = await request.json();
-    if (!orderId || !successUrl || !cancelUrl) {
+    if (typeof orderId !== 'string' || !orderId.trim()) {
+      return json({ error: 'A valid order ID is required' }, 400);
+    }
+    if (typeof successUrl !== 'string' || !successUrl || typeof cancelUrl !== 'string' || !cancelUrl) {
       return json({ error: 'Order ID, success URL, and cancel URL are required' }, 400);
     }
 
-    const admin = createClient(supabaseUrl, serviceRoleKey);
+    const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: order, error: orderError } = await admin
       .from('orders')
       .select('id,owner_user_id,customer_email,order_items,total_amount,payment_status,checkout_source')
-      .eq('id', orderId)
-      .single();
-    if (orderError || !order) return json({ error: 'Order not found' }, 404);
+      .eq('id', orderId.trim())
+      .maybeSingle();
+    if (orderError) {
+      console.error('Stripe checkout order lookup failed', {
+        code: orderError.code,
+        message: orderError.message,
+      });
+      return json({ error: 'Unable to load customer order' }, 500);
+    }
+    if (!order) return json({ error: 'Order not found' }, 404);
     if (order.owner_user_id !== user.id) return json({ error: 'Order access denied' }, 403);
     if (order.checkout_source !== 'customized_small_order') {
       return json({ error: 'Unsupported checkout order' }, 400);

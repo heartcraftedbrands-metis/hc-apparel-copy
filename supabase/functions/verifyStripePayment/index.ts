@@ -1,5 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17';
+import {
+  getSupabasePublishableKey,
+  getSupabaseServiceKey,
+} from '../_shared/supabaseCredentials.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,25 +15,14 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 });
 
-const getServiceRoleKey = () => {
-  const legacyKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (legacyKey) return legacyKey;
-  const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}');
-  return keys.default;
-};
-
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    let publishableKey = Deno.env.get('SUPABASE_ANON_KEY');
-    if (!publishableKey) {
-      const publishableKeys = JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') || '{}');
-      publishableKey = publishableKeys.default;
-    }
-    const serviceRoleKey = getServiceRoleKey();
+    const publishableKey = getSupabasePublishableKey();
+    const serviceRoleKey = getSupabaseServiceKey();
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
       return json({ error: 'Payment service is not configured' }, 503);
@@ -52,13 +45,20 @@ Deno.serve(async (request) => {
       return json({ error: 'Payment session does not belong to this customer' }, 403);
     }
 
-    const admin = createClient(supabaseUrl, serviceRoleKey);
+    const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: order, error: orderError } = await admin
       .from('orders')
       .select('id,owner_user_id,total_amount,payment_status')
       .eq('id', orderId)
-      .single();
-    if (orderError || !order || order.owner_user_id !== user.id) {
+      .maybeSingle();
+    if (orderError) {
+      console.error('Stripe payment order lookup failed', {
+        code: orderError.code,
+        message: orderError.message,
+      });
+      return json({ error: 'Unable to load customer order' }, 500);
+    }
+    if (!order || order.owner_user_id !== user.id) {
       return json({ error: 'Customer order not found' }, 404);
     }
 
