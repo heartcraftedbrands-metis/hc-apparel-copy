@@ -224,6 +224,34 @@ function inventoryQuantity(product: Record<string, unknown>) {
   return Math.max(0, Number(product.qty ?? product.Qty) || 0);
 }
 
+function buildSsOrderRequest(vendorPayload: Record<string, unknown>, draftId: string) {
+  const shipping = (vendorPayload.shipping_address || {}) as Record<string, unknown>;
+  const items = Array.isArray(vendorPayload.items)
+    ? vendorPayload.items as Array<Record<string, unknown>>
+    : [];
+  return {
+    shippingAddress: {
+      customer: textValue(vendorPayload.customer_name) || textValue(shipping.company) || textValue(shipping.name) || '',
+      attn: textValue(shipping.name) || '',
+      address: textValue(shipping.street) || textValue(shipping.line1) || textValue(shipping.address1),
+      city: textValue(shipping.city),
+      state: textValue(shipping.state),
+      zip: textValue(shipping.zip) || textValue(shipping.postal_code),
+      residential: true,
+    },
+    shippingMethod: ssShippingMethod(vendorPayload.shipping_method),
+    shipBlind: false,
+    poNumber: textValue(vendorPayload.purchase_order_number) || `HC-${draftId}`,
+    emailConfirmation: '',
+    testOrder: false,
+    autoselectWarehouse: true,
+    lines: items.map((item) => ({
+      identifier: String(item.sku || '').trim(),
+      qty: Math.trunc(Number(item.quantity)),
+    })),
+  };
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(request) });
@@ -440,28 +468,7 @@ Deno.serve(async (request) => {
         }
       }
 
-      const shipping = vendorPayload.shipping_address as Record<string, unknown>;
-      const requestBody = {
-        shippingAddress: {
-          customer: textValue(vendorPayload.customer_name) || textValue(shipping.company) || textValue(shipping.name) || '',
-          attn: textValue(shipping.name) || '',
-          address: textValue(shipping.street) || textValue(shipping.line1) || textValue(shipping.address1),
-          city: textValue(shipping.city),
-          state: textValue(shipping.state),
-          zip: textValue(shipping.zip) || textValue(shipping.postal_code),
-          residential: true,
-        },
-        shippingMethod: ssShippingMethod(vendorPayload.shipping_method),
-        shipBlind: false,
-        poNumber: textValue(vendorPayload.purchase_order_number) || `HC-${payload.draft_id}`,
-        emailConfirmation: '',
-        testOrder: false,
-        autoselectWarehouse: true,
-        lines: items.map((item) => ({
-          identifier: String(item.sku || '').trim(),
-          qty: Math.trunc(Number(item.quantity)),
-        })),
-      };
+      const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id);
 
       const orderResponse = await fetch('https://api.ssactivewear.com/v2/orders/', {
         method: 'POST',
@@ -535,9 +542,26 @@ Deno.serve(async (request) => {
       return json(request, { error: 'Unable to validate the vendor order draft' }, 500);
     }
 
+    const { data: validationDraft, error: validationDraftError } = await userClient
+      .from('vendor_order_drafts')
+      .select('customer_name')
+      .eq('id', payload.draft_id)
+      .maybeSingle();
+    if (validationDraftError || !validationDraft) {
+      console.error('Unable to load vendor draft for dry-run preview', validationDraftError?.message);
+      return json(request, { error: 'Unable to prepare the S&S dry-run preview' }, 500);
+    }
+    const authorizedPayload = {
+      ...(validation.payload as Record<string, unknown>),
+      customer_name: validationDraft.customer_name,
+    };
+    const submissionPayload = buildSsOrderRequest(authorizedPayload, payload.draft_id);
+
     let apiConnected = false;
     let connectionMessage = 'S&S API not connected';
     let rateLimitRemaining: string | null = null;
+    let inventoryValid = false;
+    let inventoryChecks: Array<Record<string, unknown>> = [];
 
     if (accountNumber && apiKey) {
       try {
@@ -554,6 +578,57 @@ Deno.serve(async (request) => {
         connectionMessage = response.ok
           ? 'S&S API connected (read-only test)'
           : 'S&S API not connected';
+
+        if (response.ok && submissionPayload.lines.length) {
+          const inventoryUrl = new URL(
+            `https://api.ssactivewear.com/v2/products/${submissionPayload.lines.map((line) => encodeURIComponent(line.identifier)).join(',')}`,
+          );
+          inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
+          inventoryUrl.searchParams.set('mediatype', 'json');
+          const inventoryResponse = await fetch(inventoryUrl, {
+            headers: {
+              'Authorization': `Basic ${btoa(`${accountNumber}:${apiKey}`)}`,
+              'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (inventoryResponse.ok) {
+            const inventoryResult = await inventoryResponse.json();
+            const inventoryRows = Array.isArray(inventoryResult)
+              ? inventoryResult as Array<Record<string, unknown>>
+              : [];
+            const items = authorizedPayload.items as Array<Record<string, unknown>>;
+            inventoryChecks = items.map((item) => {
+              const sku = String(item.sku || '').trim();
+              const product = inventoryRows.find((row) =>
+                String(row.sku ?? row.Sku ?? '').trim().toLowerCase() === sku.toLowerCase()
+              );
+              const available = product ? inventoryQuantity(product) : 0;
+              const requested = Math.trunc(Number(item.quantity) || 0);
+              const colorMatches = Boolean(product)
+                && String(product?.colorName ?? product?.ColorName ?? '').trim().toLowerCase()
+                  === String(item.color || '').trim().toLowerCase();
+              const sizeMatches = Boolean(product)
+                && String(product?.sizeName ?? product?.SizeName ?? '').trim().toLowerCase()
+                  === String(item.size || '').trim().toLowerCase();
+              return {
+                sku,
+                requested_quantity: requested,
+                available_quantity: available,
+                sku_found: Boolean(product),
+                color_matches: colorMatches,
+                size_matches: sizeMatches,
+                in_stock: requested > 0 && available >= requested,
+              };
+            });
+            inventoryValid = inventoryChecks.length === items.length
+              && inventoryChecks.every((check) =>
+                check.sku_found && check.color_matches && check.size_matches && check.in_stock
+              );
+          } else {
+            connectionMessage = 'S&S API connected; current SKU inventory preview was unavailable';
+          }
+        }
       } catch (error) {
         console.error('Read-only S&S vendor order connection test failed', error);
       }
@@ -569,6 +644,17 @@ Deno.serve(async (request) => {
       safety_message: 'Do Not Submit Live Order Yet',
       rate_limit_remaining: rateLimitRemaining,
       checked_at: new Date().toISOString(),
+      dry_run: true,
+      submission_payload: submissionPayload,
+      credentials: {
+        account_number: accountNumber ? 'configured (masked)' : 'not configured',
+        api_key: apiKey ? 'configured (masked)' : 'not configured',
+      },
+      inventory_check: {
+        valid: inventoryValid,
+        items: inventoryChecks,
+        checked_at: new Date().toISOString(),
+      },
     };
     const { error: recordError } = await userClient.rpc(
       'record_ss_vendor_order_test_result',

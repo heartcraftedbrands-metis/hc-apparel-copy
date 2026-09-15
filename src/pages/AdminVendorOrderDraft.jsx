@@ -357,7 +357,7 @@ export default function AdminVendorOrderDraft() {
           </div>
 
           {testResult && (
-            <div className={`rounded-xl border p-4 ${testResult.api_connected ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className={`rounded-xl border p-4 space-y-3 ${testResult.api_connected ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
               <p className="font-bold flex items-center gap-2">
                 {testResult.api_connected
                   ? <CheckCircle2 className="w-4 h-4 text-green-600" />
@@ -367,6 +367,21 @@ export default function AdminVendorOrderDraft() {
               <p className="text-sm mt-1">
                 Payload {testResult.payload_valid ? 'passed' : 'did not pass'} validation. Submitted: no.
               </p>
+              {testResult.dry_run && testResult.submission_payload && (
+                <div className="rounded-xl border bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <p className="font-bold text-sm">Exact S&amp;S Orders API dry-run payload</p>
+                    <Badge className="bg-blue-100 text-blue-800">Never submitted</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Credentials: {testResult.credentials?.account_number}; API key: {testResult.credentials?.api_key}.
+                    {' '}Current inventory: {testResult.inventory_check?.valid ? 'valid' : 'not ready or unavailable'}.
+                  </p>
+                  <pre className="max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100 whitespace-pre-wrap break-words">
+                    {JSON.stringify(testResult.submission_payload, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </section>

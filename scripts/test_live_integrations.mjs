@@ -46,6 +46,11 @@ assert.match(ssFunction, /https:\/\/api\.ssactivewear\.com\/v2\/products\//);
 assert.match(ssFunction, /https:\/\/api\.ssactivewear\.com\/v2\/orders\//);
 assert.match(ssFunction, /testOrder: false/);
 assert.match(ssFunction, /emailConfirmation: ''/);
+assert.match(ssFunction, /buildSsOrderRequest/);
+assert.match(ssFunction, /dry_run: true/);
+assert.match(ssFunction, /submission_payload: submissionPayload/);
+assert.match(ssFunction, /configured \(masked\)/);
+assert.match(ssFunction, /inventory_check/);
 assert.doesNotMatch(ssFunction, /zerotouch[^\n]*(?:fetch|POST)/i);
 
 assert.match(panel, /Submit Live S&amp;S Order/);
