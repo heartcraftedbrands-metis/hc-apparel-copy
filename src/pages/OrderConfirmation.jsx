@@ -156,7 +156,8 @@ export default function OrderConfirmation() {
                 <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-green-700">
                   <p className="font-semibold mb-1">Payment Received</p>
-                  <p>Your payment has been successfully processed. Your order is now being prepared for fulfillment.</p>
+                  <p>Payment received. Your order has been received and is being reviewed for fulfillment.</p>
+                  <p className="mt-2">You’ll receive updates when your order moves into production and when tracking is available.</p>
                 </div>
               </div>
             </CardContent>
@@ -191,7 +192,7 @@ export default function OrderConfirmation() {
           </Card>
         )}
 
-        {settings.payment_notes_customer && (
+        {order?.payment_status !== 'paid' && settings.payment_notes_customer && (
           <Card className="mb-6 bg-green-50 border-green-200">
             <CardContent className="pt-6">
               <p className="text-sm text-green-700">{settings.payment_notes_customer}</p>

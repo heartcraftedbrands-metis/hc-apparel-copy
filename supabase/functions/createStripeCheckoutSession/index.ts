@@ -74,24 +74,38 @@ Deno.serve(async (request) => {
     }
 
     const stripe = new Stripe(stripeSecretKey);
+    const stripeOrderMetadata = {
+      app_name: 'HC Apparel',
+      source: 'hc_apparel_customized_small_order',
+      internal_order_id: order.id,
+      owner_user_id: user.id,
+    };
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
       customer_email: order.customer_email,
+      client_reference_id: order.id,
       line_items: items.map((item: Record<string, unknown>) => ({
         price_data: {
           currency: 'usd',
-          product_data: { name: String(item.product_name || 'HC Apparel customized garment') },
+          product_data: {
+            name: String(item.product_name || 'HC Apparel garment'),
+            description: 'HC Apparel storefront order',
+            metadata: {
+              app_name: 'HC Apparel',
+              internal_order_id: order.id,
+            },
+          },
           unit_amount: Math.round(Number(item.price) * 100),
         },
         quantity: Number(item.quantity),
       })),
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        source: 'hc_apparel_customized_small_order',
-        internal_order_id: order.id,
-        owner_user_id: user.id,
+      metadata: stripeOrderMetadata,
+      payment_intent_data: {
+        description: `HC Apparel order ${order.id}`,
+        metadata: stripeOrderMetadata,
       },
     });
 
