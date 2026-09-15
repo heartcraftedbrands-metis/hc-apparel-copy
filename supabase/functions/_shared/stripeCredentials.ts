@@ -6,10 +6,26 @@ export type StripeCredentials = {
   webhookSecret?: string;
   secretKeySource: string | null;
   webhookSecretSource: string | null;
+  secretKeyFormatValid: boolean;
+  webhookSecretFormatValid: boolean;
   configured: boolean;
 };
 
-const value = (name: string) => Deno.env.get(name)?.trim() || undefined;
+// Supabase stores the value exactly as entered. Normalize the two common copy/paste
+// forms (quoted values and NAME=value) without ever logging or returning the value.
+const value = (name: string) => {
+  let secret = Deno.env.get(name)?.trim();
+  if (!secret) return undefined;
+  if (secret.startsWith(`${name}=`)) secret = secret.slice(name.length + 1).trim();
+  if (
+    secret.length >= 2
+    && ((secret.startsWith('"') && secret.endsWith('"'))
+      || (secret.startsWith("'") && secret.endsWith("'")))
+  ) {
+    secret = secret.slice(1, -1).trim();
+  }
+  return secret || undefined;
+};
 
 const modeFromSecretKey = (key?: string): StripeMode | null => {
   if (key?.startsWith('sk_test_')) return 'test';
@@ -56,6 +72,8 @@ export const getStripeCredentials = (requestedMode: StripeMode): StripeCredentia
       ? 'STRIPE_WEBHOOK_SECRET'
       : null;
   const expectedPrefix = requestedMode === 'live' ? 'sk_live_' : 'sk_test_';
+  const secretKeyFormatValid = Boolean(secretKey?.startsWith(expectedPrefix));
+  const webhookSecretFormatValid = Boolean(webhookSecret?.startsWith('whsec_'));
 
   return {
     mode: requestedMode,
@@ -63,7 +81,9 @@ export const getStripeCredentials = (requestedMode: StripeMode): StripeCredentia
     webhookSecret,
     secretKeySource,
     webhookSecretSource,
-    configured: Boolean(secretKey?.startsWith(expectedPrefix) && webhookSecret?.startsWith('whsec_')),
+    secretKeyFormatValid,
+    webhookSecretFormatValid,
+    configured: secretKeyFormatValid && webhookSecretFormatValid,
   };
 };
 

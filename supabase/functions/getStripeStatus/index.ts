@@ -53,7 +53,12 @@ Deno.serve(async (request) => {
     const selected = credentials[selectedMode];
     const publicStatus = (mode: 'test' | 'live') => ({
       server_key_detected: Boolean(credentials[mode].secretKey),
+      server_key_format_valid: credentials[mode].secretKeyFormatValid,
       webhook_configured: Boolean(credentials[mode].webhookSecret),
+      webhook_format_valid: credentials[mode].webhookSecretFormatValid,
+      server_key_source: credentials[mode].secretKeySource,
+      webhook_secret_source: credentials[mode].webhookSecretSource,
+      ready: credentials[mode].configured,
       checkout_enabled: credentials[mode].configured,
     });
 

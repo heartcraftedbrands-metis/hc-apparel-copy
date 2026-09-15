@@ -20,6 +20,7 @@ for (const name of ['STRIPE_TEST_SECRET_KEY', 'STRIPE_TEST_WEBHOOK_SECRET', 'STR
   assert.match(stripeCredentials, new RegExp(name));
 }
 assert.match(stripeCredentials, /secretKey\?\.startsWith\(expectedPrefix\)/);
+assert.match(stripeCredentials, /secret\.startsWith\(`\$\{name\}=`\)/);
 assert.match(checkout, /stripe_mode/);
 assert.match(checkout, /Stripe \$\{stripeMode\} mode is not configured/);
 assert.match(verify, /modeFromCheckoutSessionId/);
@@ -27,7 +28,10 @@ assert.match(webhook, /constructEventAsync/);
 assert.match(webhook, /event\.livemode/);
 assert.match(status, /test: publicStatus\('test'\)/);
 assert.match(status, /live: publicStatus\('live'\)/);
+assert.match(status, /ready: credentials\[mode\]\.configured/);
 assert.match(settings, /Stripe Environment/);
+assert.match(settings, /Refresh status/);
+assert.match(settings, /Status unavailable/);
 assert.match(settings, /value="live"/);
 assert.match(settings, /Switch Stripe Checkout to live mode\?/);
 

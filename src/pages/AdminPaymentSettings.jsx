@@ -34,13 +34,21 @@ export default function AdminPaymentSettings() {
 
   const settingsRecord = settings[0] || null;
 
-  const { data: stripeStatus, isLoading: stripeStatusLoading } = useQuery({
+  const {
+    data: stripeStatus,
+    error: stripeStatusError,
+    isFetching: stripeStatusFetching,
+    isLoading: stripeStatusLoading,
+    refetch: refetchStripeStatus,
+  } = useQuery({
     queryKey: ['stripe-status'],
     queryFn: async () => {
       const response = await base44.functions.invoke('getStripeStatus', {});
       return response.data;
     },
     retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   useEffect(() => {
@@ -125,7 +133,18 @@ export default function AdminPaymentSettings() {
             </Card>
 
             <Card className="p-6 border shadow-sm">
-              <h2 className="text-lg font-bold mb-4">Stripe Environment</h2>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-bold">Stripe Environment</h2>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={stripeStatusFetching}
+                  onClick={() => refetchStripeStatus()}
+                >
+                  {stripeStatusFetching ? 'Checking…' : 'Refresh status'}
+                </Button>
+              </div>
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-medium block mb-2">Current Stripe Mode</label>
@@ -143,15 +162,37 @@ export default function AdminPaymentSettings() {
                   Live checkout remains unavailable until both STRIPE_LIVE_SECRET_KEY and STRIPE_LIVE_WEBHOOK_SECRET are configured server-side.
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                  {['test', 'live'].map((mode) => (
-                    <div key={mode} className="rounded-lg border p-3 flex items-center justify-between">
-                      <span className="font-medium capitalize">{mode}</span>
-                      <Badge variant="outline">
-                        {stripeStatus?.modes?.[mode]?.checkout_enabled ? 'Ready' : 'Not configured'}
-                      </Badge>
-                    </div>
-                  ))}
+                  {['test', 'live'].map((mode) => {
+                    const modeStatus = stripeStatus?.modes?.[mode];
+                    const label = stripeStatusError
+                      ? 'Status unavailable'
+                      : stripeStatusLoading
+                        ? 'Checking…'
+                        : modeStatus?.ready
+                          ? 'Ready'
+                          : !modeStatus?.server_key_detected || !modeStatus?.webhook_configured
+                            ? 'Not configured'
+                            : 'Invalid secret format';
+                    return (
+                      <div key={mode} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium capitalize">{mode}</span>
+                          <Badge variant="outline">{label}</Badge>
+                        </div>
+                        {modeStatus && !modeStatus.ready && (
+                          <p className="mt-2 text-xs text-amber-700">
+                            Server key: {modeStatus.server_key_format_valid ? 'valid' : 'missing or invalid'} · Webhook: {modeStatus.webhook_format_valid ? 'valid' : 'missing or invalid'}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                {stripeStatusError && (
+                  <p className="text-xs text-red-700">
+                    Stripe readiness could not be checked. Refresh the status or sign in again.
+                  </p>
+                )}
               </div>
             </Card>
 
