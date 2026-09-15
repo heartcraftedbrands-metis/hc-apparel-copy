@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, EyeOff, ShieldCheck } from 'lucide-react';
+import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, EyeOff, ShieldCheck, FlaskConical } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Table,
@@ -40,6 +40,7 @@ export default function AdminCustomerNotifications() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [copiedId, setCopiedId] = useState(null);
+  const [view, setView] = useState('live');
 
   const { data: notifications = [], isLoading, refetch } = useQuery({
     queryKey: ['customerNotifications'],
@@ -49,7 +50,11 @@ export default function AdminCustomerNotifications() {
     },
   });
 
-  const filtered = notifications.filter((n) => {
+  const liveNotifications = notifications.filter((notification) => !notification.is_sample);
+  const qaNotifications = notifications.filter((notification) => notification.is_sample);
+  const visibleNotifications = view === 'qa' ? qaNotifications : liveNotifications;
+
+  const filtered = visibleNotifications.filter((n) => {
     const matchSearch =
       n.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       n.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -92,10 +97,10 @@ export default function AdminCustomerNotifications() {
   };
 
   const stats = {
-    total: notifications.length,
-    drafts: notifications.filter((n) => n.sent_status === 'draft').length,
-    sent: notifications.filter((n) => n.sent_status === 'sent').length,
-    failed: notifications.filter((n) => n.sent_status === 'failed').length,
+    total: visibleNotifications.length,
+    drafts: visibleNotifications.filter((n) => n.sent_status === 'draft').length,
+    sent: visibleNotifications.filter((n) => n.sent_status === 'sent').length,
+    failed: visibleNotifications.filter((n) => n.sent_status === 'failed').length,
   };
 
   return (
@@ -121,6 +126,21 @@ export default function AdminCustomerNotifications() {
             <Badge className="w-fit bg-amber-200 text-amber-950 hover:bg-amber-200">Disabled</Badge>
           </CardContent>
         </Card>
+
+        <div className="mb-6 flex flex-wrap gap-2" aria-label="Notification view">
+          <Button variant={view === 'live' ? 'default' : 'outline'} onClick={() => setView('live')}>
+            Live Notifications <span className="ml-2 opacity-70">{liveNotifications.length}</span>
+          </Button>
+          <Button variant={view === 'qa' ? 'default' : 'outline'} onClick={() => setView('qa')}>
+            <FlaskConical className="mr-2 h-4 w-4" />QA/Test <span className="ml-2 opacity-70">{qaNotifications.length}</span>
+          </Button>
+        </div>
+
+        {view === 'qa' && (
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            QA/Test — Do Not Fulfill. These notification drafts are preserved for audit and remain unsent.
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

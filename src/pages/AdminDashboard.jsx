@@ -67,11 +67,17 @@ export default function AdminDashboard() {
   });
   const { data: orders = [] } = useQuery({
     queryKey: ['orders_inbox'],
-    queryFn: () => base44.entities.Order.list('-created_date', 200),
+    queryFn: async () => {
+      const records = await base44.entities.Order.list('-created_date', 200);
+      return records.filter((order) => !order.is_sample);
+    },
   });
   const { data: vendorDrafts = [] } = useQuery({
     queryKey: ['vendor_order_drafts'],
-    queryFn: () => base44.entities.VendorOrderDraft.list('-created_date', 100),
+    queryFn: async () => {
+      const records = await base44.entities.VendorOrderDraft.list('-created_date', 100);
+      return records.filter((draft) => !draft.is_sample);
+    },
   });
 
   const newMessages  = messages.filter(m => m.status === 'new').length;

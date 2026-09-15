@@ -85,12 +85,18 @@ export default function AdminOperationsDashboard() {
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery({
     queryKey: ['orders'],
-    queryFn: () => base44.entities.Order.list('-created_date', 1000),
+    queryFn: async () => {
+      const records = await base44.entities.Order.list('-created_date', 1000);
+      return records.filter((order) => !order.is_sample);
+    },
   });
 
   const { data: vendorOrders = [], isLoading: vendorOrdersLoading } = useQuery({
     queryKey: ['vendorOrders'],
-    queryFn: () => base44.entities.VendorOrder.list('-created_date', 1000),
+    queryFn: async () => {
+      const records = await base44.entities.VendorOrder.list('-created_date', 1000);
+      return records.filter((order) => !order.is_sample);
+    },
   });
 
   const { data: quotes = [], isLoading: quotesLoading } = useQuery({
@@ -105,7 +111,10 @@ export default function AdminOperationsDashboard() {
 
   const { data: notifications = [], isLoading: notificationsLoading } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => base44.entities.CustomerNotification.list('-created_date', 1000),
+    queryFn: async () => {
+      const records = await base44.entities.CustomerNotification.list('-created_date', 1000);
+      return records.filter((notification) => !notification.is_sample);
+    },
   });
 
   const { data: products = [], isLoading: productsLoading } = useQuery({

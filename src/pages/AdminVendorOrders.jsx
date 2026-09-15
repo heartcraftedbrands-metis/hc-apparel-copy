@@ -110,13 +110,13 @@ export default function AdminVendorOrders() {
                   : 'bg-white text-foreground border-border hover:border-primary/40'
               }`}>
               {f.label}
-              {f.key !== 'live' && (
-                <span className="ml-1.5 text-xs opacity-60">
-                  {f.key === 'qa'
-                    ? qaDrafts.length
+              <span className="ml-1.5 text-xs opacity-60">
+                {f.key === 'qa'
+                  ? qaDrafts.length
+                  : f.key === 'live'
+                    ? liveDrafts.length
                     : liveDrafts.filter(d => d.vendor_status === f.key).length}
-                </span>
-              )}
+              </span>
             </button>
           ))}
         </div>

@@ -11,7 +11,10 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 export default function AdminAnalytics() {
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['analytics-orders'],
-    queryFn: () => base44.entities.Order.list('-created_date'),
+    queryFn: async () => {
+      const records = await base44.entities.Order.list('-created_date');
+      return records.filter((order) => !order.is_sample);
+    },
   });
 
   const stats = useMemo(() => {
@@ -95,7 +98,10 @@ export default function AdminAnalytics() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Sales Analytics</h1>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold">Sales Analytics</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Live customer orders only. QA/test and archived legacy records are excluded.</p>
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

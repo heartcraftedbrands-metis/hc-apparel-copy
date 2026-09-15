@@ -151,9 +151,9 @@ export default function AdminInbox() {
   });
 
   // Apply local patches on top of DB data for instant UI
-  const orders = rawOrders.map(o =>
-    orderPatches[o.id] ? { ...o, ...orderPatches[o.id] } : o
-  );
+  const orders = rawOrders
+    .filter((order) => !order.is_sample)
+    .map(o => orderPatches[o.id] ? { ...o, ...orderPatches[o.id] } : o);
 
   // ── Mutations ───────────────────────────────────────────────
   const updateMsg = useMutation({
