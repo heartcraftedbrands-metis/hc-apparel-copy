@@ -7,6 +7,7 @@ const ENTITY_CONFIG = {
   GarmentCatalog: { table: 'garment_catalog_items' },
   ImportBatch: { table: 'import_batches' },
   NewsletterSubscriber: { table: 'newsletter_subscribers' },
+  LiveOrder: { table: 'admin_live_orders' },
   Order: { table: 'orders', customerView: 'customer_orders' },
   OrderStatusHistory: { table: 'order_status_history' },
   ProductionStatusHistory: { table: 'production_status_history' },

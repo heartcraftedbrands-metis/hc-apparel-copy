@@ -12,8 +12,10 @@ export default function AdminAnalytics() {
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['analytics-orders'],
     queryFn: async () => {
-      const records = await base44.entities.Order.list('-created_date');
-      return records.filter((order) => !order.is_sample);
+      // The database view is the source of truth for live metrics. Keeping the
+      // exclusion server-side prevents legacy marker fields or stale clients
+      // from mixing QA orders into launch revenue.
+      return base44.entities.LiveOrder.list('-created_date');
     },
   });
 
@@ -227,7 +229,7 @@ export default function AdminAnalytics() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-center py-8">No sales data yet</p>
+            <p className="text-gray-400 text-center py-8">No live sales yet</p>
           )}
         </CardContent>
       </Card>

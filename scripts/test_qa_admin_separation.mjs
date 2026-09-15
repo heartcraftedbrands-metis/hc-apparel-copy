@@ -9,6 +9,11 @@ const dashboard = readFileSync(new URL('../src/pages/AdminDashboard.jsx', import
 const inbox = readFileSync(new URL('../src/pages/AdminInbox.jsx', import.meta.url), 'utf8');
 const operations = readFileSync(new URL('../src/pages/AdminOperationsDashboard.jsx', import.meta.url), 'utf8');
 const analytics = readFileSync(new URL('../src/pages/AdminAnalytics.jsx', import.meta.url), 'utf8');
+const client = readFileSync(new URL('../src/api/base44Client.js', import.meta.url), 'utf8');
+const liveAnalyticsMigration = readFileSync(
+  new URL('../supabase/migrations/202609150006_exclude_test_orders_from_live_sales_analytics.sql', import.meta.url),
+  'utf8',
+);
 const customerNotifications = readFileSync(new URL('../src/pages/AdminCustomerNotifications.jsx', import.meta.url), 'utf8');
 const migration = [
   readFileSync(new URL('../supabase/migrations/202609150003_separate_qa_test_orders.sql', import.meta.url), 'utf8'),
@@ -17,13 +22,20 @@ const migration = [
 ].join('\n');
 
 assert.match(orders, /order\.is_sample/);
+assert.match(client, /LiveOrder:\s*\{\s*table:\s*'admin_live_orders'/);
+assert.match(analytics, /entities\.LiveOrder\.list/);
+assert.doesNotMatch(analytics, /entities\.Order\.list/);
+assert.match(liveAnalyticsMigration, /security_invoker\s*=\s*true/);
+assert.match(liveAnalyticsMigration, /excluded_from_live_metrics/);
+assert.match(liveAnalyticsMigration, /stripe sandbox qa/);
+assert.match(liveAnalyticsMigration, /grant select on public\.admin_live_orders to authenticated/);
 assert.match(orders, /QA\/Test — Do Not Fulfill/);
 assert.match(drafts, /draft\.is_sample/);
 assert.match(drafts, /key: 'qa'/);
 assert.match(drafts, /liveDrafts\.length/);
 assert.match(draftDetail, /!form\.is_sample/);
 assert.match(livePanel, /!draft\.is_sample/);
-for (const liveView of [dashboard, inbox, operations, analytics]) {
+for (const liveView of [dashboard, inbox, operations]) {
   assert.match(liveView, /filter\(\((?:order|draft|notification)\) => !(?:order|draft|notification)\.is_sample\)/);
 }
 assert.match(analytics, /Live customer orders only/);
