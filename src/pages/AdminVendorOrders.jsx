@@ -47,22 +47,31 @@ function exportDraftCSV(draft) {
 }
 
 export default function AdminVendorOrders() {
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('live');
 
   const { data: drafts = [], isLoading } = useQuery({
     queryKey: ['vendor_order_drafts'],
     queryFn: () => base44.entities.VendorOrderDraft.list('-created_date', 200),
   });
 
-  const filtered = filter === 'all' ? drafts : drafts.filter(d => d.vendor_status === filter);
+  const liveDrafts = drafts
+    .filter((draft) => !draft.is_sample)
+    .sort((a, b) => Number(b.payment_status === 'paid') - Number(a.payment_status === 'paid'));
+  const qaDrafts = drafts.filter((draft) => draft.is_sample);
+  const filtered = filter === 'qa'
+    ? qaDrafts
+    : filter === 'live'
+      ? liveDrafts
+      : liveDrafts.filter((draft) => draft.vendor_status === filter);
 
   const FILTERS = [
-    { key: 'all',               label: 'All' },
+    { key: 'live',              label: 'Live' },
     { key: 'draft',             label: 'Draft' },
     { key: 'ready_to_order',    label: 'Ready to Order' },
     { key: 'ordered_from_vendor', label: 'Ordered' },
     { key: 'received',          label: 'Received' },
     { key: 'cancelled',         label: 'Cancelled' },
+    { key: 'qa',                label: 'QA/Test' },
   ];
 
   return (
@@ -86,8 +95,8 @@ export default function AdminVendorOrders() {
         <div className="rounded-2xl border-2 border-red-300 bg-red-50 text-red-800 p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
           <div>
-            <p className="font-extrabold">Do Not Submit Live Order Yet</p>
-            <p className="text-sm">Draft review and test-mode validation are available. No live S&S order action exists.</p>
+            <p className="font-extrabold">Controlled vendor ordering</p>
+            <p className="text-sm">Only reviewed, paid, non-QA drafts can reach the separately confirmed live S&amp;S action.</p>
           </div>
         </div>
 
@@ -101,9 +110,11 @@ export default function AdminVendorOrders() {
                   : 'bg-white text-foreground border-border hover:border-primary/40'
               }`}>
               {f.label}
-              {f.key !== 'all' && (
+              {f.key !== 'live' && (
                 <span className="ml-1.5 text-xs opacity-60">
-                  {drafts.filter(d => d.vendor_status === f.key).length}
+                  {f.key === 'qa'
+                    ? qaDrafts.length
+                    : liveDrafts.filter(d => d.vendor_status === f.key).length}
                 </span>
               )}
             </button>
@@ -114,7 +125,9 @@ export default function AdminVendorOrders() {
           <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground text-sm">
-            No vendor order drafts yet. Mark an order paid in the Inbox to create one.
+            {filter === 'qa'
+              ? 'No QA/test vendor drafts.'
+              : 'No live vendor order drafts yet. Mark an order paid in the Inbox to create one.'}
           </div>
         ) : (
           <div className="space-y-3">
@@ -140,6 +153,9 @@ export default function AdminVendorOrders() {
                         : 'bg-red-100 text-red-700'}>
                         {draft.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
                       </Badge>
+                      {draft.is_sample && (
+                        <Badge className="bg-amber-100 text-amber-800">QA/Test — Do Not Fulfill</Badge>
+                      )}
                       {anyWarn && (
                         <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                           <AlertTriangle className="w-3 h-3" />Warnings

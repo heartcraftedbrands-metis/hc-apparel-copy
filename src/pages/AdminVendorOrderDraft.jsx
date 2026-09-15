@@ -210,6 +210,15 @@ export default function AdminVendorOrderDraft() {
       </header>
 
       <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+        {form.is_sample && (
+          <div className="border border-amber-300 bg-amber-50 text-amber-900 rounded-2xl p-4 flex gap-3">
+            <FlaskConical className="w-6 h-6 shrink-0" />
+            <div>
+              <p className="font-extrabold">QA/Test — Do Not Fulfill</p>
+              <p className="text-sm">This audit record cannot be submitted to S&amp;S.</p>
+            </div>
+          </div>
+        )}
         <div className="border border-amber-300 bg-amber-50 text-amber-900 rounded-2xl p-4 flex gap-3">
           <ShieldAlert className="w-6 h-6 shrink-0" />
           <div>
@@ -386,13 +395,15 @@ export default function AdminVendorOrderDraft() {
           )}
         </section>
 
-        <LiveSSSubmissionPanel
-          draft={form}
-          onUpdated={async () => {
-            await refetchDraft();
-            refresh();
-          }}
-        />
+        {!form.is_sample && (
+          <LiveSSSubmissionPanel
+            draft={form}
+            onUpdated={async () => {
+              await refetchDraft();
+              refresh();
+            }}
+          />
+        )}
 
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <h2 className="font-bold">Order status timeline</h2>

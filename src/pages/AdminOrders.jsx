@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Package, Eye } from "lucide-react";
+import { Package, Eye, FlaskConical } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -29,6 +29,7 @@ const STATUS_COLORS = {
 export default function AdminOrders() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [view, setView] = useState('live');
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['admin-orders'],
@@ -39,6 +40,10 @@ export default function AdminOrders() {
     mutationFn: ({ id, status }) => base44.entities.Order.update(id, { status }),
     onSuccess: () => { queryClient.invalidateQueries(['admin-orders']); toast.success('Status updated'); },
   });
+
+  const liveOrders = useMemo(() => orders.filter((order) => !order.is_sample), [orders]);
+  const qaOrders = useMemo(() => orders.filter((order) => order.is_sample), [orders]);
+  const visibleOrders = view === 'qa' ? qaOrders : liveOrders;
 
   // Support ?order_id= URL param to deep-link to an order
   useEffect(() => {
@@ -57,12 +62,27 @@ export default function AdminOrders() {
       </div>
 
       <div className="container mx-auto px-4 py-8">
+        <div className="flex flex-wrap gap-2 mb-6" aria-label="Order view">
+          <Button variant={view === 'live' ? 'default' : 'outline'} onClick={() => setView('live')}>
+            Live Orders <span className="ml-2 opacity-70">{liveOrders.length}</span>
+          </Button>
+          <Button variant={view === 'qa' ? 'default' : 'outline'} onClick={() => setView('qa')}>
+            <FlaskConical className="w-4 h-4 mr-2" /> QA/Test <span className="ml-2 opacity-70">{qaOrders.length}</span>
+          </Button>
+        </div>
+
+        {view === 'qa' && (
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            QA/Test — Do Not Fulfill. These records remain available for audit purposes.
+          </div>
+        )}
+
         {isLoading ? (
           <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="bg-white rounded-xl h-24 animate-pulse" />)}</div>
-        ) : orders.length === 0 ? (
+        ) : visibleOrders.length === 0 ? (
           <div className="text-center py-20">
             <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-            <p className="text-muted-foreground">No orders yet</p>
+            <p className="text-muted-foreground">{view === 'qa' ? 'No QA/test orders' : 'No live orders yet'}</p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
@@ -72,7 +92,7 @@ export default function AdminOrders() {
                   <tr>{['Order','Customer','Items','Amount','Status','Date','Actions'].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y">
-                  {orders.map(order => {
+                  {visibleOrders.map(order => {
                     const itemsSummary = order.order_items?.map(item => {
                       const parts = [item.product_name];
                       if (item.size) parts.push(`Sz: ${item.size}`);
@@ -86,6 +106,11 @@ export default function AdminOrders() {
                       <td className="px-4 py-3">
                         <div className="font-medium">{order.customer_name}</div>
                         <div className="text-xs text-muted-foreground">{order.customer_email}</div>
+                        {order.is_sample && (
+                          <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                            QA/Test — Do Not Fulfill
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground max-w-xs truncate">
                         {itemsSummary}

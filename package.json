@@ -19,6 +19,7 @@
     "test:notification-workflow": "node scripts/test_customer_notification_workflow.mjs",
     "test:stripe-connection": "node scripts/test_stripe_connection.mjs",
     "test:live-integrations": "node scripts/test_live_integrations.mjs",
+    "test:qa-separation": "node scripts/test_qa_admin_separation.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },

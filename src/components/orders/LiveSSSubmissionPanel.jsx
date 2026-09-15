@@ -80,6 +80,7 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     || Boolean(String(draft?.ss_order_number || draft?.external_vendor_order_number || '').trim());
   const isReady = Boolean(
     draft
+    && !draft.is_sample
     && status?.ss_live_submission_enabled
     && status?.ss_credentials_configured
     && status?.ss_api_connected
