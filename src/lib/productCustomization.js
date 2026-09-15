@@ -1,4 +1,5 @@
 import { getProductPrice } from './shopGarmentFilters.js';
+import { getProductBrand, getPublicProductName } from './productDisplayName.js';
 
 export const ARTWORK_ACCEPT = '.png,.jpg,.jpeg,.pdf,.svg,.ai,.eps,.psd';
 export const ARTWORK_EXTENSIONS = ['png', 'jpg', 'jpeg', 'pdf', 'svg', 'ai', 'eps', 'psd'];
@@ -163,13 +164,14 @@ export function buildCustomizedCartItem(product, customization) {
   );
   const price = variant?.price ?? getProductPrice(product);
   const isCustomized = customization?.customization_requested !== false;
+  const publicName = getPublicProductName(product);
 
   return {
     id: product.id,
     product_id: product.id,
-    name: product.name,
-    product_name: product.name,
-    brand: product.brand || String(product.name || '').split(/\s+/)[0] || '',
+    name: publicName,
+    product_name: publicName,
+    brand: getProductBrand(product),
     style_number: product.style_number || product.supplier_sku || '',
     price,
     image_url: variant?.image_url || product.image_url || '',

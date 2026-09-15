@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
+import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 
 export default function GarmentProductCard({ product }) {
   const [imgError, setImgError] = useState(false);
@@ -26,6 +27,8 @@ export default function GarmentProductCard({ product }) {
   const isCustomPrint = product.product_subtype === 'custom_printed';
   const isPrintSupport = product.product_subtype === 'print_support';
   const blankFirst = isBlankFirstProduct(product);
+  const publicName = getPublicProductName(product);
+  const styleLabel = getProductStyleLabel(product);
 
   return (
     <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 group flex flex-col">
@@ -35,7 +38,7 @@ export default function GarmentProductCard({ product }) {
           {product.image_url && !imgError ? (
             <img
               src={product.image_url}
-              alt={product.name}
+              alt={publicName}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               onError={() => setImgError(true)}
             />
@@ -71,8 +74,9 @@ export default function GarmentProductCard({ product }) {
       {/* Info */}
       <div className="p-3 flex flex-col flex-1">
         <Link to={`/ProductDetail?id=${product.id}`}>
-          <h3 className="font-semibold text-sm leading-snug mb-1 hover:text-primary transition-colors line-clamp-2">{product.name}</h3>
+          <h3 className="font-semibold text-sm leading-snug mb-1 hover:text-primary transition-colors line-clamp-2">{publicName}</h3>
         </Link>
+        {styleLabel && <p className="mb-2 text-[11px] text-muted-foreground">Style: {styleLabel}</p>}
 
         {/* Price */}
         <div className="flex items-baseline gap-1.5 mb-2">

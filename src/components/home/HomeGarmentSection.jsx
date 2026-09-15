@@ -7,6 +7,7 @@ import { useCart } from "@/components/shop/CartContext";
 import { toast } from "sonner";
 import { ShoppingCart, ArrowRight, Eye, MessageSquare, Package } from 'lucide-react';
 import { filterPublicProducts } from "@/lib/productVisibility";
+import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 
 const SUBTYPE_LABELS = {
   t_shirts: 'T-Shirt', hoodies: 'Hoodie', sweatshirts: 'Sweatshirt',
@@ -19,6 +20,8 @@ function ProductCard({ product, onAddToCart }) {
   const label = product.product_subtype ? SUBTYPE_LABELS[product.product_subtype] : product.category?.replace(/_/g, ' ');
   const isCustomPrint = product.product_subtype === 'custom_printed';
   const colors = product.available_colors || [];
+  const publicName = getPublicProductName(product);
+  const styleLabel = getProductStyleLabel(product);
 
   return (
     <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 group flex flex-col h-full">
@@ -27,7 +30,7 @@ function ProductCard({ product, onAddToCart }) {
         {product.image_url && !imgError ? (
           <img
             src={product.image_url}
-            alt={product.name}
+            alt={publicName}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onError={() => setImgError(true)}
           />
@@ -43,8 +46,9 @@ function ProductCard({ product, onAddToCart }) {
       <div className="p-4 flex flex-col flex-1">
         {label && <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{label}</p>}
         <Link to={`/ProductDetail?id=${product.id}`}>
-          <h3 className="font-semibold text-sm leading-snug mb-2 hover:text-primary transition-colors line-clamp-2">{product.name}</h3>
+          <h3 className="font-semibold text-sm leading-snug mb-1 hover:text-primary transition-colors line-clamp-2">{publicName}</h3>
         </Link>
+        {styleLabel && <p className="mb-2 text-[11px] text-muted-foreground">Style: {styleLabel}</p>}
 
         <div className="flex items-center justify-between mb-2">
           <span className="text-accent font-bold text-base">${(product.sale_price || product.price)?.toFixed(2)}</span>
@@ -70,7 +74,7 @@ function ProductCard({ product, onAddToCart }) {
               <ShoppingCart className="w-3.5 h-3.5" /> Add to Cart
             </Button>
             {isCustomPrint && (
-              <Link to={`/RequestQuote?product=${encodeURIComponent(product.name)}`}>
+              <Link to={`/RequestQuote?product=${encodeURIComponent(publicName)}`}>
                 <Button size="sm" variant="outline" className="h-8 px-2 text-xs border-secondary" title="Bulk Quote 50+">
                   <MessageSquare className="w-3.5 h-3.5" />
                 </Button>
@@ -132,7 +136,11 @@ export default function HomeGarmentSection() {
               <ProductCard
                 key={p.id}
                 product={p}
-                onAddToCart={() => { addToCart(p); toast.success(`${p.name} added!`); }}
+                onAddToCart={() => {
+                  const publicName = getPublicProductName(p);
+                  addToCart({ ...p, name: publicName, product_name: publicName });
+                  toast.success(`${publicName} added!`);
+                }}
               />
             ))}
           </div>

@@ -11,6 +11,7 @@ import { isPublicProduct } from "@/lib/productVisibility";
 import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
+import { getProductBrand, getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -275,16 +276,6 @@ function isLightColor(hex) {
   return lum > 0.6;
 }
 
-function cleanProductName(name) {
-  if (!name) return '';
-  const parts = name.split(' — ');
-  if (parts.length === 2) {
-    const prefix = parts[0].split(' - ')[0];
-    if (parts[1].startsWith(prefix) || parts[1].includes(parts[0])) return parts[1];
-  }
-  return name;
-}
-
 function formatSpecLabel(key) {
   return String(key || '')
     .replace(/_/g, ' ')
@@ -318,6 +309,9 @@ export default function ProductDetail() {
     },
     enabled: !!productId,
   });
+  const publicName = getPublicProductName(product);
+  const productBrand = getProductBrand(product);
+  const styleLabel = getProductStyleLabel(product);
 
   // Build variant map and derived state after product loads
   const variantMap = useMemo(() => product ? buildVariantMap(product) : {}, [product]);
@@ -373,7 +367,10 @@ export default function ProductDetail() {
     const cartImage = variantImage || colorImage || productMainImage || null;
     const cartItem = {
       id: product.id,
-      name: cleanProductName(product.name),
+      name: publicName,
+      product_name: publicName,
+      brand: productBrand,
+      style_number: product.style_number || product.supplier_sku || styleLabel,
       price: displayPrice,
       image_url: cartImage,
       selectedSize: selectedVariant.size,
@@ -384,7 +381,7 @@ export default function ProductDetail() {
       stock: selectedInventory ?? product.stock,
     };
     addToCart(cartItem);
-    toast.success(`${cleanProductName(product.name)} added to cart!`);
+    toast.success(`${publicName} added to cart!`);
     // Open cart drawer by dispatching a custom event the layout listens to
     window.dispatchEvent(new CustomEvent('hc:open-cart'));
   };
@@ -467,7 +464,7 @@ export default function ProductDetail() {
           <div className="space-y-3">
             <div className="aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm flex items-center justify-center">
               {displayImage ? (
-                <img src={displayImage} alt={cleanProductName(product.name)} className="w-full h-full object-contain p-4" onError={e => { e.target.style.display = 'none'; }} />
+                <img src={displayImage} alt={publicName} className="w-full h-full object-contain p-4" onError={e => { e.target.style.display = 'none'; }} />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-muted/20 gap-4">
                   {selectedColor ? (
@@ -500,8 +497,12 @@ export default function ProductDetail() {
                 {isOnSale && <Badge className="bg-red-100 text-red-700 text-xs">On Sale</Badge>}
               </div>
               <h1 className="text-2xl md:text-3xl font-black text-foreground leading-tight">
-                {cleanProductName(product.name)}
+                {publicName}
               </h1>
+              <div className="mt-2 space-y-0.5 text-sm text-muted-foreground">
+                {styleLabel && <p>Style: {styleLabel}</p>}
+                {selectedVariant?.sku && <p>Selected SKU: {selectedVariant.sku}</p>}
+              </div>
             </div>
 
             {/* Price */}

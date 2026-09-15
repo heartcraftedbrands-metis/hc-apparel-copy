@@ -7,6 +7,7 @@ import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
 import { Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { getPublicProductName, getProductStyleLabel } from '@/lib/productDisplayName';
 
 export default function Wishlist() {
   const { items, toggle } = useWishlist();
@@ -24,8 +25,9 @@ export default function Wishlist() {
   }, [items]);
 
   const handleAddToCart = (product) => {
-    addToCart(product);
-    toast.success(`${product.name} added to cart`);
+    const publicName = getPublicProductName(product);
+    addToCart({ ...product, name: publicName, product_name: publicName });
+    toast.success(`${publicName} added to cart`);
   };
 
   const handleRemove = (productId) => {
@@ -58,19 +60,23 @@ export default function Wishlist() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {products.map(product => (
+          {products.map(product => {
+            const publicName = getPublicProductName(product);
+            const styleLabel = getProductStyleLabel(product);
+            return (
             <div key={product.id} className="flex items-center gap-4 bg-white rounded-xl shadow-sm border p-4">
               <Link to={`${createPageUrl('ProductDetail')}?id=${product.id}`}>
                 <img
                   src={product.image_url || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=100&q=80'}
-                  alt={product.name}
+                  alt={publicName}
                   className="w-20 h-20 object-cover rounded-lg shrink-0"
                 />
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`${createPageUrl('ProductDetail')}?id=${product.id}`}>
-                  <h3 className="font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1">{product.name}</h3>
+                  <h3 className="font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1">{publicName}</h3>
                 </Link>
+                {styleLabel && <p className="text-xs text-gray-500">Style: {styleLabel}</p>}
                 <p className="text-gray-500 text-sm line-clamp-1 mt-0.5">{product.description}</p>
                 <p className="text-lg font-bold text-gray-900 mt-1">${product.price?.toFixed(2)}</p>
               </div>
@@ -93,7 +99,8 @@ export default function Wishlist() {
                 </Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

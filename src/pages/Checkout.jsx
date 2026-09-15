@@ -248,6 +248,13 @@ export default function Checkout() {
                     <div className="flex justify-between gap-3">
                       <div>
                         <p className="font-semibold">{item.product_name || item.name}</p>
+                        {(item.style_number || item.sku) && (
+                          <p className="text-xs text-muted-foreground">
+                            {item.style_number && `Style: ${item.style_number}`}
+                            {item.style_number && item.sku && ' · '}
+                            {item.sku && `SKU: ${item.sku}`}
+                          </p>
+                        )}
                         <p className="text-xs text-muted-foreground">
                           {item.color || item.selectedColor} / {item.size || item.selectedSize} · Qty {item.quantity}
                         </p>

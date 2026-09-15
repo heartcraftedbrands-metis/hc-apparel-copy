@@ -20,6 +20,7 @@ const product = {
   name: 'Bella + Canvas 3001',
   price: 9.25,
   product_type: 'physical',
+  product_subtype: 't_shirts',
   image_url: 'https://example.test/product.jpg',
   size_prices: [
     { size: 'Black / S', sku: 'BC3001-BLK-S', price: 9.25, inventory: 10 },
@@ -71,8 +72,8 @@ assert.ok(
 
 const item = buildCustomizedCartItem(product, complete);
 assert.equal(item.product_id, product.id, 'cart saves product ID');
-assert.equal(item.product_name, product.name, 'cart saves product name');
-assert.equal(item.sku, 'BC3001-BLK-S', 'cart saves selected SKU');
+assert.equal(item.product_name, 'Bella + Canvas T-Shirt', 'cart saves the customer-facing product name');
+assert.equal(item.sku, 'BC3001-BLK-S', 'cart preserves selected vendor SKU');
 assert.equal(item.color, 'Black', 'cart saves color');
 assert.equal(item.size, 'S', 'cart saves size');
 assert.equal(item.quantity, 1, 'cart saves quantity');

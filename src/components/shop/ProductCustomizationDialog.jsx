@@ -31,6 +31,7 @@ import {
   isAcceptedArtworkFile,
   validateCustomization,
 } from '@/lib/productCustomization';
+import { getPublicProductName } from '@/lib/productDisplayName';
 import { getProductPriceRange } from '@/lib/shopGarmentFilters';
 
 const emptyCustomization = {
@@ -86,6 +87,7 @@ export default function ProductCustomizationDialog({
   const priceRange = useMemo(() => getProductPriceRange(product), [product]);
   const displayedPrice = variant?.price ?? priceRange.minimum;
   const existingCartQuantity = getSmallOrderCartQuantity(cart);
+  const publicName = getPublicProductName(product);
   const bulkQuoteRequired = (
     Number(form.quantity) >= 50
     || existingCartQuantity + (Number(form.quantity) || 0) >= 50
@@ -147,14 +149,14 @@ export default function ProductCustomizationDialog({
     addToCart(cartItem);
     toast.success(
       form.customization_requested
-        ? `${product.name} customized and added to cart.`
-        : `${product.name} blank added to cart.`,
+        ? `${publicName} customized and added to cart.`
+        : `${publicName} blank added to cart.`,
     );
     setOpen(false);
     window.dispatchEvent(new CustomEvent('hc:open-cart'));
   };
 
-  const quoteUrl = `/RequestQuote?quantity=${Math.max(50, Number(form.quantity) || 50)}&garment_type=${encodeURIComponent(product?.name || '')}`;
+  const quoteUrl = `/RequestQuote?quantity=${Math.max(50, Number(form.quantity) || 50)}&garment_type=${encodeURIComponent(publicName)}`;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

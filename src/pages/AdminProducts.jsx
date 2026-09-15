@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { isDigitalProduct } from "@/lib/productVisibility";
 import SSProductPlaceholder from "@/components/ss/SSProductPlaceholder";
+import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 
 const CATEGORY_OPTIONS = [
   { value: 'digital_designs', label: 'Digital Designs' },
@@ -428,7 +429,10 @@ export default function AdminProducts() {
                     )}
                   </div>
                   <div className="p-3">
-                    <p className="font-semibold text-sm line-clamp-1 mb-0.5">{product.name}</p>
+                    <p className="font-semibold text-sm line-clamp-2 mb-0.5">{getPublicProductName(product)}</p>
+                    <p className="text-[11px] text-muted-foreground line-clamp-1">
+                      Vendor: {product.name}{getProductStyleLabel(product) ? ` · Style: ${getProductStyleLabel(product)}` : ''}
+                    </p>
                     <p className="text-accent font-bold text-sm mb-1">${product.price?.toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground mb-3">
                       {product.product_subtype ? product.product_subtype.replace(/_/g, ' ') : 'Physical'} · {product.category?.replace(/_/g, ' ') || 'Other'}
@@ -480,8 +484,13 @@ export default function AdminProducts() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label>Product Name *</Label>
+              <Label>Vendor / Imported Product Name *</Label>
               <Input value={formData.name} onChange={e => setFormData(p => ({...p, name: e.target.value}))} required className="mt-1" />
+              {formData.product_type === 'physical' && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Public display name: <span className="font-medium text-foreground">{getPublicProductName({ ...editingProduct, ...formData })}</span>
+                </p>
+              )}
             </div>
 
             <div>

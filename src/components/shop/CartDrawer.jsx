@@ -50,6 +50,7 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className="mb-1 text-sm font-medium leading-snug">{item.name}</h4>
+                      {item.style_number && <p className="text-xs text-gray-500">Style: {item.style_number}</p>}
                       {item.selectedColor && <p className="text-xs text-gray-600">Color: {item.selectedColor}</p>}
                       {item.selectedSize && <p className="text-xs text-gray-600">Size: {item.selectedSize}</p>}
                       {item.sku && <p className="text-xs text-gray-400">SKU: {item.sku}</p>}

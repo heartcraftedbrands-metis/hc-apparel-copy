@@ -5,6 +5,7 @@ import ProductCard from "@/components/shop/ProductCard";
 import { useCart } from "@/components/shop/CartContext";
 import { toast } from "sonner";
 import { Package, ChevronRight, ChevronDown } from "lucide-react";
+import { getPublicProductName } from '@/lib/productDisplayName';
 
 const SECTIONS = [
   {
@@ -107,8 +108,9 @@ export default function GarmentBlanks() {
   });
 
   const handleAddToCart = (product) => {
-    addToCart(product);
-    toast.success(`${product.name} added to cart`);
+    const publicName = getPublicProductName(product);
+    addToCart({ ...product, name: publicName, product_name: publicName });
+    toast.success(`${publicName} added to cart`);
   };
 
   const productCategories = (p) => p.categories?.length ? p.categories : (p.category ? [p.category] : []);

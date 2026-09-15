@@ -3,6 +3,7 @@ import { ShoppingCart, Package, Heart, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWishlist } from "./WishlistContext";
 import { motion } from 'framer-motion';
+import { getPublicProductName, getProductStyleLabel } from '@/lib/productDisplayName';
 
 const CATEGORY_LABEL = {
   halftone_packs: 'Halftone',
@@ -19,6 +20,8 @@ export default function ProductCard({ product, onAddToCart }) {
   const isHalftone = cats.includes('halftone_packs');
   const isFullTone = cats.includes('distressed_packs');
   const catLabel = CATEGORY_LABEL[cats[0]] || null;
+  const publicName = getPublicProductName(product);
+  const styleLabel = product.product_type === 'physical' ? getProductStyleLabel(product) : '';
 
   return (
     <motion.div
@@ -31,7 +34,7 @@ export default function ProductCard({ product, onAddToCart }) {
         {product.image_url ? (
           <img
             src={product.image_url}
-            alt={product.name}
+            alt={publicName}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
@@ -74,9 +77,10 @@ export default function ProductCard({ product, onAddToCart }) {
       <div className="p-3 flex flex-col flex-1">
         <Link to={`/ProductDetail?id=${product.id}`}>
           <h3 className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors mb-1">
-            {product.name}
+            {publicName}
           </h3>
         </Link>
+        {styleLabel && <p className="mb-2 text-[11px] text-muted-foreground">Style: {styleLabel}</p>}
         {catLabel && (
           <p className="text-xs text-muted-foreground mb-2">{catLabel}</p>
         )}
