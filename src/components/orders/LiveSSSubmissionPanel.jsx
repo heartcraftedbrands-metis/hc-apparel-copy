@@ -169,16 +169,23 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
               Live submission requires paid status, admin review, a ready draft, a passed validation, current stock, and the live control enabled.
             </div>
           )}
-          <Button
-            className="gap-2 bg-red-700 text-white hover:bg-red-800"
-            disabled={!isReady || submitMutation.isPending}
-            onClick={submitLive}
-          >
-            {submitMutation.isPending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : isReady ? <Send className="w-4 h-4" /> : <LockKeyhole className="w-4 h-4" />}
-            Submit Live S&amp;S Order
-          </Button>
+          {isReady ? (
+            <Button
+              className="gap-2 bg-red-700 text-white hover:bg-red-800"
+              disabled={submitMutation.isPending}
+              onClick={submitLive}
+            >
+              {submitMutation.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Send className="w-4 h-4" />}
+              Submit Live S&amp;S Order
+            </Button>
+          ) : !alreadySubmitted ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LockKeyhole className="h-3.5 w-3.5" />
+              Live submit remains hidden until every safety requirement passes.
+            </p>
+          ) : null}
           {draft.ss_submission_state === 'failed' && draft.ss_submission_error && (
             <p className="text-sm text-red-700">Last submission failed: {draft.ss_submission_error}</p>
           )}
