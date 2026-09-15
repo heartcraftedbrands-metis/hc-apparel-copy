@@ -176,9 +176,9 @@ export default function AdminSSApiSettings() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <Settings2 className="w-5 h-5 text-accent" />
-              S&amp;S Activewear API
+              S&amp;S Vendor Settings
             </h1>
-            <p className="text-primary-foreground/70 text-sm">Secure vendor connection</p>
+            <p className="text-primary-foreground/70 text-sm">Secure, administrator-controlled vendor fulfillment</p>
           </div>
         </div>
       </div>

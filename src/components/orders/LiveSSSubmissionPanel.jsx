@@ -113,10 +113,18 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
 
       {status && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
             <Status label="S&S credentials" ok={status.ss_credentials_configured} />
             <Status label="S&S API check" ok={status.ss_api_connected} />
             <Status label="ZeroTouch live" ok={status.zerotouch_live_submission_enabled} />
+            <Status label="Automatic emails" ok={false} disabledLabel="Disabled · drafts only" />
+          </div>
+
+          <div className="rounded-xl border border-primary/20 bg-primary/[0.025] p-4 text-sm">
+            <p className="font-semibold">S&amp;S submission mode: Admin-only</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Public customers cannot access these controls. Payment never triggers S&amp;S, ZeroTouch, or email delivery automatically.
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -180,11 +188,11 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
   );
 }
 
-function Status({ label, ok }) {
+function Status({ label, ok, disabledLabel = 'Not ready / disabled' }) {
   return (
     <div className="rounded-xl border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`font-semibold ${ok ? 'text-green-700' : 'text-amber-700'}`}>{ok ? 'Ready' : 'Not ready / disabled'}</p>
+      <p className={`font-semibold ${ok ? 'text-green-700' : 'text-amber-700'}`}>{ok ? 'Ready' : disabledLabel}</p>
     </div>
   );
 }

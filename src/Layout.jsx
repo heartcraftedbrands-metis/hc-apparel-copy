@@ -138,16 +138,20 @@ function LayoutInner({ children }) {
                       <User className="w-5 h-5" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuContent align="end" className="max-h-[80vh] w-64 overflow-y-auto">
                     <DropdownMenuItem disabled className="text-xs">{user.email}</DropdownMenuItem>
                     {user.role === 'admin' && (
                       <>
                         <DropdownMenuSeparator />
                         <Link to="/AdminDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Admin Dashboard</DropdownMenuItem></Link>
+                        <Link to="/AdminPaymentSettings"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
+                        <Link to="/AdminSSApiSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />S&amp;S Vendor Settings</DropdownMenuItem></Link>
+                        <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />Vendor Order Drafts</DropdownMenuItem></Link>
+                        <Link to="/AdminCustomerNotifications"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Customer Notifications</DropdownMenuItem></Link>
+                        <Link to="/AdminOrders"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Orders</DropdownMenuItem></Link>
+                        <DropdownMenuSeparator />
                         <Link to="/AdminProducts"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />Products</DropdownMenuItem></Link>
                         <Link to="/AdminDigitalArchive"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Design Archive</DropdownMenuItem></Link>
-                        <Link to="/AdminOrders"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Orders</DropdownMenuItem></Link>
-                        <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />Vendor Order Drafts</DropdownMenuItem></Link>
                         <Link to="/AdminVendors"><DropdownMenuItem><Tag className="w-4 h-4 mr-2" />Vendors</DropdownMenuItem></Link>
                         <Link to="/AdminQuotes"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Quotes</DropdownMenuItem></Link>
                         <Link to="/AdminQuoteRequests"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Quote Requests</DropdownMenuItem></Link>
@@ -158,8 +162,6 @@ function LayoutInner({ children }) {
                         <Link to="/AdminProfitCalc"><DropdownMenuItem><Calculator className="w-4 h-4 mr-2" />Profit Calc</DropdownMenuItem></Link>
                         <Link to="/AdminQATestReport"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />QA Test Report</DropdownMenuItem></Link>
                         <Link to="/AdminVendorOrderTest"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Vendor Order Tests</DropdownMenuItem></Link>
-                        <Link to="/AdminPaymentSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
-                        <Link to="/AdminCustomerNotifications"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Customer Notifications</DropdownMenuItem></Link>
                         <Link to="/AdminContactMessages"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Contact Messages</DropdownMenuItem></Link>
                         <Link to="/AdminOperationsDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Operations Dashboard</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />

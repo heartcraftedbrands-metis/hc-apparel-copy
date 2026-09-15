@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, EyeOff } from 'lucide-react';
+import { Mail, Copy, CheckCircle, AlertCircle, Clock, Search, EyeOff, ShieldCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Table,
@@ -106,6 +106,21 @@ export default function AdminCustomerNotifications() {
           <h1 className="text-3xl font-bold text-foreground mb-2">Customer Notifications</h1>
           <p className="text-muted-foreground">Create, manage, and track customer order updates</p>
         </div>
+
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div>
+                <p className="font-semibold text-amber-950">Automatic email delivery</p>
+                <p className="mt-1 text-sm text-amber-900/80">
+                  Disabled. Customer notifications remain copy-only drafts; this page does not send email automatically.
+                </p>
+              </div>
+            </div>
+            <Badge className="w-fit bg-amber-200 text-amber-950 hover:bg-amber-200">Disabled</Badge>
+          </CardContent>
+        </Card>
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

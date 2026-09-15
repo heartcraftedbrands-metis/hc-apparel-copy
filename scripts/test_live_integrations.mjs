@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [stripeCredentials, checkout, verify, webhook, status, ssFunction, migrationBase, migrationHardening, panel, settings, sourceClient] = await Promise.all([
+const [stripeCredentials, checkout, verify, webhook, status, ssFunction, migrationBase, migrationHardening, panel, settings, sourceClient, app, layout, dashboard, notifications, ssSettings] = await Promise.all([
   readFile(new URL('../supabase/functions/_shared/stripeCredentials.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/createStripeCheckoutSession/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/verifyStripePayment/index.ts', import.meta.url), 'utf8'),
@@ -13,6 +13,11 @@ const [stripeCredentials, checkout, verify, webhook, status, ssFunction, migrati
   readFile(new URL('../src/components/orders/LiveSSSubmissionPanel.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/AdminPaymentSettings.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/api/supabaseClient.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/Layout.jsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/pages/AdminDashboard.jsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/pages/AdminCustomerNotifications.jsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/pages/AdminSSApiSettings.jsx', import.meta.url), 'utf8'),
 ]);
 const migration = `${migrationBase}\n${migrationHardening}`;
 
@@ -68,6 +73,18 @@ assert.match(panel, /This will place a real S&S order\. Continue\?/);
 assert.match(panel, /draft\.payment_status === 'paid'/);
 assert.match(panel, /draft\.workflow_status === 'ready_to_submit_to_ss'/);
 assert.match(panel, /status\?\.ss_live_submission_enabled/);
+assert.match(panel, /S&amp;S submission mode: Admin-only/);
+assert.match(panel, /Automatic emails/);
+assert.match(notifications, /Automatic email delivery/);
+assert.match(notifications, /Disabled\. Customer notifications remain copy-only drafts/);
+
+for (const route of ['/AdminPaymentSettings', '/AdminSSApiSettings', '/AdminVendorOrders', '/AdminCustomerNotifications', '/AdminOrders']) {
+  assert.match(layout, new RegExp(route));
+  assert.match(dashboard, new RegExp(route));
+}
+assert.match(app, /<ProtectedRoute requiredRole="admin" \/>/);
+assert.match(app, /path="\/AdminSSApiSettings"/);
+assert.match(ssSettings, /S&amp;S Vendor Settings/);
 
 const frontend = `${panel}\n${settings}\n${sourceClient}`;
 assert.doesNotMatch(frontend, /sk_(?:live|test)_[A-Za-z0-9]/);
