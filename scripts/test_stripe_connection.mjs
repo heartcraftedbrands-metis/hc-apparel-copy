@@ -58,7 +58,9 @@ assert.match(stripeCredentials, /STRIPE_TEST_SECRET_KEY/);
 assert.match(stripeCredentials, /STRIPE_TEST_WEBHOOK_SECRET/);
 assert.match(stripeCredentials, /STRIPE_LIVE_SECRET_KEY/);
 assert.match(stripeCredentials, /STRIPE_LIVE_WEBHOOK_SECRET/);
-assert.match(stripeCredentials, /secretKey\?\.startsWith\(expectedPrefix\)/);
+assert.match(stripeCredentials, /serverKeyMatchesMode\(secretKey, requestedMode\)/);
+assert.match(stripeCredentials, /key\?\.startsWith\(`sk_\$\{suffix\}`\)/);
+assert.match(stripeCredentials, /key\?\.startsWith\(`rk_\$\{suffix\}`\)/);
 
 assert.match(adminSettings, /stripeStatus\?\.checkout_enabled/);
 assert.match(adminSettings, /Stripe \$\{form\.stripe_mode\} mode requires its server key and signed webhook secret/);

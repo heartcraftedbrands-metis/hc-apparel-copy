@@ -181,7 +181,11 @@ export default function AdminPaymentSettings() {
                         </div>
                         {modeStatus && !modeStatus.ready && (
                           <p className="mt-2 text-xs text-amber-700">
-                            Server key: {modeStatus.server_key_format_valid ? 'valid' : 'missing or invalid'} · Webhook: {modeStatus.webhook_format_valid ? 'valid' : 'missing or invalid'}
+                            Server key: {modeStatus.server_key_format_valid
+                              ? 'valid'
+                              : modeStatus.server_key_type === 'publishable'
+                                ? 'publishable key entered; server secret key required'
+                                : 'missing or invalid'} · Webhook: {modeStatus.webhook_format_valid ? 'valid' : 'missing or invalid'}
                           </p>
                         )}
                       </div>

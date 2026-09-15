@@ -6,6 +6,7 @@ export type StripeCredentials = {
   webhookSecret?: string;
   secretKeySource: string | null;
   webhookSecretSource: string | null;
+  serverKeyType: 'secret' | 'restricted' | 'publishable' | 'unknown' | null;
   secretKeyFormatValid: boolean;
   webhookSecretFormatValid: boolean;
   configured: boolean;
@@ -16,21 +17,36 @@ export type StripeCredentials = {
 const value = (name: string) => {
   let secret = Deno.env.get(name)?.trim();
   if (!secret) return undefined;
-  if (secret.startsWith(`${name}=`)) secret = secret.slice(name.length + 1).trim();
-  if (
-    secret.length >= 2
-    && ((secret.startsWith('"') && secret.endsWith('"'))
-      || (secret.startsWith("'") && secret.endsWith("'")))
-  ) {
-    secret = secret.slice(1, -1).trim();
-  }
+  const unwrap = (input: string) => (
+    input.length >= 2
+    && ((input.startsWith('"') && input.endsWith('"'))
+      || (input.startsWith("'") && input.endsWith("'")))
+      ? input.slice(1, -1).trim()
+      : input
+  );
+  secret = unwrap(secret);
+  const assignment = new RegExp(`^${name}\\s*=\\s*`);
+  secret = unwrap(secret.replace(assignment, '').trim());
   return secret || undefined;
 };
 
 const modeFromSecretKey = (key?: string): StripeMode | null => {
-  if (key?.startsWith('sk_test_')) return 'test';
-  if (key?.startsWith('sk_live_')) return 'live';
+  if (key?.startsWith('sk_test_') || key?.startsWith('rk_test_')) return 'test';
+  if (key?.startsWith('sk_live_') || key?.startsWith('rk_live_')) return 'live';
   return null;
+};
+
+const serverKeyMatchesMode = (key: string | undefined, mode: StripeMode) => {
+  const suffix = mode === 'live' ? 'live_' : 'test_';
+  return Boolean(key?.startsWith(`sk_${suffix}`) || key?.startsWith(`rk_${suffix}`));
+};
+
+const serverKeyType = (key?: string): StripeCredentials['serverKeyType'] => {
+  if (!key) return null;
+  if (key.startsWith('sk_')) return 'secret';
+  if (key.startsWith('rk_')) return 'restricted';
+  if (key.startsWith('pk_')) return 'publishable';
+  return 'unknown';
 };
 
 export const normalizeStripeMode = (mode: unknown): StripeMode =>
@@ -71,8 +87,7 @@ export const getStripeCredentials = (requestedMode: StripeMode): StripeCredentia
     : webhookSecret
       ? 'STRIPE_WEBHOOK_SECRET'
       : null;
-  const expectedPrefix = requestedMode === 'live' ? 'sk_live_' : 'sk_test_';
-  const secretKeyFormatValid = Boolean(secretKey?.startsWith(expectedPrefix));
+  const secretKeyFormatValid = serverKeyMatchesMode(secretKey, requestedMode);
   const webhookSecretFormatValid = Boolean(webhookSecret?.startsWith('whsec_'));
 
   return {
@@ -81,6 +96,7 @@ export const getStripeCredentials = (requestedMode: StripeMode): StripeCredentia
     webhookSecret,
     secretKeySource,
     webhookSecretSource,
+    serverKeyType: serverKeyType(secretKey),
     secretKeyFormatValid,
     webhookSecretFormatValid,
     configured: secretKeyFormatValid && webhookSecretFormatValid,

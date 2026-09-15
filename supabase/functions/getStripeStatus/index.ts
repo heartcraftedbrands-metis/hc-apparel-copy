@@ -26,6 +26,23 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
+    const credentials = getStripeCredentialStatus();
+    console.info('[getStripeStatus] credential readiness', JSON.stringify({
+      test: {
+        server_key_source: credentials.test.secretKeySource,
+        webhook_secret_source: credentials.test.webhookSecretSource,
+        ready: credentials.test.configured,
+      },
+      live: {
+        server_key_source: credentials.live.secretKeySource,
+        server_key_type: credentials.live.serverKeyType,
+        server_key_format_valid: credentials.live.secretKeyFormatValid,
+        webhook_secret_source: credentials.live.webhookSecretSource,
+        webhook_format_valid: credentials.live.webhookSecretFormatValid,
+        ready: credentials.live.configured,
+      },
+    }));
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getPublishableKey();
     if (!supabaseUrl || !publishableKey) return json({ error: 'Supabase is not configured' }, 503);
@@ -49,7 +66,6 @@ Deno.serve(async (request) => {
     if (settingsError) return json({ error: 'Unable to load Stripe settings' }, 500);
 
     const selectedMode = normalizeStripeMode(settings?.stripe_mode);
-    const credentials = getStripeCredentialStatus();
     const selected = credentials[selectedMode];
     const publicStatus = (mode: 'test' | 'live') => ({
       server_key_detected: Boolean(credentials[mode].secretKey),
@@ -57,6 +73,7 @@ Deno.serve(async (request) => {
       webhook_configured: Boolean(credentials[mode].webhookSecret),
       webhook_format_valid: credentials[mode].webhookSecretFormatValid,
       server_key_source: credentials[mode].secretKeySource,
+      server_key_type: credentials[mode].serverKeyType,
       webhook_secret_source: credentials[mode].webhookSecretSource,
       ready: credentials[mode].configured,
       checkout_enabled: credentials[mode].configured,

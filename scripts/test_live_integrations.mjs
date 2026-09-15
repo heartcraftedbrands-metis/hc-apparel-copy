@@ -19,8 +19,10 @@ const migration = `${migrationBase}\n${migrationHardening}`;
 for (const name of ['STRIPE_TEST_SECRET_KEY', 'STRIPE_TEST_WEBHOOK_SECRET', 'STRIPE_LIVE_SECRET_KEY', 'STRIPE_LIVE_WEBHOOK_SECRET']) {
   assert.match(stripeCredentials, new RegExp(name));
 }
-assert.match(stripeCredentials, /secretKey\?\.startsWith\(expectedPrefix\)/);
-assert.match(stripeCredentials, /secret\.startsWith\(`\$\{name\}=`\)/);
+assert.match(stripeCredentials, /key\?\.startsWith\(`sk_\$\{suffix\}`\)/);
+assert.match(stripeCredentials, /key\?\.startsWith\(`rk_\$\{suffix\}`\)/);
+assert.match(stripeCredentials, /key\.startsWith\('pk_'\)/);
+assert.match(stripeCredentials, /new RegExp\(`\^\$\{name\}\\\\s\*=\\\\s\*`\)/);
 assert.match(checkout, /stripe_mode/);
 assert.match(checkout, /Stripe \$\{stripeMode\} mode is not configured/);
 assert.match(verify, /modeFromCheckoutSessionId/);
@@ -29,9 +31,13 @@ assert.match(webhook, /event\.livemode/);
 assert.match(status, /test: publicStatus\('test'\)/);
 assert.match(status, /live: publicStatus\('live'\)/);
 assert.match(status, /ready: credentials\[mode\]\.configured/);
+assert.match(status, /server_key_type: credentials\[mode\]\.serverKeyType/);
+assert.match(status, /\[getStripeStatus\] credential readiness/);
+assert.doesNotMatch(status, /credentials\.live\.secretKey[,)]/);
 assert.match(settings, /Stripe Environment/);
 assert.match(settings, /Refresh status/);
 assert.match(settings, /Status unavailable/);
+assert.match(settings, /publishable key entered; server secret key required/);
 assert.match(settings, /value="live"/);
 assert.match(settings, /Switch Stripe Checkout to live mode\?/);
 
