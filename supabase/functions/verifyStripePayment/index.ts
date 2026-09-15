@@ -4,6 +4,10 @@ import {
   getSupabasePublishableKey,
   getSupabaseServiceKey,
 } from '../_shared/supabaseCredentials.ts';
+import {
+  getStripeCredentials,
+  modeFromCheckoutSessionId,
+} from '../_shared/stripeCredentials.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,8 +27,7 @@ Deno.serve(async (request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getSupabasePublishableKey();
     const serviceRoleKey = getSupabaseServiceKey();
-    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
+    if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
       return json({ error: 'Payment service is not configured' }, 503);
     }
 
@@ -38,7 +41,14 @@ Deno.serve(async (request) => {
     const { sessionId } = await request.json();
     if (!sessionId) return json({ error: 'Stripe session ID is required' }, 400);
 
-    const stripe = new Stripe(stripeSecretKey);
+    const stripeMode = modeFromCheckoutSessionId(String(sessionId));
+    if (!stripeMode) return json({ error: 'Stripe session ID is invalid' }, 400);
+    const stripeCredentials = getStripeCredentials(stripeMode);
+    if (!stripeCredentials.configured || !stripeCredentials.secretKey) {
+      return json({ error: `Stripe ${stripeMode} mode is not configured` }, 503);
+    }
+
+    const stripe = new Stripe(stripeCredentials.secretKey);
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     const orderId = session.metadata?.internal_order_id;
     if (!orderId || session.metadata?.owner_user_id !== user.id) {
@@ -48,7 +58,7 @@ Deno.serve(async (request) => {
     const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: order, error: orderError } = await admin
       .from('orders')
-      .select('id,owner_user_id,total_amount,payment_status')
+      .select('id,owner_user_id,total_amount,payment_status,stripe_mode')
       .eq('id', orderId)
       .maybeSingle();
     if (orderError) {
@@ -60,6 +70,9 @@ Deno.serve(async (request) => {
     }
     if (!order || order.owner_user_id !== user.id) {
       return json({ error: 'Customer order not found' }, 404);
+    }
+    if ((order.stripe_mode || 'test') !== stripeMode || session.metadata?.stripe_mode !== stripeMode) {
+      return json({ error: 'Stripe session mode does not match the order' }, 409);
     }
 
     if (session.payment_status !== 'paid') {
@@ -78,7 +91,8 @@ Deno.serve(async (request) => {
         balance_due: 0,
         payment_date: new Date().toISOString(),
         stripe_session_id: session.id,
-        stripe_payment_intent_id: String(session.payment_intent || ''),
+      stripe_payment_intent_id: String(session.payment_intent || ''),
+      stripe_mode: stripeMode,
       }).eq('id', order.id);
       if (updateError) throw updateError;
       // The database trigger now creates the private vendor draft and notification drafts.
@@ -88,6 +102,7 @@ Deno.serve(async (request) => {
       paid: true,
       order_id: order.id,
       amount: order.total_amount,
+      stripe_mode: stripeMode,
       vendor_draft_prepared_by_database: true,
       live_ss_submission_enabled: false,
       zerotouch_live_submission_enabled: false,

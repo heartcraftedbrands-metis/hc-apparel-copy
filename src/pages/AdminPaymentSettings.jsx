@@ -19,6 +19,7 @@ export default function AdminPaymentSettings() {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     payment_mode: 'manual',
+    stripe_mode: 'test',
     stripe_connected: false,
     test_mode_enabled: false,
     invoice_instructions: '',
@@ -64,14 +65,20 @@ export default function AdminPaymentSettings() {
 
   const handleSave = (e) => {
     e.preventDefault();
-    if (form.payment_mode === 'stripe' && !stripeStatus?.checkout_enabled) {
-      toast.error('Stripe Checkout cannot be enabled until the test key and signed webhook are configured.');
+    const selectedStripeStatus = stripeStatus?.modes?.[form.stripe_mode];
+    if ((form.payment_mode === 'stripe' || form.stripe_mode === 'live') && !selectedStripeStatus?.checkout_enabled) {
+      toast.error(`Stripe ${form.stripe_mode} mode requires its server key and signed webhook secret.`);
       return;
     }
+    if (
+      form.stripe_mode === 'live'
+      && settingsRecord?.stripe_mode !== 'live'
+      && !window.confirm('Switch Stripe Checkout to live mode? Future customer checkouts can collect real payments.')
+    ) return;
     upsert.mutate({
       ...form,
-      stripe_connected: Boolean(stripeStatus?.checkout_enabled),
-      test_mode_enabled: stripeStatus?.mode === 'Test',
+      stripe_connected: Boolean(selectedStripeStatus?.checkout_enabled),
+      test_mode_enabled: form.stripe_mode === 'test',
     });
   };
 
@@ -117,6 +124,37 @@ export default function AdminPaymentSettings() {
               </div>
             </Card>
 
+            <Card className="p-6 border shadow-sm">
+              <h2 className="text-lg font-bold mb-4">Stripe Environment</h2>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium block mb-2">Current Stripe Mode</label>
+                  <Select value={form.stripe_mode || 'test'} onValueChange={(val) => updateForm('stripe_mode', val)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="test">Test</SelectItem>
+                      <SelectItem value="live">Live</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Live checkout remains unavailable until both STRIPE_LIVE_SECRET_KEY and STRIPE_LIVE_WEBHOOK_SECRET are configured server-side.
+                </p>
+                <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                  {['test', 'live'].map((mode) => (
+                    <div key={mode} className="rounded-lg border p-3 flex items-center justify-between">
+                      <span className="font-medium capitalize">{mode}</span>
+                      <Badge variant="outline">
+                        {stripeStatus?.modes?.[mode]?.checkout_enabled ? 'Ready' : 'Not configured'}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
             {/* Connection Status */}
             <Card className="p-6 border shadow-sm">
               <h2 className="text-lg font-bold mb-4">Payment Connections</h2>
@@ -131,7 +169,7 @@ export default function AdminPaymentSettings() {
                   >
                     {stripeStatusLoading
                       ? 'Checking…'
-                      : (stripeStatus?.checkout_enabled ? `${stripeStatus.mode} Connected` : 'Not Connected')}
+                      : (stripeStatus?.checkout_enabled ? `${stripeStatus.mode === 'live' ? 'Live' : 'Test'} Connected` : 'Not Connected')}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -139,7 +177,13 @@ export default function AdminPaymentSettings() {
                 </p>
                 {stripeStatus && !stripeStatus.checkout_enabled && (
                   <p className="text-xs text-amber-700">
-                    Configure both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before selecting Stripe Checkout.
+                    Configure the selected mode's Stripe server key and webhook secret before selecting Stripe Checkout.
+                  </p>
+                )}
+                {stripeStatus?.last_event && (
+                  <p className="text-xs text-muted-foreground">
+                    Last Stripe event: {stripeStatus.last_event.type} ({stripeStatus.last_event.mode}) at{' '}
+                    {new Date(stripeStatus.last_event.received_at).toLocaleString()}
                   </p>
                 )}
               </div>

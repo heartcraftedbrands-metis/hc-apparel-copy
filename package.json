@@ -18,6 +18,7 @@
     "test:checkout-vendor-draft": "node scripts/test_checkout_vendor_draft_flow.mjs",
     "test:notification-workflow": "node scripts/test_customer_notification_workflow.mjs",
     "test:stripe-connection": "node scripts/test_stripe_connection.mjs",
+    "test:live-integrations": "node scripts/test_live_integrations.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },

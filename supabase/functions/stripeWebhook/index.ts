@@ -1,6 +1,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17';
 import { getSupabaseServiceKey } from '../_shared/supabaseCredentials.ts';
+import {
+  getStripeCredentials,
+  type StripeMode,
+} from '../_shared/stripeCredentials.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -10,27 +14,37 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
-  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
   const signature = request.headers.get('stripe-signature');
-  if (!stripeSecretKey || !webhookSecret || !signature) {
+  if (!signature) {
     return json({ error: 'Webhook is not configured' }, 503);
   }
 
-  const stripe = new Stripe(stripeSecretKey);
-  const cryptoProvider = Stripe.createSubtleCryptoProvider();
   const rawBody = await request.text();
-  let event: Stripe.Event;
-  try {
-    event = await stripe.webhooks.constructEventAsync(
-      rawBody,
-      signature,
-      webhookSecret,
-      undefined,
-      cryptoProvider,
-    );
-  } catch {
+  let verified: { event: Stripe.Event; mode: StripeMode } | null = null;
+  for (const mode of ['test', 'live'] as const) {
+    const credentials = getStripeCredentials(mode);
+    if (!credentials.configured || !credentials.secretKey || !credentials.webhookSecret) continue;
+    try {
+      const stripe = new Stripe(credentials.secretKey);
+      const event = await stripe.webhooks.constructEventAsync(
+        rawBody,
+        signature,
+        credentials.webhookSecret,
+        undefined,
+        Stripe.createSubtleCryptoProvider(),
+      );
+      verified = { event, mode };
+      break;
+    } catch {
+      // A shared endpoint may receive test and live webhooks. Try the other isolated secret.
+    }
+  }
+  if (!verified) {
     return json({ error: 'Invalid webhook signature' }, 400);
+  }
+  const { event, mode: stripeMode } = verified;
+  if (event.livemode !== (stripeMode === 'live')) {
+    return json({ error: 'Webhook mode does not match its signing secret' }, 400);
   }
 
   if (!['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(event.type)) {
@@ -44,7 +58,12 @@ Deno.serve(async (request) => {
 
   const orderId = session.metadata?.internal_order_id;
   const ownerUserId = session.metadata?.owner_user_id;
-  if (session.metadata?.source !== 'hc_apparel_customized_small_order' || !orderId || !ownerUserId) {
+  if (
+    session.metadata?.source !== 'hc_apparel_customized_small_order'
+    || session.metadata?.stripe_mode !== stripeMode
+    || !orderId
+    || !ownerUserId
+  ) {
     return json({ error: 'Checkout metadata is invalid' }, 400);
   }
 
@@ -55,7 +74,7 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
   const { data: order, error: orderError } = await admin
     .from('orders')
-    .select('id,owner_user_id,total_amount,payment_status,checkout_source')
+    .select('id,owner_user_id,total_amount,payment_status,checkout_source,stripe_mode')
     .eq('id', orderId)
     .maybeSingle();
   if (orderError) {
@@ -66,7 +85,11 @@ Deno.serve(async (request) => {
     return json({ error: 'Unable to load customer order' }, 500);
   }
   if (!order) return json({ error: 'Customer order not found' }, 404);
-  if (order.owner_user_id !== ownerUserId || order.checkout_source !== 'customized_small_order') {
+  if (
+    order.owner_user_id !== ownerUserId
+    || order.checkout_source !== 'customized_small_order'
+    || (order.stripe_mode || 'test') !== stripeMode
+  ) {
     return json({ error: 'Checkout session does not match the order' }, 403);
   }
   if (session.currency !== 'usd' || session.amount_total !== Math.round(Number(order.total_amount) * 100)) {
@@ -83,10 +106,26 @@ Deno.serve(async (request) => {
       payment_date: new Date().toISOString(),
       stripe_session_id: session.id,
       stripe_payment_intent_id: String(session.payment_intent || ''),
+      stripe_mode: stripeMode,
     }).eq('id', order.id).neq('payment_status', 'paid');
     if (updateError) return json({ error: 'Unable to confirm payment' }, 500);
     // The existing database trigger prepares protected vendor and notification drafts.
   }
 
-  return json({ received: true, processed: true, order_id: order.id });
+  const { data: paymentSettings } = await admin
+    .from('payment_settings')
+    .select('id')
+    .order('updated_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (paymentSettings?.id) {
+    await admin.from('payment_settings').update({
+      last_stripe_event_id: event.id,
+      last_stripe_event_type: event.type,
+      last_stripe_event_mode: stripeMode,
+      last_stripe_event_at: new Date().toISOString(),
+    }).eq('id', paymentSettings.id);
+  }
+
+  return json({ received: true, processed: true, order_id: order.id, stripe_mode: stripeMode });
 });

@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [statusFunction, webhook, checkout, verify, credentials, adminSettings, config] = await Promise.all([
+const [statusFunction, webhook, checkout, verify, credentials, stripeCredentials, adminSettings, config] = await Promise.all([
   readFile(new URL('../supabase/functions/getStripeStatus/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/stripeWebhook/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/createStripeCheckoutSession/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/verifyStripePayment/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/_shared/supabaseCredentials.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../supabase/functions/_shared/stripeCredentials.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/AdminPaymentSettings.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/config.toml', import.meta.url), 'utf8'),
 ]);
 
 assert.match(statusFunction, /Administrator access required/);
-assert.match(statusFunction, /STRIPE_SECRET_KEY/);
-assert.match(statusFunction, /STRIPE_WEBHOOK_SECRET/);
+assert.match(statusFunction, /getStripeCredentialStatus/);
 assert.doesNotMatch(statusFunction, /stripeSecretKey\s*[,}]/);
-assert.match(statusFunction, /checkout_enabled: serverKeyDetected && webhookConfigured/);
+assert.match(statusFunction, /checkout_enabled: selected\.configured/);
 
 assert.match(webhook, /request\.text\(\)/);
 assert.match(webhook, /stripe-signature/);
@@ -29,7 +29,7 @@ assert.match(webhook, /order\.payment_status !== 'paid'/);
 assert.match(webhook, /\.neq\('payment_status', 'paid'\)/);
 assert.doesNotMatch(webhook, /api\.ssactivewear\.com|zero[\s-]?touch\/orders/i);
 
-assert.match(checkout, /STRIPE_SECRET_KEY/);
+assert.match(checkout, /getStripeCredentials/);
 assert.match(checkout, /getSupabaseServiceCredential/);
 assert.match(checkout, /selected: serviceCredential\.source/);
 assert.match(checkout, /present: serviceCredential\.present/);
@@ -54,8 +54,14 @@ assert.ok(legacySecretIndex > currentSecretIndex, 'current Supabase secret is pr
 assert.match(credentials, /SUPABASE_SECRET_KEY/);
 assert.match(credentials, /SUPABASE_PUBLISHABLE_KEYS/);
 
+assert.match(stripeCredentials, /STRIPE_TEST_SECRET_KEY/);
+assert.match(stripeCredentials, /STRIPE_TEST_WEBHOOK_SECRET/);
+assert.match(stripeCredentials, /STRIPE_LIVE_SECRET_KEY/);
+assert.match(stripeCredentials, /STRIPE_LIVE_WEBHOOK_SECRET/);
+assert.match(stripeCredentials, /secretKey\?\.startsWith\(expectedPrefix\)/);
+
 assert.match(adminSettings, /stripeStatus\?\.checkout_enabled/);
-assert.match(adminSettings, /Stripe Checkout cannot be enabled until the test key and signed webhook are configured/);
+assert.match(adminSettings, /Stripe \$\{form\.stripe_mode\} mode requires its server key and signed webhook secret/);
 assert.match(adminSettings, /This page never receives or displays them/);
 assert.match(config, /\[functions\.stripeWebhook\]\s+verify_jwt = false/);
 assert.match(config, /\[functions\.getStripeStatus\]\s+verify_jwt = true/);

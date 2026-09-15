@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   FlaskConical,
   Loader2,
-  LockKeyhole,
   Plus,
   Save,
   ShieldAlert,
@@ -22,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
+import LiveSSSubmissionPanel from '@/components/orders/LiveSSSubmissionPanel';
 import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
@@ -210,11 +210,11 @@ export default function AdminVendorOrderDraft() {
       </header>
 
       <main className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
-        <div className="border-2 border-red-300 bg-red-50 text-red-800 rounded-2xl p-4 flex gap-3">
+        <div className="border border-amber-300 bg-amber-50 text-amber-900 rounded-2xl p-4 flex gap-3">
           <ShieldAlert className="w-6 h-6 shrink-0" />
           <div>
-            <p className="font-extrabold">Do Not Submit Live Order Yet</p>
-            <p className="text-sm">Safety mode is locked on. Test mode validates data and connectivity only; it never places an S&S order.</p>
+            <p className="font-extrabold">Controlled live ordering</p>
+            <p className="text-sm">Payment creates a protected draft only. A reviewed S&amp;S draft requires a separate admin enablement and confirmation before any real order can be placed.</p>
           </div>
         </div>
 
@@ -354,9 +354,6 @@ export default function AdminVendorOrderDraft() {
             >
               Mark ready to submit
             </Button>
-            <Button disabled className="bg-slate-300 text-slate-600">
-              <LockKeyhole className="w-4 h-4 mr-2" /> Submit live order disabled
-            </Button>
           </div>
 
           {testResult && (
@@ -373,6 +370,14 @@ export default function AdminVendorOrderDraft() {
             </div>
           )}
         </section>
+
+        <LiveSSSubmissionPanel
+          draft={form}
+          onUpdated={async () => {
+            await refetchDraft();
+            refresh();
+          }}
+        />
 
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <h2 className="font-bold">Order status timeline</h2>

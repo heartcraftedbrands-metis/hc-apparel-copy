@@ -15,6 +15,7 @@ import CustomerNotificationsSection from '@/components/orders/CustomerNotificati
 import ProductionPacket from '@/components/orders/ProductionPacket';
 import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
+import LiveSSSubmissionPanel from '@/components/orders/LiveSSSubmissionPanel';
 import { format } from 'date-fns';
 import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
 
@@ -765,6 +766,13 @@ export default function AdminVendorOrderDraftDetail() {
           onUpdated={async () => {
             await Promise.all([refetchDraft(), refetchCustomerOrder()]);
             qc.invalidateQueries({ queryKey: ['customer-notifications', customerOrder?.id] });
+          }}
+        />
+
+        <LiveSSSubmissionPanel
+          draft={draft}
+          onUpdated={async () => {
+            await Promise.all([refetchDraft(), refetchCustomerOrder()]);
           }}
         />
 

@@ -4,6 +4,10 @@ import {
   getSupabasePublishableKey,
   getSupabaseServiceCredential,
 } from '../_shared/supabaseCredentials.ts';
+import {
+  getStripeCredentials,
+  normalizeStripeMode,
+} from '../_shared/stripeCredentials.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,12 +28,11 @@ Deno.serve(async (request) => {
     const publishableKey = getSupabasePublishableKey();
     const serviceCredential = getSupabaseServiceCredential();
     const serviceRoleKey = serviceCredential.key;
-    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
     console.info('Supabase service credential configuration', {
       selected: serviceCredential.source,
       present: serviceCredential.present,
     });
-    if (!supabaseUrl || !publishableKey || !serviceRoleKey || !stripeSecretKey) {
+    if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
       return json({ error: 'Payment service is not configured' }, 503);
     }
 
@@ -49,6 +52,25 @@ Deno.serve(async (request) => {
     }
 
     const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
+    const { data: paymentSettings, error: settingsError } = await admin
+      .from('payment_settings')
+      .select('stripe_mode')
+      .order('updated_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (settingsError) return json({ error: 'Unable to load payment configuration' }, 500);
+
+    const stripeMode = normalizeStripeMode(paymentSettings?.stripe_mode);
+    const stripeCredentials = getStripeCredentials(stripeMode);
+    console.info('Stripe checkout credential configuration', {
+      mode: stripeMode,
+      secret_key_source: stripeCredentials.secretKeySource,
+      webhook_secret_source: stripeCredentials.webhookSecretSource,
+      configured: stripeCredentials.configured,
+    });
+    if (!stripeCredentials.configured || !stripeCredentials.secretKey) {
+      return json({ error: `Stripe ${stripeMode} mode is not configured` }, 503);
+    }
     const { data: order, error: orderError } = await admin
       .from('orders')
       .select('id,owner_user_id,customer_email,order_items,total_amount,payment_status,checkout_source')
@@ -73,12 +95,13 @@ Deno.serve(async (request) => {
       return json({ error: 'Order does not have valid payable items' }, 400);
     }
 
-    const stripe = new Stripe(stripeSecretKey);
+    const stripe = new Stripe(stripeCredentials.secretKey);
     const stripeOrderMetadata = {
       app_name: 'HC Apparel',
       source: 'hc_apparel_customized_small_order',
       internal_order_id: order.id,
       owner_user_id: user.id,
+      stripe_mode: stripeMode,
     };
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -112,12 +135,14 @@ Deno.serve(async (request) => {
     await admin.from('orders').update({
       stripe_session_id: session.id,
       payment_method: 'Stripe',
+      stripe_mode: stripeMode,
     }).eq('id', order.id);
 
     return json({
       checkout_url: session.url,
       session_id: session.id,
       payment_status: 'awaiting_payment',
+      stripe_mode: stripeMode,
       live_ss_submission_enabled: false,
     });
   } catch (error) {

@@ -180,7 +180,7 @@ assert.match(adminOrder, /Create Vendor Draft/);
 assert.match(createPayment, /checkout_source !== 'customized_small_order'/);
 assert.match(createPayment, /order\.payment_status === 'paid'/);
 assert.match(createPayment, /Order is already paid/);
-assert.match(createPayment, /STRIPE_SECRET_KEY/);
+assert.match(createPayment, /getStripeCredentials/);
 assert.match(verifyPayment, /payment_status: 'paid'/);
 assert.match(verifyPayment, /vendor_draft_prepared_by_database: true/);
 assert.doesNotMatch(createPayment + verifyPayment, /api\.ssactivewear\.com|zero[\s-]?touch\/orders/i);

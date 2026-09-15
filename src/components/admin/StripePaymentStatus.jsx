@@ -59,8 +59,8 @@ export default function StripePaymentStatus() {
       <div className="space-y-2 text-xs">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Stripe Mode:</span>
-          <span className={`font-semibold px-2 py-0.5 rounded-full ${status?.mode === 'Test' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-            {status?.mode || 'Unknown'}
+          <span className={`font-semibold px-2 py-0.5 rounded-full ${status?.mode === 'test' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+            {status?.mode === 'live' ? 'Live' : status?.mode === 'test' ? 'Test' : 'Unknown'}
           </span>
         </div>
 
@@ -86,7 +86,13 @@ export default function StripePaymentStatus() {
         </div>
       </div>
 
-      {status?.mode === 'Test' && (
+      {status?.last_event && (
+        <div className="mt-3 p-2 bg-white/70 rounded text-xs border">
+          Last event: <strong>{status.last_event.type}</strong> ({status.last_event.mode})
+        </div>
+      )}
+
+      {status?.mode === 'test' && (
         <div className="mt-3 p-2 bg-amber-100 text-amber-800 rounded text-xs border border-amber-300">
           🧪 <strong>Test Mode Active</strong> — Use card <code>4242 4242 4242 4242</code> for testing
         </div>

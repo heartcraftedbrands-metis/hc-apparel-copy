@@ -1,4 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {
+  getStripeCredentialStatus,
+  normalizeStripeMode,
+} from '../_shared/stripeCredentials.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,19 +40,38 @@ Deno.serve(async (request) => {
     const { data: isAdmin, error: adminError } = await userClient.rpc('is_admin');
     if (adminError || !isAdmin) return json({ error: 'Administrator access required' }, 403);
 
-    const stripeSecretKey = String(Deno.env.get('STRIPE_SECRET_KEY') || '');
-    const webhookSecret = String(Deno.env.get('STRIPE_WEBHOOK_SECRET') || '');
-    const mode = stripeSecretKey.startsWith('sk_test_')
-      ? 'Test'
-      : (stripeSecretKey.startsWith('sk_live_') ? 'Live' : 'Unknown');
-    const serverKeyDetected = mode !== 'Unknown';
-    const webhookConfigured = webhookSecret.startsWith('whsec_');
+    const { data: settings, error: settingsError } = await userClient
+      .from('payment_settings')
+      .select('stripe_mode,last_stripe_event_id,last_stripe_event_type,last_stripe_event_mode,last_stripe_event_at')
+      .order('updated_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (settingsError) return json({ error: 'Unable to load Stripe settings' }, 500);
+
+    const selectedMode = normalizeStripeMode(settings?.stripe_mode);
+    const credentials = getStripeCredentialStatus();
+    const selected = credentials[selectedMode];
+    const publicStatus = (mode: 'test' | 'live') => ({
+      server_key_detected: Boolean(credentials[mode].secretKey),
+      webhook_configured: Boolean(credentials[mode].webhookSecret),
+      checkout_enabled: credentials[mode].configured,
+    });
 
     return json({
-      mode,
-      server_key_detected: serverKeyDetected,
-      webhook_configured: webhookConfigured,
-      checkout_enabled: serverKeyDetected && webhookConfigured,
+      mode: selectedMode,
+      server_key_detected: Boolean(selected.secretKey),
+      webhook_configured: Boolean(selected.webhookSecret),
+      checkout_enabled: selected.configured,
+      modes: {
+        test: publicStatus('test'),
+        live: publicStatus('live'),
+      },
+      last_event: settings?.last_stripe_event_id ? {
+        id: settings.last_stripe_event_id,
+        type: settings.last_stripe_event_type,
+        mode: settings.last_stripe_event_mode,
+        received_at: settings.last_stripe_event_at,
+      } : null,
     });
   } catch {
     return json({ error: 'Unable to check Stripe configuration' }, 500);

@@ -16,6 +16,7 @@ import { supabase } from '@/api/supabaseClient';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import LiveSSSubmissionPanel from '@/components/orders/LiveSSSubmissionPanel';
 
 export default function AdminSSApiSettings() {
   const [workflowStatus, setWorkflowStatus] = useState(null);
@@ -183,8 +184,10 @@ export default function AdminSSApiSettings() {
       </div>
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <LiveSSSubmissionPanel />
+
         {workflowStatus?.product_loading_paused && (
-          <div className="mb-6 flex gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+          <div className="my-6 flex gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5">
             <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
             <div>
               <p className="font-semibold">

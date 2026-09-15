@@ -193,6 +193,37 @@ function importedDescriptionLines(value: unknown) {
   )];
 }
 
+const supportedShippingMethods = new Set([
+  '1', '2', '3', '6', '8', '14', '16', '17', '19', '20', '21', '22', '26', '27', '40', '48', '54',
+]);
+
+function ssShippingMethod(value: unknown) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (supportedShippingMethods.has(normalized)) return normalized;
+  if (normalized.includes('cheapest') || normalized.includes('economy')) return '54';
+  return '1';
+}
+
+function safeSsError(value: unknown, fallback: string) {
+  if (!value || typeof value !== 'object') return fallback;
+  const record = value as Record<string, unknown>;
+  const errors = Array.isArray(record.errors) ? record.errors : [];
+  const messages = errors
+    .map((entry) => entry && typeof entry === 'object' ? textValue((entry as Record<string, unknown>).message) : null)
+    .filter(Boolean);
+  return textValue(record.message) || messages.join('; ') || fallback;
+}
+
+function inventoryQuantity(product: Record<string, unknown>) {
+  const warehouses = Array.isArray(product.warehouses ?? product.Warehouses)
+    ? (product.warehouses ?? product.Warehouses) as Array<Record<string, unknown>>
+    : [];
+  if (warehouses.length) {
+    return warehouses.reduce((total, warehouse) => total + Math.max(0, Number(warehouse.qty ?? warehouse.Qty) || 0), 0);
+  }
+  return Math.max(0, Number(product.qty ?? product.Qty) || 0);
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders(request) });
@@ -221,7 +252,13 @@ Deno.serve(async (request) => {
     return json(request, { error: 'Server configuration error' }, 500);
   }
 
-  let payload: { action?: string; brand?: string; draft_id?: string };
+  let payload: {
+    action?: string;
+    brand?: string;
+    draft_id?: string;
+    ss_live_submission_enabled?: boolean;
+    zerotouch_live_submission_enabled?: boolean;
+  };
   try {
     payload = await request.json();
   } catch {
@@ -274,12 +311,215 @@ Deno.serve(async (request) => {
     'sync_brand_products',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
+    'get_admin_status',
+    'set_live_controls',
+    'submit_vendor_order',
   ].includes(payload.action || '')) {
     return json(request, { error: 'Unsupported action' }, 400);
   }
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'get_admin_status') {
+    const { data: settings, error: settingsError } = await userClient
+      .from('integration_settings')
+      .select('ss_live_submission_enabled,zerotouch_live_submission_enabled,ss_api_connected,last_ss_connection_at,last_ss_connection_message,last_ss_submission_at,last_ss_submission_status,last_ss_submission_draft_id,last_ss_submission_order_number,last_ss_submission_error')
+      .eq('id', true)
+      .maybeSingle();
+    if (settingsError) {
+      console.error('Unable to load integration controls', settingsError.message);
+      return json(request, { error: 'Unable to load integration controls' }, 500);
+    }
+    return json(request, {
+      ...settings,
+      ss_credentials_configured: Boolean(accountNumber && apiKey),
+    });
+  }
+
+  if (payload.action === 'set_live_controls') {
+    const ssLiveEnabled = payload.ss_live_submission_enabled === true;
+    const zeroTouchLiveEnabled = payload.zerotouch_live_submission_enabled === true;
+    if (ssLiveEnabled && (!accountNumber || !apiKey)) {
+      return json(request, { error: 'S&S credentials must be configured before live submission can be enabled' }, 409);
+    }
+    const { data: settings, error: settingsError } = await userClient.rpc(
+      'set_live_integration_controls',
+      {
+        p_ss_live_enabled: ssLiveEnabled,
+        p_zerotouch_live_enabled: zeroTouchLiveEnabled,
+      },
+    );
+    if (settingsError || !settings) {
+      console.error('Unable to update live integration controls', settingsError?.message);
+      return json(request, { error: 'Unable to update live integration controls' }, 500);
+    }
+    return json(request, {
+      ss_live_submission_enabled: settings.ss_live_submission_enabled,
+      zerotouch_live_submission_enabled: settings.zerotouch_live_submission_enabled,
+      ss_api_connected: settings.ss_api_connected,
+      ss_credentials_configured: Boolean(accountNumber && apiKey),
+      updated_at: settings.updated_at,
+    });
+  }
+
+  if (payload.action === 'submit_vendor_order') {
+    if (!payload.draft_id) {
+      return json(request, { error: 'Vendor order draft ID is required' }, 400);
+    }
+    if (!accountNumber || !apiKey) {
+      return json(request, { error: 'S&S credentials are not configured' }, 503);
+    }
+
+    const { data: authorizationResult, error: authorizationError } = await userClient.rpc(
+      'begin_live_ss_submission',
+      { p_draft_id: payload.draft_id },
+    );
+    if (authorizationError || !authorizationResult) {
+      console.warn('Live S&S submission gate rejected the request', authorizationError?.message);
+      return json(request, { error: authorizationError?.message || 'Live S&S submission is not allowed' }, 409);
+    }
+
+    const failSubmission = async (message: string) => {
+      const safeMessage = message.slice(0, 1000);
+      const { error } = await userClient.rpc('fail_live_ss_submission', {
+        p_draft_id: payload.draft_id,
+        p_error: safeMessage,
+      });
+      if (error) console.error('Unable to record failed S&S submission state', error.message);
+      return safeMessage;
+    };
+
+    try {
+      const vendorPayload = authorizationResult.payload as Record<string, unknown>;
+      const items = Array.isArray(vendorPayload.items)
+        ? vendorPayload.items as Array<Record<string, unknown>>
+        : [];
+      const skuIdentifiers = [...new Set(items.map((item) => textValue(item.sku)).filter(Boolean))] as string[];
+      if (!skuIdentifiers.length) {
+        const message = await failSubmission('No valid S&S SKU identifiers were available');
+        return json(request, { error: message }, 409);
+      }
+
+      const inventoryUrl = new URL(`https://api.ssactivewear.com/v2/products/${skuIdentifiers.map(encodeURIComponent).join(',')}`);
+      inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
+      inventoryUrl.searchParams.set('mediatype', 'json');
+      const authHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
+      const inventoryResponse = await fetch(inventoryUrl, {
+        headers: { 'Authorization': authHeader, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!inventoryResponse.ok) {
+        const message = await failSubmission('Unable to confirm current S&S inventory');
+        return json(request, { error: message }, 502);
+      }
+      const inventoryResult = await inventoryResponse.json();
+      const inventoryRows = Array.isArray(inventoryResult)
+        ? inventoryResult as Array<Record<string, unknown>>
+        : [];
+
+      for (const item of items) {
+        const sku = String(item.sku || '').trim().toLowerCase();
+        const color = String(item.color || '').trim().toLowerCase();
+        const size = String(item.size || '').trim().toLowerCase();
+        const quantity = Math.trunc(Number(item.quantity) || 0);
+        const product = inventoryRows.find((row) => String(row.sku ?? row.Sku ?? '').trim().toLowerCase() === sku);
+        if (!product) {
+          const message = await failSubmission(`S&S SKU ${String(item.sku || '').trim()} is invalid or unavailable`);
+          return json(request, { error: message }, 409);
+        }
+        const currentColor = String(product.colorName ?? product.ColorName ?? '').trim().toLowerCase();
+        const currentSize = String(product.sizeName ?? product.SizeName ?? '').trim().toLowerCase();
+        if (currentColor !== color || currentSize !== size) {
+          const message = await failSubmission(`S&S SKU ${String(item.sku || '').trim()} does not match the selected color and size`);
+          return json(request, { error: message }, 409);
+        }
+        if (quantity <= 0 || inventoryQuantity(product) < quantity) {
+          const message = await failSubmission(`S&S SKU ${String(item.sku || '').trim()} does not have enough current stock`);
+          return json(request, { error: message }, 409);
+        }
+      }
+
+      const shipping = vendorPayload.shipping_address as Record<string, unknown>;
+      const requestBody = {
+        shippingAddress: {
+          customer: textValue(vendorPayload.customer_name) || textValue(shipping.company) || textValue(shipping.name) || '',
+          attn: textValue(shipping.name) || '',
+          address: textValue(shipping.street) || textValue(shipping.line1) || textValue(shipping.address1),
+          city: textValue(shipping.city),
+          state: textValue(shipping.state),
+          zip: textValue(shipping.zip) || textValue(shipping.postal_code),
+          residential: true,
+        },
+        shippingMethod: ssShippingMethod(vendorPayload.shipping_method),
+        shipBlind: false,
+        poNumber: textValue(vendorPayload.purchase_order_number) || `HC-${payload.draft_id}`,
+        emailConfirmation: '',
+        testOrder: false,
+        autoselectWarehouse: true,
+        lines: items.map((item) => ({
+          identifier: String(item.sku || '').trim(),
+          qty: Math.trunc(Number(item.quantity)),
+        })),
+      };
+
+      const orderResponse = await fetch('https://api.ssactivewear.com/v2/orders/', {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000),
+      });
+      const orderResult = await orderResponse.json().catch(() => null);
+      if (!orderResponse.ok) {
+        const message = await failSubmission(safeSsError(orderResult, 'S&S rejected the vendor order'));
+        return json(request, { error: message, upstream_status: orderResponse.status }, 502);
+      }
+
+      const orders = (Array.isArray(orderResult) ? orderResult : [orderResult])
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'));
+      const orderNumbers = orders.map((entry) => textValue(entry.orderNumber)).filter(Boolean) as string[];
+      if (!orderNumbers.length) {
+        const message = await failSubmission('S&S accepted the request but did not return an order number; manual review is required');
+        return json(request, { error: message }, 502);
+      }
+      const responseSummary = orders.map((entry) => ({
+        order_number: textValue(entry.orderNumber),
+        order_status: textValue(entry.orderStatus),
+        warehouse: textValue(entry.warehouseAbbr),
+        guid: textValue(entry.guid),
+      }));
+      const { data: completedDraft, error: completionError } = await userClient.rpc(
+        'complete_live_ss_submission',
+        {
+          p_draft_id: payload.draft_id,
+          p_order_number: orderNumbers.join(', '),
+          p_response_summary: responseSummary,
+        },
+      );
+      if (completionError || !completedDraft) {
+        console.error('S&S returned an order but the local confirmation audit failed', completionError?.message);
+        return json(request, {
+          error: 'S&S returned an order number, but local confirmation requires immediate manual review',
+          submitted: true,
+          order_numbers: orderNumbers,
+        }, 500);
+      }
+      return json(request, {
+        submitted: true,
+        order_numbers: orderNumbers,
+        submitted_at: completedDraft.ss_submitted_at,
+        submission_state: completedDraft.ss_submission_state,
+      });
+    } catch (error) {
+      console.error('Live S&S order request failed without logging request data', error instanceof Error ? error.message : 'unknown error');
+      const message = await failSubmission('Unable to complete the S&S order request');
+      return json(request, { error: message }, 502);
+    }
+  }
 
   if (payload.action === 'validate_vendor_order_draft') {
     if (!payload.draft_id) {
@@ -338,6 +578,10 @@ Deno.serve(async (request) => {
       console.error('Unable to record vendor order test result', recordError.message);
       return json(request, { error: 'Validation ran, but its audit result could not be saved' }, 500);
     }
+    await userClient.rpc('record_ss_connection_result', {
+      p_connected: apiConnected,
+      p_message: connectionMessage,
+    });
 
     return json(request, result);
   }
@@ -839,6 +1083,12 @@ Deno.serve(async (request) => {
       const message = response.status === 401
         ? 'S&S rejected the account number or API key'
         : 'S&S API connection failed';
+      if (payload.action === 'test_connection') {
+        await userClient.rpc('record_ss_connection_result', {
+          p_connected: false,
+          p_message: message,
+        });
+      }
       return json(request, { error: message, upstream_status: response.status }, 502);
     }
 
@@ -918,15 +1168,26 @@ Deno.serve(async (request) => {
       });
     }
 
-    return json(request, {
+    const connectionResult = {
       connected: true,
       endpoint: 'S&S Activewear API v2',
       brands_available: Array.isArray(result) ? result.length : null,
       rate_limit_remaining: response.headers.get('x-rate-limit-remaining'),
       checked_at: new Date().toISOString(),
+    };
+    await userClient.rpc('record_ss_connection_result', {
+      p_connected: true,
+      p_message: 'S&S API connected (read-only test)',
     });
+    return json(request, connectionResult);
   } catch (error) {
     console.error('S&S connection test request failed', error);
+    if (payload.action === 'test_connection') {
+      await userClient.rpc('record_ss_connection_result', {
+        p_connected: false,
+        p_message: 'Unable to reach the S&S API',
+      });
+    }
     return json(request, { error: 'Unable to reach the S&S API' }, 502);
   }
 });
