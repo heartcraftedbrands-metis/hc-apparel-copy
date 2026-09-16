@@ -27,12 +27,13 @@ export default function MobileHeader() {
         <div className="w-16" />
       )}
 
-      <Link to="/" className="absolute left-1/2 -translate-x-1/2">
+      <Link to="/" className="absolute left-1/2 flex max-w-[calc(100%-9rem)] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap" aria-label="HC Apparel home">
         <img
           src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
           alt="HC Apparel"
-          className="h-9 w-auto brightness-0 invert"
+          className="h-10 w-auto max-w-10 object-contain brightness-0 invert"
         />
+        <span className="text-sm font-bold tracking-wide text-primary-foreground">HC Apparel</span>
       </Link>
 
       <div className="w-16" />

@@ -78,12 +78,13 @@ function LayoutInner({ children }) {
       <header className="hidden md:block bg-primary text-primary-foreground sticky top-0 z-40 shadow-md">
         <div className="container mx-auto max-w-full px-4">
           <div className="flex h-16 min-w-0 items-center justify-between gap-2 xl:gap-6">
-            <Link to="/" className="flex-shrink-0">
+            <Link to="/" className="flex shrink-0 items-center gap-2.5 whitespace-nowrap" aria-label="HC Apparel home">
               <img
                 src="https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png"
                 alt="HC Apparel"
-                className="h-10 w-auto brightness-0 invert"
+                className="h-11 w-auto max-w-16 object-contain brightness-0 invert"
               />
+              <span className="text-sm font-bold tracking-wide text-primary-foreground xl:text-base">HC Apparel</span>
             </Link>
 
             <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 lg:flex">

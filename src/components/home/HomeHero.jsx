@@ -77,6 +77,9 @@ export default function HomeHero({ products = [] }) {
       <div className="relative z-10 grid w-full min-w-0 grid-cols-1 lg:min-h-[600px] lg:grid-cols-2">
         <div className="flex min-w-0 items-center px-5 py-12 sm:px-8 sm:py-16 lg:px-10 lg:py-20 xl:px-16 2xl:px-20">
           <div className="w-full min-w-0 max-w-2xl">
+            <p className="mb-4 text-sm font-extrabold uppercase tracking-[0.2em] text-accent sm:text-base">
+              HC Apparel
+            </p>
             <span className="mb-6 inline-block max-w-full rounded-full bg-accent px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-accent-foreground">
               Affordable Brand-Name Blanks
             </span>
