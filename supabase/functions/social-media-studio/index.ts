@@ -102,6 +102,27 @@ function limited(value: unknown, max: number) {
   return String(value ?? '').trim().slice(0, max);
 }
 
+function websiteLink(value: unknown) {
+  const raw = limited(value || 'www.ilovehcapparel.net', 300);
+  let url: URL;
+  try { url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`); }
+  catch { return fail('Enter a valid HC Apparel website link.'); }
+  if (!['ilovehcapparel.net', 'www.ilovehcapparel.net'].includes(url.hostname.toLowerCase())
+    || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port || url.search || url.hash) {
+    fail('Website / CTA Link must be an HC Apparel site URL without a query or fragment.');
+  }
+  return `www.ilovehcapparel.net${url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '')}`;
+}
+
+function withWebsiteCta(caption: string, link: string) {
+  const withoutExistingLink = caption
+    .replace(/\[[^\]]*\]\((?:https?:\/\/)?(?:www\.)?ilovehcapparel\.net[^)]*\)/gi, '')
+    .replace(/(?:https?:\/\/)?(?:www\.)?ilovehcapparel\.net(?:\/[^\s,.!?)]*)?/gi, '')
+    .replace(/Shop blanks and printing:\s*/gi, '')
+    .replace(/[ \t]+([,.!?])/g, '$1').trim();
+  return `${withoutExistingLink}\n\nShop blanks and printing: ${link}`;
+}
+
 function env(name: string) { return Deno.env.get(name)?.trim() || ''; }
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -336,6 +357,7 @@ Deno.serve(async request => {
       const audience = pick(input.audience, options.audience, 'audience');
       const captionLength = pick(input.caption_length, options.caption_length, 'caption length');
       const cta = pick(input.cta, options.cta, 'CTA');
+      const website = websiteLink(input.website_link);
       const notes = limited(input.notes, 1000);
       const includeHashtags = input.include_hashtags !== false;
       let product: Record<string, unknown> | null = null;
@@ -395,7 +417,7 @@ Deno.serve(async request => {
         ? `Exact live storefront product: ${displayName}. Source: ${product.vendor_source || 'site catalog'}. Brand: ${actualBrand || 'not specified'}. Style: ${product.style_number || product.supplier_sku || 'not listed'}. Category: ${product.category || 'apparel blanks'}. Other catalog categories: ${limited(JSON.stringify(product.categories || []), 180)}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (only mention an exact price if requested by the admin and unambiguous). Description: ${limited(product.description, 450)}. Vendor specs: ${limited(JSON.stringify(product.vendor_specs || {}), 500)}. Fabric: ${limited(product.fabric_material, 160)}. Weight: ${limited(product.garment_weight, 100)}. Fit: ${limited(product.fit, 100)}. Features: ${limited(Array.isArray(product.features) ? product.features.join('; ') : product.features, 300)}. Product image available: ${Boolean(primaryImageUrl)}.`
         : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Representative live catalog image: ${representative?.name || 'none'} (${representative?.brand || representative?.vendor_source || 'catalog'}, ${representative?.category || 'apparel'}). This image is visual context only; do not describe it as a selected product. Other live examples: ${catalogExamples.slice(0, 5).map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
       const artworkContext = imageMode === 'artwork' ? 'Use the admin-uploaded artwork as-is. You cannot inspect its visual content here, so do not invent artwork details. Ground the caption in the selected product or category and refer to artwork only generically if relevant.' : '';
-      const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'Apparel Blanks'}; image visual subject ${visualSubject}. Image mode: ${imageMode}.\nVerified catalog context: ${productContext}\nArtwork context: ${artworkContext || 'none'}.\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a direct product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}" and apparel blanks` : 'apparel blanks'}. ${brand !== 'HC Apparel' && !product ? `Mention ${brand} and ${categoryLabel || 'apparel blanks'} together.` : ''} Say "apparel blanks" or "blank apparel" unless the content type is Custom Printing. Describe the selected real color only when verified. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Never use generic fashion language such as "elevate your style", "fashion collection", "luxury look", "perfect blend of comfort and sophistication", or vague inspiration. Never invent discounts, sale claims, free shipping, delivery times, guarantees, stock levels, or product qualities absent from the catalog. Do not imply finished custom apparel. If Sale Post has no verified offer, do not claim a sale. ${imageMode === 'lifestyle' ? `Image prompt must depict ${visualSubject} as blank apparel in a clean product promo or flat lay, with real catalog garment colors and optional HC Apparel design accents, no fake logos or unrelated fashion imagery.` : 'No image will be generated. Return an empty image_prompt string.'} Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
+      const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'Apparel Blanks'}; image visual subject ${visualSubject}. Image mode: ${imageMode}.\nVerified catalog context: ${productContext}\nArtwork context: ${artworkContext || 'none'}.\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a direct product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}" and apparel blanks` : 'apparel blanks'}. ${brand !== 'HC Apparel' && !product ? `Mention ${brand} and ${categoryLabel || 'apparel blanks'} together.` : ''} Say "apparel blanks" or "blank apparel" unless the content type is Custom Printing. Describe the selected real color only when verified. Include the selected CTA naturally, but do not include a website URL or a second website CTA; the server adds the HC Apparel website line. Do not imply custom printing is required for blank apparel orders. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Never use generic fashion language such as "elevate your style", "fashion collection", "luxury look", "perfect blend of comfort and sophistication", or vague inspiration. Never invent discounts, sale claims, free shipping, delivery times, guarantees, stock levels, or product qualities absent from the catalog. Do not imply finished custom apparel. If Sale Post has no verified offer, do not claim a sale. ${imageMode === 'lifestyle' ? `Image prompt must depict ${visualSubject} as blank apparel in a clean product promo or flat lay, with real catalog garment colors and optional HC Apparel design accents, no fake logos or unrelated fashion imagery.` : 'No image will be generated. Return an empty image_prompt string.'} Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
       const colorBrief = `\nColor accuracy: ${garmentColorRule} HC Apparel olive, cream/linen, and gold may appear only as subtle layout, background, border, or text accents. When relevant, describe only a verified real product color in the caption. Do not make apparel match the website palette by default.`;
       const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'apparel blanks';
       let generated: Record<string, unknown> = {};
@@ -420,7 +442,7 @@ Deno.serve(async request => {
           && !/elevate your (style|brand|creative vision)|fashion collection|luxury look|perfect blend of comfort and sophistication|runway|free shipping|guaranteed delivery|limited time sale/i.test(caption)) break;
         if (attempt === 1) fail('OpenAI returned generic or off-brand copy. No image was generated; please try again.', 502);
       }
-      const finalCaption = caption.toLowerCase().includes(cta.toLowerCase()) ? caption : `${caption}\n\n${cta}`;
+      const finalCaption = withWebsiteCta(caption.toLowerCase().includes(cta.toLowerCase()) ? caption : `${caption}\n\n${cta}`, website);
       const hashtags = includeHashtags ? limited(generated.hashtags, 1000).split(/\s+/)
         .filter(tag => /^#[\w]+$/.test(tag) && !/fashion|luxury|runway/i.test(tag)) : [];
       if (includeHashtags && !hashtags.some(tag => /^#ApparelBlanks$/i.test(tag))) hashtags.unshift('#ApparelBlanks');

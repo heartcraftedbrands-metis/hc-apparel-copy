@@ -21,7 +21,7 @@ const OPTIONS = {
 const INITIAL = {
   platform: 'instagram', content_type: 'Product Promo', brand: 'HC Apparel', category: '',
   product_id: '', product_image_index: -1, product_color: '', image_mode: 'product', tone: 'professional', audience: 'creators',
-  caption_length: 'medium', cta: 'Shop Blanks', include_hashtags: true, notes: '',
+  caption_length: 'medium', cta: 'Shop Blanks', website_link: 'www.ilovehcapparel.net', include_hashtags: true, notes: '',
 };
 
 const statusLabel = {
@@ -267,6 +267,8 @@ export default function AdminSocialMediaStudio() {
                 <SelectField label="Audience" value={form.audience} options={OPTIONS.audience} onChange={value => set('audience', value)} />
                 <SelectField label="Caption length" value={form.caption_length} options={OPTIONS.caption_length} onChange={value => set('caption_length', value)} />
                 <SelectField label="Call to action" value={form.cta} options={OPTIONS.cta} onChange={value => set('cta', value)} />
+                <Field label="Website / CTA Link"><Input value={form.website_link} onChange={event => set('website_link', event.target.value)} placeholder="www.ilovehcapparel.net" autoComplete="url" /></Field>
+                <p className="text-xs text-muted-foreground">New captions end with “Shop blanks and printing: {form.website_link || 'www.ilovehcapparel.net'}”. Links must stay on the HC Apparel website.</p>
                 <label className="flex items-center gap-2 self-end rounded-md border border-input bg-white px-3 py-2.5 text-sm"><input type="checkbox" checked={form.include_hashtags} onChange={event => set('include_hashtags', event.target.checked)} />Include hashtags</label>
               </div>
               <div className="rounded-xl border bg-stone-50 p-4">
