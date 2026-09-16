@@ -60,7 +60,10 @@ Deno.serve(async request => {
       const source = ['home', 'contact'].includes(input.source) ? input.source : 'unknown';
       const consentStatus = settings.double_opt_in ? 'pending_double_opt_in' : 'consented';
       const { data: row, error } = await db.from('newsletter_subscribers').upsert({ email, first_name: firstName, interests: [...new Set(tags)], source, consent_status: consentStatus, consent_at: new Date().toISOString(), is_active: true, brevo_sync_status: settings.double_opt_in ? 'pending_double_opt_in' : 'not_synced', brevo_last_error: null }, { onConflict: 'email' }).select().single();
-      if (error || !row) throw new Error('Could not save your signup. Please try again.');
+      if (error || !row) {
+        console.error('Newsletter signup save failed', { code: error?.code, message: error?.message, details: error?.details });
+        throw new Error('Could not save your signup. Please try again.');
+      }
       await db.from('marketing_events').insert({ event_name: 'newsletter_signup', source, dedupe_key: `newsletter_signup:${row.id}:${row.consent_at}` });
       const sync = settings.double_opt_in ? { status: 'pending_double_opt_in' } : await syncSubscriber(row);
       return output({ saved: true, sync_status: sync.status, note: settings.double_opt_in ? 'Signup saved locally. Double opt-in confirmation must be completed before Brevo sync.' : undefined }, 200, origin);
