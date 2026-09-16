@@ -76,7 +76,7 @@ Deno.serve(async request => {
     if (!auth.user || !isAdmin) return output({ error: 'Admin access required.' }, 403, origin);
 
     if (action === 'status') {
-      const { data: last } = await db.from('newsletter_subscribers').select('brevo_sync_status,brevo_last_error,brevo_synced_at,updated_date').order('updated_date', { ascending: false }).limit(1).maybeSingle();
+      const { data: last } = await db.from('newsletter_subscribers').select('brevo_sync_status,brevo_last_error,brevo_synced_at,updated_date').eq('is_sample', false).eq('is_active', true).in('brevo_sync_status', ['synced', 'error', 'skipped_unconfigured']).order('updated_date', { ascending: false }).limit(1).maybeSingle();
       return output({ provider: 'Brevo', api_key_configured: Boolean(brevoKey), list_id_configured: Boolean(listId), double_opt_in: settings.double_opt_in, last_sync: last || null }, 200, origin);
     }
     if (action === 'subscribers') {
