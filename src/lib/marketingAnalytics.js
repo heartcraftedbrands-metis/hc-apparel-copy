@@ -39,6 +39,7 @@ export function disablePublicPixels() {
   }
   gaScript?.remove();
   pinterestScript?.remove();
+  document.querySelectorAll('script[src^="https://s.pinimg.com/ct/"]').forEach(script => script.remove());
 }
 
 export async function loadPublicPixels() {
