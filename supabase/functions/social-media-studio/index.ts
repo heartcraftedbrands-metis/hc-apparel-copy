@@ -59,6 +59,23 @@ function productImageUrl(value: unknown) {
   return '';
 }
 
+function artworkFileType(bytes: Uint8Array) {
+  if (bytes.length >= 8 && bytes.slice(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])) return { ext: 'png', mime: 'image/png' };
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return { ext: 'jpg', mime: 'image/jpeg' };
+  if (bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' && new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP') return { ext: 'webp', mime: 'image/webp' };
+  fail('Artwork must be a PNG, JPG/JPEG, or WEBP image.');
+}
+
+async function artworkUrl(service: ReturnType<typeof createClient>, path: unknown, userId: string) {
+  const candidate = String(path || '');
+  const prefix = `social-studio/artwork/${userId}/`;
+  if (!candidate.startsWith(prefix) || !/^social-studio\/artwork\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(png|jpg|webp)$/.test(candidate)) fail('Choose artwork uploaded by this admin.');
+  const filename = candidate.slice(prefix.length);
+  const { data, error } = await service.storage.from('storefront-assets').list(prefix.replace(/\/$/, ''), { search: filename, limit: 10 });
+  if (error || !data?.some(item => item.name === filename)) fail('Uploaded artwork could not be found. Upload it again.');
+  return service.storage.from('storefront-assets').getPublicUrl(candidate).data.publicUrl;
+}
+
 type StudioError = Error & { status?: number };
 const fail = (message: string, status = 400): never => {
   const error = new Error(message) as StudioError;
@@ -224,8 +241,55 @@ Deno.serve(async request => {
     const { data: admin, error: roleError } = await userClient.rpc('is_admin');
     if (roleError || !admin) fail('Admin access is required.', 403);
     const service = createClient(supabaseUrl, serviceKey);
-    const input = await request.json().catch(() => ({}));
-    const action = input.action;
+    const isUpload = request.headers.get('content-type')?.includes('multipart/form-data');
+    const input = isUpload ? await request.formData() : await request.json().catch(() => ({}));
+    const action = isUpload ? input.get('action') : input.action;
+
+    if (action === 'upload_artwork') {
+      if (!isUpload) fail('Choose an artwork file to upload.');
+      const file = input.get('file');
+      if (!(file instanceof File) || !file.size || file.size > 10 * 1024 * 1024) fail('Choose a PNG, JPG/JPEG, or WEBP image under 10 MB.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const type = artworkFileType(bytes);
+      const path = `social-studio/artwork/${auth.user.id}/${crypto.randomUUID()}.${type.ext}`;
+      const { error } = await service.storage.from('storefront-assets').upload(path, bytes, { contentType: type.mime, upsert: false });
+      if (error) fail('Artwork could not be saved. Try again.', 503);
+      return reply({ path, url: service.storage.from('storefront-assets').getPublicUrl(path).data.publicUrl }, 200, origin);
+    }
+
+    if (action === 'replace_artwork') {
+      const url = await artworkUrl(service, input.artwork_path, auth.user.id);
+      const { data, error } = await service.from('social_studio_posts').update({ image_mode: 'artwork', artwork_path: input.artwork_path, image_url: url, source_image_url: url, updated_at: new Date().toISOString() })
+        .eq('id', String(input.post_id || '')).eq('status', 'draft').is('buffer_post_id', null).select().maybeSingle();
+      if (error || !data) fail('Only an unsent HC Apparel draft can have its artwork replaced.');
+      await service.from('social_studio_draft_audit').insert({ actor_id: auth.user.id, post_id: data.id, action: 'artwork_replaced', details: { artwork_path: input.artwork_path } });
+      return reply({ post: data }, 200, origin);
+    }
+
+    if (action === 'duplicate_draft') {
+      const { data: original, error } = await service.from('social_studio_posts').select('*').eq('id', String(input.post_id || '')).eq('status', 'draft').maybeSingle();
+      if (error || !original) fail('Only an HC Apparel draft can be duplicated.');
+      const { data: copy, error: copyError } = await service.from('social_studio_posts').insert({
+        created_by: auth.user.id, platform: original.platform, content_type: original.content_type, brand: original.brand,
+        category: original.category, product_id: original.product_id, product_name: original.product_name,
+        tone: original.tone, audience: original.audience, caption_length: original.caption_length, cta: original.cta,
+        include_hashtags: original.include_hashtags, notes: original.notes, image_prompt: original.image_prompt,
+        source_image_url: original.source_image_url, image_url: original.image_url, image_mode: original.image_mode,
+        artwork_path: original.artwork_path, caption: original.caption, hashtags: original.hashtags, status: 'draft',
+      }).select().single();
+      if (copyError) fail('Could not duplicate this draft.', 503);
+      await service.from('social_studio_draft_audit').insert({ actor_id: auth.user.id, post_id: original.id, action: 'duplicated', details: { new_post_id: copy.id } });
+      return reply({ post: copy }, 200, origin);
+    }
+
+    if (action === 'delete_draft') {
+      const { data: deleted, error } = await service.from('social_studio_posts').delete().eq('id', String(input.post_id || ''))
+        .eq('status', 'draft').is('buffer_post_id', null).select('id,artwork_path').maybeSingle();
+      if (error || !deleted) fail('Only an unsent HC Apparel draft can be deleted.');
+      const { error: auditError } = await service.from('social_studio_draft_audit').insert({ actor_id: auth.user.id, post_id: deleted.id, action: 'deleted', details: { artwork_path: deleted.artwork_path, media_disposition: 'retained_unreferenced' } });
+      if (auditError) fail('Draft was deleted, but its audit entry could not be saved. Do not retry.', 503);
+      return reply({ deleted: true, post_id: deleted.id }, 200, origin);
+    }
 
     if (action === 'status') {
       const key = await bufferKey(service);
@@ -253,7 +317,7 @@ Deno.serve(async request => {
       if (term.length < 2) return reply({ products: [] }, 200, origin);
       const pattern = `%${term}%`;
       const { data, error } = await service.from('products')
-        .select('id,name,brand,category,supplier_sku,vendor_source,image_url,mockup_images,available_colors,price')
+        .select('id,name,brand,category,supplier_sku,vendor_source,image_url,mockup_images,available_colors,size_prices,price')
         .or(`name.ilike.${pattern},supplier_sku.ilike.${pattern},vendor_source.ilike.${pattern}`)
         .eq('visibility', 'public').eq('is_active', true).eq('product_type', 'physical')
         .order('name').limit(20);
@@ -277,7 +341,7 @@ Deno.serve(async request => {
       let product: Record<string, unknown> | null = null;
       if (input.product_id) {
         const { data, error } = await service.from('products')
-          .select('id,name,brand,style_number,description,category,categories,tags,price,available_sizes,available_colors,image_url,mockup_images,vendor_specs,fabric_material,garment_weight,fit,features,vendor_source,supplier_sku,visibility,is_active,product_type')
+          .select('id,name,brand,style_number,description,category,categories,tags,price,available_sizes,available_colors,size_prices,image_url,mockup_images,vendor_specs,fabric_material,garment_weight,fit,features,vendor_source,supplier_sku,visibility,is_active,product_type')
           .eq('id', String(input.product_id)).maybeSingle();
         if (error || !data) fail('Selected product was not found.');
         if (data.visibility !== 'public' || !data.is_active || data.product_type !== 'physical') fail('Choose a live apparel product from the storefront.');
@@ -298,24 +362,36 @@ Deno.serve(async request => {
         catalogExamples = data || [];
         if (brand !== 'HC Apparel' && !catalogExamples.length) fail(`No live ${brand} products were found for this selection. Choose another brand or category.`);
       }
-      const imageMode = pick(input.image_mode ?? 'product', ['product', 'lifestyle'], 'image mode');
+      const imageMode = pick(input.image_mode ?? 'product', ['product', 'lifestyle', 'artwork'], 'image mode');
+      const artworkPath = imageMode === 'artwork' ? String(input.artwork_path || '') : '';
+      const uploadedArtworkUrl = imageMode === 'artwork' ? await artworkUrl(service, artworkPath, auth.user.id) : '';
       const primaryImageUrl = productImageUrl(product?.image_url);
+      const selectedVariant = selectedColor && Array.isArray(product?.size_prices)
+        ? product.size_prices.find((item: Record<string, unknown>) => String(item.size || '').startsWith(`${selectedColor} /`) && productImageUrl(item.image_url)) : null;
+      if (selectedColor && imageMode === 'product' && !selectedVariant) fail('No catalog image matches that color. Choose another color, clear the color, or use lifestyle mode.');
+      const catalogImageUrl = productImageUrl(selectedVariant?.image_url) || primaryImageUrl;
       const imageChoices = product ? [product?.image_url, ...(Array.isArray(product.mockup_images) ? product.mockup_images : [])]
         .map(item => productImageUrl(typeof item === 'string' ? item : item?.image_url || item?.url || item?.src || ''))
         .filter(Boolean) : [];
       const imageIndex = Number(input.product_image_index);
       const sourceImageUrl = product && imageMode === 'lifestyle' && Number.isInteger(imageIndex) && imageIndex >= 0
-        ? String(imageChoices[imageIndex] || '') : primaryImageUrl;
-      if (product && imageMode === 'product' && !primaryImageUrl) fail('This catalog product has no usable primary image. Choose Generate Lifestyle Image explicitly or select another product.');
+        ? String(imageChoices[imageIndex] || '') : catalogImageUrl;
+      if (product && imageMode === 'product' && !catalogImageUrl) fail('This catalog product has no usable image. Choose Generate Lifestyle Image or Upload My Artwork.');
       const actualBrand = product ? productBrand(product) : brand;
       const rawDisplayName = product ? limited(product.name, 180) : '';
       const displayName = actualBrand && !rawDisplayName.toLowerCase().startsWith(actualBrand.toLowerCase()) ? `${actualBrand} ${rawDisplayName}` : rawDisplayName;
       const categoryLabel = category ? categoryDetails[category].label : '';
       const visualSubject = product ? displayName : category ? categoryDetails[category].visual : 'blank t-shirts, hoodies, hats, and bags';
+      const realGarmentColor = selectedColor || availableColors[0] || '';
+      const garmentColorRule = product
+        ? realGarmentColor ? `The garment itself must match the real catalog color "${realGarmentColor}"${selectedColor ? ' selected by the admin' : ' available for this product'}. Do not recolor the garment to HC Apparel brand colors.` : 'The catalog does not verify a garment color. Do not assert a specific garment color.'
+        : 'Do not force garments into HC Apparel website colors; use plausible blank apparel colors.';
       const productContext = product
         ? `Exact live storefront product: ${displayName}. Source: ${product.vendor_source || 'site catalog'}. Brand: ${actualBrand || 'not specified'}. Style: ${product.style_number || product.supplier_sku || 'not listed'}. Category: ${product.category || 'apparel blanks'}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (do not put price in caption unless specifically requested and unambiguous). Description: ${limited(product.description, 450)}. Fabric: ${limited(product.fabric_material, 160)}. Weight: ${limited(product.garment_weight, 100)}. Fit: ${limited(product.fit, 100)}. Features: ${limited(Array.isArray(product.features) ? product.features.join('; ') : product.features, 300)}. Product image available: ${Boolean(primaryImageUrl)}.`
         : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Live catalog examples: ${catalogExamples.map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
       const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'none'}; image visual subject ${visualSubject}.\nVerified catalog context: ${productContext}\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a concrete product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}"` : 'apparel blanks'}. Also mention ${actualBrand && actualBrand !== 'HC Apparel' ? `"${actualBrand}"` : 'HC Apparel'}. Say blank apparel/blanks unless the content type is Custom Printing. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Avoid generic boutique, lifestyle, fashion collections, luxury/premium claims unsupported by the catalog, runway imagery, invented discounts/sales/free shipping/delivery/guarantees, or implying finished custom apparel. If Sale Post has no verified offer, do not claim a sale. Image prompt must depict ${visualSubject} in a clean product promo or flat lay with olive green, cream/linen, and restrained gold, no fake logos/graphics or unrelated fashion imagery. Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
+      const colorBrief = `\nColor accuracy: ${garmentColorRule} HC Apparel olive, cream/linen, and gold may appear only as subtle layout, background, border, or text accents. When relevant, describe only a verified real product color in the caption. Do not make apparel match the website palette by default.`;
+      const accurateBrief = brief.replace('with olive green, cream/linen, and restrained gold', 'with real catalog garment colors and optional HC Apparel design accents');
       const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'blank';
       let generated: Record<string, unknown> = {};
       let caption = '';
@@ -324,8 +400,8 @@ Deno.serve(async request => {
           model: env('OPENAI_TEXT_MODEL') || 'gpt-4o-mini',
           response_format: { type: 'json_schema', json_schema: { name: 'hc_apparel_social_draft', strict: true, schema: { type: 'object', additionalProperties: false, properties: { image_prompt: { type: 'string' }, caption: { type: 'string' }, hashtags: { type: 'string' } }, required: ['image_prompt', 'caption', 'hashtags'] } } },
           messages: [
-            { role: 'system', content: 'You write accurate social promotions for HC Apparel, an affordable apparel blanks retailer with optional custom printing. Use only the verified catalog context. Open with the named blank apparel product or category, never with "Elevate your brand" or vague inspiration. Never write fashion boutique, runway, luxury, fabricated pricing, shipping, inventory, or custom-finished-apparel claims. Image prompts should show blank apparel products, not models on a runway. No copyrighted graphics, third-party logos on garments, watermarks, or fake text.' },
-            { role: 'user', content: `${brief}${attempt ? '\nThe previous draft was too generic or omitted required facts. Rewrite with an explicit product-first opening, HC Apparel, blank apparel, the exact selected subject, and the requested CTA.' : ''}` },
+            { role: 'system', content: 'You write accurate social promotions for HC Apparel, an affordable apparel blanks retailer with optional custom printing. Use only the verified catalog context. Open with the named blank apparel product or category, never with "Elevate your brand" or vague inspiration. Never write fashion boutique, runway, luxury, fabricated pricing, shipping, inventory, or custom-finished-apparel claims. Image prompts should show blank apparel products in real catalog colors, not garments recolored to the website palette or models on a runway. No copyrighted graphics, third-party logos on garments, watermarks, or fake text.' },
+            { role: 'user', content: `${accurateBrief}${colorBrief}${attempt ? '\nThe previous draft was too generic or omitted required facts. Rewrite with an explicit product-first opening, HC Apparel, blank apparel, the exact selected subject, and the requested CTA.' : ''}` },
           ],
         }));
         try { generated = JSON.parse(copy.choices?.[0]?.message?.content || '{}'); }
@@ -342,9 +418,9 @@ Deno.serve(async request => {
         .filter(tag => /^#[\w]+$/.test(tag) && !/fashion|luxury|runway/i.test(tag)) : [];
       if (includeHashtags && !hashtags.some(tag => /^#ApparelBlanks$/i.test(tag))) hashtags.unshift('#ApparelBlanks');
       if (includeHashtags && category === 't_shirts' && !hashtags.some(tag => /^#BlankTees$/i.test(tag))) hashtags.push('#BlankTees');
-      const imagePrompt = `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. Square 1:1 social image, olive green, cream linen and restrained gold palette, modern composition, generous negative space, no prices, no watermarks, no copyrighted graphics, no third-party logos, no fake product claims, no runway or luxury imagery, no readable text.`;
-      let postImageUrl = primaryImageUrl;
-      if (!product || imageMode === 'lifestyle') {
+      const imagePrompt = `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. ${garmentColorRule} Square 1:1 social image; HC Apparel olive green, cream linen, and restrained gold only as optional background or graphic accents, never forced garment colors. Modern composition, generous negative space, no prices, watermarks, copyrighted graphics, third-party logos, fake product claims, runway or luxury imagery, or readable text.`;
+      let postImageUrl = imageMode === 'artwork' ? uploadedArtworkUrl : catalogImageUrl;
+      if (imageMode === 'lifestyle' || (!product && imageMode === 'product')) {
         let imageBody: BodyInit;
         let imageUrl = 'https://api.openai.com/v1/images/generations';
         let json = true;
@@ -376,8 +452,9 @@ Deno.serve(async request => {
         created_by: auth.user.id, platform, content_type: contentType, brand: actualBrand || 'HC Apparel', category,
         product_id: product?.id || null, product_name: displayName || null,
         tone, audience, caption_length: captionLength, cta, include_hashtags: includeHashtags,
-        notes, image_prompt: imagePrompt, source_image_url: sourceImageUrl || null,
-        image_url: postImageUrl, caption: finalCaption,
+        notes, image_prompt: imagePrompt, source_image_url: uploadedArtworkUrl || sourceImageUrl || null,
+        image_url: postImageUrl, image_mode: imageMode === 'product' && !product ? 'lifestyle' : imageMode,
+        artwork_path: artworkPath || null, caption: finalCaption,
         hashtags: hashtags.join(' '), status: 'draft',
       };
       const { data: saved, error: insertError } = await service.from('social_studio_posts').insert(post).select().single();
@@ -386,11 +463,12 @@ Deno.serve(async request => {
     }
 
     if (action === 'send_buffer') {
-      if (input.mode === 'schedule') fail('Buffer scheduling is disabled. Only reviewed draft handoff is available.', 403);
       if (input.confirmed !== true) fail('Confirm this Buffer handoff before continuing.');
       const id = String(input.post_id || '');
       const channelId = String(input.channel_id || '');
-      const mode = input.mode === 'schedule' ? 'schedule' : 'draft';
+      const mode = pick(input.mode, ['draft', 'schedule'], 'Buffer handoff mode');
+      if (mode === 'schedule' && !input.scheduled_at && input.queue_next !== true) fail('Choose a future schedule time or explicitly choose the next Buffer queue slot.');
+      if (mode === 'schedule' && input.scheduled_at && input.queue_next === true) fail('Choose either a schedule time or the next queue slot, not both.');
       const key = await bufferKey(service);
       const available = await channels(key);
       const channel = available.find(item => item.id === channelId);
