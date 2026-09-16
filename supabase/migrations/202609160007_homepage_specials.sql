@@ -21,6 +21,8 @@ create table if not exists public.homepage_specials (
 );
 create index if not exists homepage_specials_public_order on public.homepage_specials (display_order, starts_at, ends_at) where approved and active;
 create index if not exists homepage_specials_sku_lookup on public.ss_sku_staging (sku, fetched_at desc);
+create index if not exists homepage_specials_style_lookup on public.ss_sku_staging
+  (upper(btrim(part_number)), lower(btrim(brand)), sku, fetched_at desc);
 
 alter table public.homepage_specials enable row level security;
 drop policy if exists homepage_specials_admin on public.homepage_specials;
@@ -43,15 +45,7 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 begin
   if not public.is_admin() then raise exception 'Admin access required'; end if;
   return query
-  with latest as (
-    select distinct on (s.sku) s.sku, s.brand, s.part_number, s.style_name,
-      s.customer_price, s.piece_price, s.sale_price, s.sale_expiration,
-      s.inventory_qty, s.color_name, s.size_name, s.color_front_image,
-      s.color_on_model_front_image, s.fetched_at, s.noe_retailing
-    from public.ss_sku_staging s
-    where s.customer_price > 0
-    order by s.sku, s.fetched_at desc
-  ), matched as (
+  with matched as (
     select distinct on (p.id) p, s,
       coalesce(nullif(p.storefront_price_buffer, 0), 3.00)::numeric as buffer,
       coalesce((
@@ -62,8 +56,21 @@ begin
         limit 1
       ), coalesce(p.sale_price, p.price))::numeric as checkout_price
     from public.products p
-    join latest s on upper(btrim(s.part_number)) = upper(btrim(p.style_number))
-      and lower(btrim(s.brand)) = lower(btrim(p.brand))
+    cross join lateral (
+      select latest.* from (
+        select distinct on (staged.sku) staged.*
+        from public.ss_sku_staging staged
+        where upper(btrim(staged.part_number)) = upper(btrim(p.style_number))
+          and lower(btrim(staged.brand)) = lower(btrim(p.brand))
+          and staged.customer_price > 0
+        order by staged.sku, staged.fetched_at desc
+      ) latest
+      order by (latest.inventory_qty > 0) desc,
+        (latest.sale_price > 0 and latest.sale_price = latest.customer_price
+          and latest.piece_price > latest.sale_price and latest.sale_expiration is null) desc,
+        latest.customer_price asc
+      limit 1
+    ) s
     where p.vendor_source = 'S&S Activewear'
       and p.visibility = 'public' and p.is_active is true and p.is_sample is false
       and p.product_type = 'physical'
