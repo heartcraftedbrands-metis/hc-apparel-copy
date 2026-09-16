@@ -292,7 +292,7 @@ Deno.serve(async request => {
         : [];
       const imageIndex = Number(input.product_image_index);
       const sourceImageUrl = Number.isInteger(imageIndex) && imageIndex >= 0 ? String(imageChoices[imageIndex] || '') : '';
-      const actualBrand = product ? productBrand(product) || (brand !== 'HC Apparel' ? brand : '') : brand;
+      const actualBrand = product ? productBrand(product) : brand;
       const specs = product?.vendor_specs && !Array.isArray(product.vendor_specs) ? product.vendor_specs as Record<string, unknown> : {};
       const rawDisplayName = product ? limited(specs.product_title || specs.style_name || product.name, 180) : '';
       const displayName = actualBrand && !rawDisplayName.toLowerCase().startsWith(actualBrand.toLowerCase()) ? `${actualBrand} ${rawDisplayName}` : rawDisplayName;
@@ -302,26 +302,32 @@ Deno.serve(async request => {
         ? `Exact live storefront product: ${displayName}. Brand: ${actualBrand || 'not specified'}. Category: ${product.category || 'apparel blanks'}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (do not put price in caption unless specifically requested and unambiguous). Description: ${limited(product.description, 450)}. Product image available: ${Boolean(product.image_url)}.`
         : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Live catalog examples: ${catalogExamples.map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
       const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'none'}; image visual subject ${visualSubject}.\nVerified catalog context: ${productContext}\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a concrete product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}"` : 'apparel blanks'}. Also mention ${actualBrand && actualBrand !== 'HC Apparel' ? `"${actualBrand}"` : 'HC Apparel'}. Say blank apparel/blanks unless the content type is Custom Printing. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Avoid generic boutique, lifestyle, fashion collections, luxury/premium claims unsupported by the catalog, runway imagery, invented discounts/sales/free shipping/delivery/guarantees, or implying finished custom apparel. If Sale Post has no verified offer, do not claim a sale. Image prompt must depict ${visualSubject} in a clean product promo or flat lay with olive green, cream/linen, and restrained gold, no fake logos/graphics or unrelated fashion imagery. Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
-      const copy = await openaiRequest('https://api.openai.com/v1/chat/completions', key, JSON.stringify({
-        model: env('OPENAI_TEXT_MODEL') || 'gpt-4o-mini',
-        response_format: { type: 'json_schema', json_schema: { name: 'hc_apparel_social_draft', strict: true, schema: { type: 'object', additionalProperties: false, properties: { image_prompt: { type: 'string' }, caption: { type: 'string' }, hashtags: { type: 'string' } }, required: ['image_prompt', 'caption', 'hashtags'] } } },
-        messages: [
-          { role: 'system', content: 'You write accurate social promotions for HC Apparel, an affordable apparel blanks retailer with optional custom printing. Use only the verified catalog context. Put the selected product/category/brand ahead of vague inspiration. Never write fashion boutique, runway, luxury, fabricated pricing, shipping, inventory, or custom-finished-apparel claims. Image prompts should show blank apparel products, not models on a runway. No copyrighted graphics, third-party logos on garments, watermarks, or fake text.' },
-          { role: 'user', content: brief },
-        ],
-      }));
-      let generated: Record<string, unknown>;
-      try { generated = JSON.parse(copy.choices?.[0]?.message?.content || '{}'); }
-      catch { return fail('OpenAI returned copy that could not be parsed. Please try again.', 502); }
-      const caption = limited(generated.caption, 3000);
       const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'blank';
-      if (!limited(generated.image_prompt, 1800) || !caption || !caption.toLowerCase().includes('hc apparel')
-        || !caption.toLowerCase().includes(requiredSubject.toLowerCase())
-        || (contentType !== 'Custom Printing' && !/\bblank(s)?\b/i.test(caption))
-        || /fashion collections|elevate your creative vision|runway|luxury/i.test(caption)) {
-        fail('OpenAI returned generic or off-brand copy. No image was generated; please try again.', 502);
+      let generated: Record<string, unknown> = {};
+      let caption = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const copy = await openaiRequest('https://api.openai.com/v1/chat/completions', key, JSON.stringify({
+          model: env('OPENAI_TEXT_MODEL') || 'gpt-4o-mini',
+          response_format: { type: 'json_schema', json_schema: { name: 'hc_apparel_social_draft', strict: true, schema: { type: 'object', additionalProperties: false, properties: { image_prompt: { type: 'string' }, caption: { type: 'string' }, hashtags: { type: 'string' } }, required: ['image_prompt', 'caption', 'hashtags'] } } },
+          messages: [
+            { role: 'system', content: 'You write accurate social promotions for HC Apparel, an affordable apparel blanks retailer with optional custom printing. Use only the verified catalog context. Open with the named blank apparel product or category, never with "Elevate your brand" or vague inspiration. Never write fashion boutique, runway, luxury, fabricated pricing, shipping, inventory, or custom-finished-apparel claims. Image prompts should show blank apparel products, not models on a runway. No copyrighted graphics, third-party logos on garments, watermarks, or fake text.' },
+            { role: 'user', content: `${brief}${attempt ? '\nThe previous draft was too generic or omitted required facts. Rewrite with an explicit product-first opening, HC Apparel, blank apparel, the exact selected subject, and the requested CTA.' : ''}` },
+          ],
+        }));
+        try { generated = JSON.parse(copy.choices?.[0]?.message?.content || '{}'); }
+        catch { generated = {}; }
+        caption = limited(generated.caption, 3000);
+        if (limited(generated.image_prompt, 1800) && caption && caption.toLowerCase().includes('hc apparel')
+          && caption.toLowerCase().includes(requiredSubject.toLowerCase())
+          && (contentType === 'Custom Printing' || /\bblank(s)?\b/i.test(caption))
+          && !/fashion collections|elevate your (creative vision|brand)|runway|luxury/i.test(caption)) break;
+        if (attempt === 1) fail('OpenAI returned generic or off-brand copy. No image was generated; please try again.', 502);
       }
       const finalCaption = caption.toLowerCase().includes(cta.toLowerCase()) ? caption : `${caption}\n\n${cta}`;
+      const hashtags = includeHashtags ? limited(generated.hashtags, 1000).split(/\s+/)
+        .filter(tag => /^#[\w]+$/.test(tag) && !/fashion|luxury|runway/i.test(tag)) : [];
+      if (includeHashtags && !hashtags.some(tag => /^#ApparelBlanks$/i.test(tag))) hashtags.unshift('#ApparelBlanks');
+      if (includeHashtags && category === 't_shirts' && !hashtags.some(tag => /^#BlankTees$/i.test(tag))) hashtags.push('#BlankTees');
       const imagePrompt = `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. Square 1:1 social image, olive green, cream linen and restrained gold palette, modern composition, generous negative space, no prices, no watermarks, no copyrighted graphics, no third-party logos, no fake product claims, no runway or luxury imagery, no readable text.`;
       let imageBody: BodyInit;
       let imageUrl = 'https://api.openai.com/v1/images/generations';
@@ -355,7 +361,7 @@ Deno.serve(async request => {
         tone, audience, caption_length: captionLength, cta, include_hashtags: includeHashtags,
         notes, image_prompt: imagePrompt, source_image_url: sourceImageUrl || null,
         image_url: publicUrl.publicUrl, caption: finalCaption,
-        hashtags: includeHashtags ? limited(generated.hashtags, 1000) : '', status: 'draft',
+        hashtags: hashtags.join(' '), status: 'draft',
       };
       const { data: saved, error: insertError } = await service.from('social_studio_posts').insert(post).select().single();
       if (insertError) fail('Image was generated but the draft could not be saved. Apply the Studio migration.', 503);
