@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 const INTERESTS = ['Apparel Blanks', 'Bulk Orders', 'Custom Printing', 'Brand/Creator Drops', 'School/Team Orders'];
 
@@ -23,6 +24,9 @@ export default function NewsletterSignup({ source = 'home' }) {
         body: { action: 'subscribe', email, first_name: firstName, interests, consent, source },
       });
       if (invokeError || !data?.saved) throw new Error(data?.error || 'Signup could not be saved.');
+      if (data.sync_status !== 'pending_double_opt_in') {
+        void trackMarketingEvent('newsletter_signup', null, source, { logInternal: false });
+      }
       setResult(data.sync_status === 'pending_double_opt_in' ? 'Signup saved. Confirmation is required before joining the Brevo list.' : 'Thanks for joining HC Apparel updates!');
       setEmail(''); setFirstName(''); setInterests([]); setConsent(false);
     } catch (issue) { setError(issue.message || 'Signup failed. Please try again.'); }

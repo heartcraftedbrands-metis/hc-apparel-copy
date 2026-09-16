@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { base44 } from '@/api/base44Client';
 import { pagesConfig } from '@/pages.config';
-import { loadPublicPixels, trackMarketingEvent } from '@/lib/marketingAnalytics';
+import { disablePublicPixels, isPrivateMarketingRoute, trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 export default function NavigationTracker() {
     const location = useLocation();
@@ -11,15 +11,19 @@ export default function NavigationTracker() {
     const { Pages, mainPage } = pagesConfig;
     const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 
+    useLayoutEffect(() => {
+        if (isPrivateMarketingRoute(location.pathname)) disablePublicPixels();
+    }, [location.pathname]);
+
     // Log user activity when navigating to a page
     useEffect(() => {
-        if (!['/admin', '/launch', '/publiccatalogaudit', '/missingimagereport'].some(path => location.pathname.toLowerCase().startsWith(path))) {
-            loadPublicPixels().then(() => trackMarketingEvent('page_view', null, location.pathname));
-            if (location.pathname.toLowerCase() === '/productdetail') {
+        if (!isPrivateMarketingRoute(location.pathname)) {
+            void trackMarketingEvent('page_view', null, location.pathname);
+            if (location.pathname.toLowerCase() === '/productdetail' && new URLSearchParams(location.search).get('preview') !== 'draft') {
                 const id = new URLSearchParams(location.search).get('id');
-                if (id) trackMarketingEvent('view_product', { id }, 'product_detail');
+                if (id) void trackMarketingEvent('view_product', { id }, 'product_detail');
             }
-            if (location.pathname.toLowerCase() === '/checkout') trackMarketingEvent('begin_checkout', null, 'checkout');
+            if (location.pathname.toLowerCase() === '/checkout') void trackMarketingEvent('begin_checkout', null, 'checkout');
         }
         // Extract page name from pathname
         const pathname = location.pathname;
