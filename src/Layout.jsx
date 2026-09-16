@@ -132,7 +132,7 @@ function LayoutInner({ children }) {
                 )}
               </Button>
 
-              {user ? (
+              {user && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary-foreground/15">
@@ -185,15 +185,6 @@ function LayoutInner({ children }) {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
-                  onClick={() => base44.auth.redirectToLogin()}
-                >
-                  Login
-                </Button>
               )}
             </div>
           </div>
