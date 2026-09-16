@@ -10,6 +10,7 @@ import HomeWhyUs from '../components/home/HomeWhyUs';
 import HomeQuoteRequest from '../components/home/HomeQuoteRequest';
 import ReviewsSection from '../components/home/ReviewsSection';
 import { filterPublicProducts } from '@/lib/productVisibility';
+import NewsletterSignup from '@/components/marketing/NewsletterSignup';
 
 export default function Home() {
   const { data: products = [] } = useQuery({
@@ -27,6 +28,7 @@ export default function Home() {
       <HomeWhyUs />
       <ReviewsSection />
       <HomeQuoteRequest />
+      <div className="container mx-auto max-w-4xl px-4 py-12"><NewsletterSignup source="home" /></div>
     </div>
   );
 }

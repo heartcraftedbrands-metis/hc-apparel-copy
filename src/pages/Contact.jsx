@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, MessageSquare, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import NewsletterSignup from '@/components/marketing/NewsletterSignup';
 
 const INITIAL_FORM = { name: '', email: '', subject: '', message: '' };
 
@@ -190,6 +191,7 @@ export default function Contact() {
           </div>
         </div>
       </div>
+      {!isOrderHelp && <div className="container mx-auto max-w-4xl px-4 pb-12"><NewsletterSignup source="contact" /></div>}
     </div>
   );
 }

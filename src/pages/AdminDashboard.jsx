@@ -198,6 +198,9 @@ export default function AdminDashboard() {
             {[
               { to: '/AdminProducts',              label: 'Products',            icon: <ShoppingBag /> },
               { to: '/AdminSocialMediaStudio',     label: 'Social Media Studio', icon: <Sparkles /> },
+              { to: '/AdminEmailMarketingSettings', label: 'Email Marketing Settings', icon: <Mail /> },
+              { to: '/AdminSubscribers',           label: 'Subscribers', icon: <Mail /> },
+              { to: '/AdminMarketingAnalytics',    label: 'Marketing Analytics', icon: <BarChart3 /> },
               { to: '/AdminVendors',               label: 'Vendors',             icon: <Truck /> },
               { to: '/AdminVendorPricing',         label: 'Vendor Pricing',      icon: <DollarSign /> },
               { to: '/AdminQuotes',                label: 'Quotes',              icon: <FileText /> },

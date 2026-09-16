@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
 import { getCartItemKey, getSmallOrderCartQuantity } from '@/lib/productCustomization';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 const CartContext = createContext(null);
 
@@ -88,6 +89,7 @@ export function CartProvider({ children }) {
         ))
         : [...current, { ...product, quantity: incomingQuantity }];
       persist(newCart, cartRecord);
+      trackMarketingEvent('add_to_cart', { id: product.id || product.product_id, name: product.name || product.product_name }, 'cart');
       return newCart;
     });
   }, [cartRecord, persist]);
