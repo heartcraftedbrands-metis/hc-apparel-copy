@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, CalendarClock, CheckCircle2, ImagePlus, Loader2, Save, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ImagePlus, Loader2, Save, Send, Sparkles } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ const OPTIONS = {
 
 const INITIAL = {
   platform: 'instagram', content_type: 'Product Promo', brand: 'HC Apparel', category: '',
-  product_id: '', product_image_index: -1, product_color: '', tone: 'professional', audience: 'creators',
+  product_id: '', product_image_index: -1, product_color: '', image_mode: 'product', tone: 'professional', audience: 'creators',
   caption_length: 'medium', cta: 'Shop Blanks', include_hashtags: true, notes: '',
 };
 
@@ -79,7 +79,6 @@ export default function AdminSocialMediaStudio() {
   const [channelId, setChannelId] = useState('');
   const [boardId, setBoardId] = useState('');
   const [confirmed, setConfirmed] = useState(false);
-  const [scheduleAt, setScheduleAt] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -88,7 +87,7 @@ export default function AdminSocialMediaStudio() {
 
   const loadHistory = async () => {
     const { data, error: loadError } = await supabase.from('social_studio_posts')
-      .select('id,created_at,platform,content_type,brand,category,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at')
+      .select('id,created_at,platform,content_type,brand,category,product_name,source_image_url,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at')
       .order('created_at', { ascending: false }).limit(50);
     if (loadError) throw new Error('Could not load post history. Apply the Studio database migration.');
     setPosts(data || []);
@@ -97,7 +96,7 @@ export default function AdminSocialMediaStudio() {
   useEffect(() => {
     let active = true;
     Promise.all([
-      supabase.from('social_studio_posts').select('id,created_at,platform,content_type,brand,category,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at').order('created_at', { ascending: false }).limit(50),
+      supabase.from('social_studio_posts').select('id,created_at,platform,content_type,brand,category,product_name,source_image_url,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at').order('created_at', { ascending: false }).limit(50),
       studio('status'),
     ]).then(([history, settings]) => {
       if (!active) return;
@@ -152,7 +151,7 @@ export default function AdminSocialMediaStudio() {
     const result = await studio('generate', form);
     choosePost(result.post);
     await loadHistory();
-    setNotice('Generated image and copy are saved as a private draft. Review and edit before sending to Buffer.');
+    setNotice(form.product_id && form.image_mode === 'product' ? 'AI copy and the real catalog product image are saved as a private draft.' : 'Image and AI copy are saved as a private draft. Review before Buffer handoff.');
   });
 
   const saveDraft = async () => {
@@ -168,23 +167,19 @@ export default function AdminSocialMediaStudio() {
   };
 
   const send = mode => run(mode, async () => {
+    if (mode !== 'draft') throw new Error('Scheduling is disabled. Only draft handoff is available.');
     if (!post) throw new Error('Generate or open a post first.');
     if (!channelId || !selectedChannel) throw new Error('Choose a Buffer channel for this platform.');
     if (!matchingChannel || !requiredFieldsComplete || !confirmed) throw new Error('Complete the platform requirements and confirm this Buffer handoff.');
     if (selectedChannel.isDisconnected || selectedChannel.isLocked) throw new Error('The selected Buffer channel is unavailable.');
     if (form.platform === 'x' && xLength > 280) throw new Error('X posts must be 280 characters or less, including hashtags.');
-    const scheduledDate = mode === 'schedule' && scheduleAt ? new Date(scheduleAt) : null;
-    if (scheduledDate && (!Number.isFinite(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now())) {
-      throw new Error('Choose a future schedule time, or leave it blank for the next Buffer queue slot.');
-    }
     const saved = dirty ? await saveDraft() : post;
     const result = await studio('send_buffer', {
       post_id: saved.id, channel_id: channelId, pinterest_board_id: boardId, confirmed: true, mode,
-      scheduled_at: scheduledDate?.toISOString() || null,
     });
     choosePost(result.post);
     await loadHistory();
-    setNotice(mode === 'draft' ? 'Sent to Buffer Drafts. Nothing was scheduled or published.' : 'Scheduled in Buffer. Check the connected channel queue for the exact publish time.');
+    setNotice('Sent to Buffer Drafts. Nothing was scheduled or published.');
   });
 
   const connectBuffer = () => run('connect', async () => {
@@ -231,12 +226,14 @@ export default function AdminSocialMediaStudio() {
               <div className="rounded-xl border bg-stone-50 p-4">
                 <Field label="Find an existing product (optional)"><Input value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Search name, style, or vendor" /></Field>
                 {selectedProduct && <div className="mt-2 flex items-center justify-between gap-3 text-sm"><span className="truncate font-medium">Selected: {selectedProduct.name}</span><button type="button" className="text-primary underline" onClick={() => { setSelectedProduct(null); setForm(current => ({ ...current, product_id: '', product_image_index: -1, product_color: '' })); }}>Clear</button></div>}
-                {productMatches.length > 0 && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border bg-white">{productMatches.map(item => <button key={item.id} type="button" onClick={() => { setSelectedProduct(item); setForm(current => ({ ...current, product_id: String(item.id), product_image_index: -1, product_color: '' })); setProductSearch(''); setProductMatches([]); }} className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-muted"><span className="font-medium">{item.name}</span><span className="ml-2 text-muted-foreground">{item.supplier_sku || item.vendor_source}</span></button>)}</div>}
+                {productMatches.length > 0 && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border bg-white">{productMatches.map(item => <button key={item.id} type="button" onClick={() => { setSelectedProduct(item); setForm(current => ({ ...current, product_id: String(item.id), product_image_index: -1, product_color: '', image_mode: 'product' })); setProductSearch(''); setProductMatches([]); }} className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-muted"><span className="font-medium">{item.name}</span><span className="ml-2 text-muted-foreground">{item.supplier_sku || item.vendor_source}</span></button>)}</div>}
                 {selectedProduct && productColors(selectedProduct).length > 0 && <div className="mt-4"><SelectField label="Product color (optional)" value={form.product_color} options={[['', 'No color selected'], ...productColors(selectedProduct).map(color => [color, color])]} onChange={value => set('product_color', value)} /></div>}
-                {selectedProduct && <div className="mt-4"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product image reference</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => set('product_image_index', -1)} className={`rounded-lg border px-3 py-2 text-xs ${form.product_image_index === -1 ? 'border-primary bg-primary/10' : 'bg-white'}`}>Generate without reference</button>{imageChoices.map((url, index) => <button key={`${url}-${index}`} type="button" onClick={() => set('product_image_index', index)} className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-white ${form.product_image_index === index ? 'border-accent' : 'border-transparent'}`} title={`Use product image ${index + 1}`}><img src={displayImage(url)} alt={`Product reference ${index + 1}`} className="h-full w-full object-contain" /></button>)}</div></div>}
+                <div className="mt-4"><SelectField label="Post image" value={form.image_mode} options={[["product", "Use Product Image (default)"], ["lifestyle", "Generate Lifestyle Image (optional)"]]} onChange={value => set('image_mode', value)} /><p className="mt-1 text-xs text-muted-foreground">{selectedProduct ? form.image_mode === 'product' ? 'Uses the selected product’s actual primary catalog image. OpenAI generates copy only.' : 'Explicitly generates a new AI image using the selected product as a reference.' : 'Choose a product to use its real image. Without a product, an AI image is generated.'}</p></div>
+                {selectedProduct && form.image_mode === 'product' && <div className="mt-3 flex items-center gap-3 rounded-lg border bg-white p-2 text-xs"><div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-stone-100">{selectedProduct.image_url && <img src={displayImage(selectedProduct.image_url)} alt="Catalog primary product" className="h-full w-full object-contain" />}</div><span>{selectedProduct.image_url ? 'Actual primary product image · saved with this draft' : 'No primary image available. Choose lifestyle mode or another product.'}</span></div>}
+                {selectedProduct && form.image_mode === 'lifestyle' && <div className="mt-4"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lifestyle image reference</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => set('product_image_index', -1)} className={`rounded-lg border px-3 py-2 text-xs ${form.product_image_index === -1 ? 'border-primary bg-primary/10' : 'bg-white'}`}>Use primary image</button>{imageChoices.map((url, index) => <button key={`${url}-${index}`} type="button" onClick={() => set('product_image_index', index)} className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-white ${form.product_image_index === index ? 'border-accent' : 'border-transparent'}`} title={`Reference image ${index + 1}`}><img src={displayImage(url)} alt={`Product reference ${index + 1}`} className="h-full w-full object-contain" /></button>)}</div></div>}
               </div>
               <Field label="Custom instructions (optional)"><Textarea value={form.notes} onChange={event => set('notes', event.target.value)} maxLength={1000} rows={3} placeholder="Campaign angle, specific product qualities, approved offer details…" /></Field>
-              <Button type="button" onClick={generate} disabled={Boolean(busy) || status?.openai_configured === false} className="w-full gap-2 bg-primary text-primary-foreground"><ImagePlus className="h-4 w-4" />{busy === 'generate' ? 'Generating image and copy…' : 'Generate social post'}{busy === 'generate' && <Loader2 className="h-4 w-4 animate-spin" />}</Button>
+              <Button type="button" onClick={generate} disabled={Boolean(busy) || status?.openai_configured === false || (selectedProduct && form.image_mode === 'product' && !selectedProduct.image_url)} className="w-full gap-2 bg-primary text-primary-foreground"><ImagePlus className="h-4 w-4" />{busy === 'generate' ? 'Creating private draft…' : 'Generate social draft'}{busy === 'generate' && <Loader2 className="h-4 w-4 animate-spin" />}</Button>
               {status?.openai_configured === false && <p className="text-sm text-amber-800">OpenAI is not configured. Add OPENAI_API_KEY to the Supabase function secrets.</p>}
             </CardContent>
           </Card>
@@ -246,7 +243,8 @@ export default function AdminSocialMediaStudio() {
               <CardHeader><CardTitle className="text-lg">Preview &amp; edit</CardTitle><p className="text-sm text-muted-foreground">Square 1:1 creative. Review every image and claim before posting.</p></CardHeader>
               <CardContent className="space-y-4">
                 {post ? <>
-                  <div className="aspect-square overflow-hidden rounded-xl border bg-[#ece7db]">{post.image_url ? <img src={post.image_url} alt="Generated social post" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-muted-foreground">No image</div>}</div>
+                  <div className="aspect-square overflow-hidden rounded-xl border bg-[#ece7db]">{post.image_url ? <img src={displayImage(post.image_url)} alt="Social post preview" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-muted-foreground">No image</div>}</div>
+                  {post.source_image_url && post.image_url === post.source_image_url && <p className="text-xs text-muted-foreground">Actual catalog product image · saved with this draft</p>}
                   <Field label="Caption"><Textarea value={caption} onChange={event => setCaption(event.target.value)} rows={6} disabled={post.status !== 'draft'} /></Field>
                   <Field label="Hashtags"><Textarea value={hashtags} onChange={event => setHashtags(event.target.value)} rows={2} disabled={post.status !== 'draft'} /></Field>
                   {form.platform === 'x' && <p className={`text-xs ${xLength > 280 ? 'text-red-700' : 'text-muted-foreground'}`}>X: {xLength}/280 characters, including hashtags</p>}
@@ -257,7 +255,7 @@ export default function AdminSocialMediaStudio() {
             </Card>
 
             <Card className="border-stone-200 shadow-sm">
-              <CardHeader><CardTitle className="text-lg">Buffer handoff</CardTitle><p className="text-sm text-muted-foreground">Drafts stay unpublished. Scheduling adds the post to the selected Buffer channel queue.</p></CardHeader>
+              <CardHeader><CardTitle className="text-lg">Buffer handoff</CardTitle><p className="text-sm text-muted-foreground">Reviewed draft handoff only. Scheduling and publishing are disabled.</p></CardHeader>
               <CardContent className="space-y-4">
                 <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Buffer connection settings</summary><div className="mt-3 space-y-3"><p className="text-xs text-muted-foreground">Connect a Buffer personal API key. It is encrypted by the server and never returned to this page. The Supabase function needs SOCIAL_STUDIO_ENCRYPTION_KEY.</p><Input type="password" autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Buffer API key" /><Button variant="outline" size="sm" onClick={connectBuffer} disabled={!apiKey || Boolean(busy)}>{busy === 'connect' ? 'Connecting…' : status?.buffer_configured ? 'Replace connection' : 'Connect Buffer'}</Button></div></details>
                 <p className="text-xs text-muted-foreground">{status?.buffer_configured ? `${channels.length} connected channel(s) found` : 'Buffer not connected'}{status?.buffer_error ? ` · ${status.buffer_error}` : ''}</p>
@@ -268,9 +266,8 @@ export default function AdminSocialMediaStudio() {
                 {selectedChannel?.service === 'tiktok' && <p className="text-xs text-amber-800">TikTok connected — media requirements may apply.</p>}
                 {selectedChannel?.service === 'youtube' && <p className="text-xs text-amber-800">YouTube requires video media. Image-only Studio drafts cannot be sent to this channel.</p>}
                 {selectedChannel && !['pinterest', 'tiktok', 'youtube'].includes(selectedChannel.service) && <p className="text-xs text-amber-800">Review this channel’s media and posting requirements in Buffer before handoff.</p>}
-                <Field label="Exact schedule time (optional)"><Input type="datetime-local" value={scheduleAt} onChange={event => setScheduleAt(event.target.value)} /><p className="mt-1 text-xs font-normal text-muted-foreground">Leave blank for the next available Buffer queue slot.</p></Field>
                 <label className="flex items-start gap-2 text-xs text-foreground"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={!requiredFieldsComplete || Boolean(busy)} className="mt-0.5" />I reviewed this draft, channel, media requirements, and Buffer handoff.</label>
-                <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="gap-2" onClick={() => send('draft')} disabled={!requiredFieldsComplete || !confirmed || Boolean(busy)}><Send className="h-4 w-4" />Send to Buffer Drafts</Button><Button className="gap-2" onClick={() => send('schedule')} disabled={!requiredFieldsComplete || !confirmed || Boolean(busy)}><CalendarClock className="h-4 w-4" />Schedule in Buffer</Button></div>
+                <Button variant="outline" className="w-full gap-2" onClick={() => send('draft')} disabled={!requiredFieldsComplete || !confirmed || Boolean(busy)}><Send className="h-4 w-4" />Send to Buffer Drafts</Button>
                 {post?.buffer_post_id && <p className="text-xs text-muted-foreground">Buffer post ID: {post.buffer_post_id}</p>}
                 {post?.buffer_post_id && <Button variant="ghost" size="sm" onClick={refreshBufferPost} disabled={Boolean(busy)}>Refresh Buffer status</Button>}
               </CardContent>

@@ -41,10 +41,23 @@ const categoryDetails: Record<string, { label: string; database: string[]; visua
 const knownBrands = ['Shaka Wear', 'Champion', 'Columbia', 'Bella + Canvas', 'Gildan', 'Comfort Colors', 'Next Level', 'Independent Trading Co.', 'Port & Company', 'Hanes', 'District', 'Rabbit Skins', 'Lane Seven', 'adidas', 'Oakley'];
 const colorNames = (value: unknown) => Array.isArray(value) ? value.map(item => typeof item === 'string' ? item : item?.name || item?.color_name || item?.color || '').filter(Boolean).map(String) : [];
 const productBrand = (product: Record<string, unknown>) => {
+  if (product.brand) return String(product.brand);
   const name = String(product.name || '').toLowerCase();
   const tags = Array.isArray(product.tags) ? product.tags.map(String) : [];
   return knownBrands.find(brand => name.startsWith(brand.toLowerCase()) || tags.some(tag => tag.toLowerCase() === brand.toLowerCase())) || '';
 };
+
+function productImageUrl(value: unknown) {
+  const raw = limited(value, 2000);
+  if (!raw) return '';
+  const normalized = raw.startsWith('Images/') || raw.startsWith('/Images/')
+    ? `https://www.ssactivewear.com/${raw.replace(/^\//, '')}` : raw;
+  try {
+    const url = new URL(normalized);
+    if (url.protocol === 'https:') return url.toString();
+  } catch { /* An unusable catalog path is not an image. */ }
+  return '';
+}
 
 type StudioError = Error & { status?: number };
 const fail = (message: string, status = 400): never => {
@@ -240,7 +253,7 @@ Deno.serve(async request => {
       if (term.length < 2) return reply({ products: [] }, 200, origin);
       const pattern = `%${term}%`;
       const { data, error } = await service.from('products')
-        .select('id,name,supplier_sku,vendor_source,image_url,mockup_images,available_colors,price')
+        .select('id,name,brand,category,supplier_sku,vendor_source,image_url,mockup_images,available_colors,price')
         .or(`name.ilike.${pattern},supplier_sku.ilike.${pattern},vendor_source.ilike.${pattern}`)
         .eq('visibility', 'public').eq('is_active', true).eq('product_type', 'physical')
         .order('name').limit(20);
@@ -264,7 +277,7 @@ Deno.serve(async request => {
       let product: Record<string, unknown> | null = null;
       if (input.product_id) {
         const { data, error } = await service.from('products')
-          .select('id,name,description,category,categories,tags,price,available_sizes,available_colors,image_url,mockup_images,vendor_specs,vendor_source,supplier_sku,visibility,is_active,product_type')
+          .select('id,name,brand,style_number,description,category,categories,tags,price,available_sizes,available_colors,image_url,mockup_images,vendor_specs,fabric_material,garment_weight,fit,features,vendor_source,supplier_sku,visibility,is_active,product_type')
           .eq('id', String(input.product_id)).maybeSingle();
         if (error || !data) fail('Selected product was not found.');
         if (data.visibility !== 'public' || !data.is_active || data.product_type !== 'physical') fail('Choose a live apparel product from the storefront.');
@@ -285,21 +298,22 @@ Deno.serve(async request => {
         catalogExamples = data || [];
         if (brand !== 'HC Apparel' && !catalogExamples.length) fail(`No live ${brand} products were found for this selection. Choose another brand or category.`);
       }
-      const imageChoices = product
-        ? [product.image_url, ...(Array.isArray(product.mockup_images) ? product.mockup_images : [])]
-          .map(item => typeof item === 'string' ? item : item?.image_url || item?.url || item?.src || '')
-          .filter(Boolean)
-        : [];
+      const imageMode = pick(input.image_mode ?? 'product', ['product', 'lifestyle'], 'image mode');
+      const primaryImageUrl = productImageUrl(product?.image_url);
+      const imageChoices = product ? [product?.image_url, ...(Array.isArray(product.mockup_images) ? product.mockup_images : [])]
+        .map(item => productImageUrl(typeof item === 'string' ? item : item?.image_url || item?.url || item?.src || ''))
+        .filter(Boolean) : [];
       const imageIndex = Number(input.product_image_index);
-      const sourceImageUrl = Number.isInteger(imageIndex) && imageIndex >= 0 ? String(imageChoices[imageIndex] || '') : '';
+      const sourceImageUrl = product && imageMode === 'lifestyle' && Number.isInteger(imageIndex) && imageIndex >= 0
+        ? String(imageChoices[imageIndex] || '') : primaryImageUrl;
+      if (product && imageMode === 'product' && !primaryImageUrl) fail('This catalog product has no usable primary image. Choose Generate Lifestyle Image explicitly or select another product.');
       const actualBrand = product ? productBrand(product) : brand;
-      const specs = product?.vendor_specs && !Array.isArray(product.vendor_specs) ? product.vendor_specs as Record<string, unknown> : {};
-      const rawDisplayName = product ? limited(specs.product_title || specs.style_name || product.name, 180) : '';
+      const rawDisplayName = product ? limited(product.name, 180) : '';
       const displayName = actualBrand && !rawDisplayName.toLowerCase().startsWith(actualBrand.toLowerCase()) ? `${actualBrand} ${rawDisplayName}` : rawDisplayName;
       const categoryLabel = category ? categoryDetails[category].label : '';
       const visualSubject = product ? displayName : category ? categoryDetails[category].visual : 'blank t-shirts, hoodies, hats, and bags';
       const productContext = product
-        ? `Exact live storefront product: ${displayName}. Brand: ${actualBrand || 'not specified'}. Category: ${product.category || 'apparel blanks'}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (do not put price in caption unless specifically requested and unambiguous). Description: ${limited(product.description, 450)}. Product image available: ${Boolean(product.image_url)}.`
+        ? `Exact live storefront product: ${displayName}. Source: ${product.vendor_source || 'site catalog'}. Brand: ${actualBrand || 'not specified'}. Style: ${product.style_number || product.supplier_sku || 'not listed'}. Category: ${product.category || 'apparel blanks'}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (do not put price in caption unless specifically requested and unambiguous). Description: ${limited(product.description, 450)}. Fabric: ${limited(product.fabric_material, 160)}. Weight: ${limited(product.garment_weight, 100)}. Fit: ${limited(product.fit, 100)}. Features: ${limited(Array.isArray(product.features) ? product.features.join('; ') : product.features, 300)}. Product image available: ${Boolean(primaryImageUrl)}.`
         : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Live catalog examples: ${catalogExamples.map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
       const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'none'}; image visual subject ${visualSubject}.\nVerified catalog context: ${productContext}\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a concrete product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}"` : 'apparel blanks'}. Also mention ${actualBrand && actualBrand !== 'HC Apparel' ? `"${actualBrand}"` : 'HC Apparel'}. Say blank apparel/blanks unless the content type is Custom Printing. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Avoid generic boutique, lifestyle, fashion collections, luxury/premium claims unsupported by the catalog, runway imagery, invented discounts/sales/free shipping/delivery/guarantees, or implying finished custom apparel. If Sale Post has no verified offer, do not claim a sale. Image prompt must depict ${visualSubject} in a clean product promo or flat lay with olive green, cream/linen, and restrained gold, no fake logos/graphics or unrelated fashion imagery. Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
       const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'blank';
@@ -329,46 +343,50 @@ Deno.serve(async request => {
       if (includeHashtags && !hashtags.some(tag => /^#ApparelBlanks$/i.test(tag))) hashtags.unshift('#ApparelBlanks');
       if (includeHashtags && category === 't_shirts' && !hashtags.some(tag => /^#BlankTees$/i.test(tag))) hashtags.push('#BlankTees');
       const imagePrompt = `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. Square 1:1 social image, olive green, cream linen and restrained gold palette, modern composition, generous negative space, no prices, no watermarks, no copyrighted graphics, no third-party logos, no fake product claims, no runway or luxury imagery, no readable text.`;
-      let imageBody: BodyInit;
-      let imageUrl = 'https://api.openai.com/v1/images/generations';
-      let json = true;
-      if (sourceImageUrl) {
-        const source = await sourceImageBlob(sourceImageUrl);
-        const form = new FormData();
-        form.append('model', env('OPENAI_IMAGE_MODEL') || 'gpt-image-1');
-        form.append('prompt', `${imagePrompt} Use the supplied garment as the product reference without copying any visible trademark.`);
-        form.append('size', '1024x1024');
-        form.append('quality', 'medium');
-        form.append('output_format', 'png');
-        form.append('image', source, `reference.${source.type.split('/')[1] === 'jpeg' ? 'jpg' : source.type.split('/')[1]}`);
-        imageBody = form;
-        imageUrl = 'https://api.openai.com/v1/images/edits';
-        json = false;
-      } else {
-        imageBody = JSON.stringify({ model: env('OPENAI_IMAGE_MODEL') || 'gpt-image-1', prompt: imagePrompt, size: '1024x1024', quality: 'medium', output_format: 'png' });
+      let postImageUrl = primaryImageUrl;
+      if (!product || imageMode === 'lifestyle') {
+        let imageBody: BodyInit;
+        let imageUrl = 'https://api.openai.com/v1/images/generations';
+        let json = true;
+        if (sourceImageUrl) {
+          const source = await sourceImageBlob(sourceImageUrl);
+          const form = new FormData();
+          form.append('model', env('OPENAI_IMAGE_MODEL') || 'gpt-image-1');
+          form.append('prompt', `${imagePrompt} Use the supplied garment as the product reference without copying any visible trademark.`);
+          form.append('size', '1024x1024');
+          form.append('quality', 'medium');
+          form.append('output_format', 'png');
+          form.append('image', source, `reference.${source.type.split('/')[1] === 'jpeg' ? 'jpg' : source.type.split('/')[1]}`);
+          imageBody = form;
+          imageUrl = 'https://api.openai.com/v1/images/edits';
+          json = false;
+        } else {
+          imageBody = JSON.stringify({ model: env('OPENAI_IMAGE_MODEL') || 'gpt-image-1', prompt: imagePrompt, size: '1024x1024', quality: 'medium', output_format: 'png' });
+        }
+        const imageResult = await openaiRequest(imageUrl, key, imageBody, json);
+        const base64 = imageResult.data?.[0]?.b64_json;
+        if (!base64) fail('OpenAI did not return an image. Please try again.', 502);
+        const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+        const filePath = `social-studio/${crypto.randomUUID()}.png`;
+        const { error: uploadError } = await service.storage.from('storefront-assets').upload(filePath, bytes, { contentType: 'image/png', upsert: false });
+        if (uploadError) fail('Image was generated but could not be saved to storage. Check the storefront-assets bucket.', 503);
+        postImageUrl = service.storage.from('storefront-assets').getPublicUrl(filePath).data.publicUrl;
       }
-      const imageResult = await openaiRequest(imageUrl, key, imageBody, json);
-      const base64 = imageResult.data?.[0]?.b64_json;
-      if (!base64) fail('OpenAI did not return an image. Please try again.', 502);
-      const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
-      const filePath = `social-studio/${crypto.randomUUID()}.png`;
-      const { error: uploadError } = await service.storage.from('storefront-assets').upload(filePath, bytes, { contentType: 'image/png', upsert: false });
-      if (uploadError) fail('Image was generated but could not be saved to storage. Check the storefront-assets bucket.', 503);
-      const { data: publicUrl } = service.storage.from('storefront-assets').getPublicUrl(filePath);
       const post = {
         created_by: auth.user.id, platform, content_type: contentType, brand: actualBrand || 'HC Apparel', category,
         product_id: product?.id || null, product_name: displayName || null,
         tone, audience, caption_length: captionLength, cta, include_hashtags: includeHashtags,
         notes, image_prompt: imagePrompt, source_image_url: sourceImageUrl || null,
-        image_url: publicUrl.publicUrl, caption: finalCaption,
+        image_url: postImageUrl, caption: finalCaption,
         hashtags: hashtags.join(' '), status: 'draft',
       };
       const { data: saved, error: insertError } = await service.from('social_studio_posts').insert(post).select().single();
-      if (insertError) fail('Image was generated but the draft could not be saved. Apply the Studio migration.', 503);
+      if (insertError) fail('The draft could not be saved. Apply the Studio migration.', 503);
       return reply({ post: saved }, 200, origin);
     }
 
     if (action === 'send_buffer') {
+      if (input.mode === 'schedule') fail('Buffer scheduling is disabled. Only reviewed draft handoff is available.', 403);
       if (input.confirmed !== true) fail('Confirm this Buffer handoff before continuing.');
       const id = String(input.post_id || '');
       const channelId = String(input.channel_id || '');
