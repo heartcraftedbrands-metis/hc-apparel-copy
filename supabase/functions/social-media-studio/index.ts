@@ -318,7 +318,7 @@ Deno.serve(async request => {
       const pattern = `%${term}%`;
       const { data, error } = await service.from('products')
         .select('id,name,brand,category,supplier_sku,vendor_source,image_url,mockup_images,available_colors,size_prices,price')
-        .or(`name.ilike.${pattern},supplier_sku.ilike.${pattern},vendor_source.ilike.${pattern}`)
+        .or(`name.ilike.${pattern},brand.ilike.${pattern},supplier_sku.ilike.${pattern},vendor_source.ilike.${pattern}`)
         .eq('visibility', 'public').eq('is_active', true).eq('product_type', 'physical')
         .order('name').limit(20);
       if (error) fail('Product search failed. Please try again.', 503);
@@ -350,19 +350,21 @@ Deno.serve(async request => {
       const selectedColor = limited(input.product_color, 100);
       const availableColors = product ? colorNames(product.available_colors) : [];
       if (selectedColor && !availableColors.includes(selectedColor)) fail('Choose an available color for the selected product.');
+      const imageMode = pick(input.image_mode ?? 'product', ['product', 'lifestyle', 'artwork'], 'image mode');
       let catalogExamples: Record<string, unknown>[] = [];
-      if (!product && (category || brand !== 'HC Apparel')) {
+      if (!product && imageMode !== 'artwork') {
         let query = service.from('products')
-          .select('name,category,price,tags,image_url')
-          .eq('visibility', 'public').eq('is_active', true).eq('product_type', 'physical');
+          .select('name,brand,category,price,tags,image_url,vendor_source')
+          .eq('visibility', 'public').eq('is_active', true).eq('product_type', 'physical')
+          .not('image_url', 'is', null).neq('image_url', '');
         if (category) query = query.in('category', categoryDetails[category].database);
-        if (brand !== 'HC Apparel') query = query.ilike('name', `%${brand}%`);
-        const { data, error } = await query.order('name').limit(5);
+        else if (brand === 'HC Apparel') query = query.in('category', categoryDetails.t_shirts.database);
+        if (brand !== 'HC Apparel') query = query.or(`brand.ilike.%${brand}%,name.ilike.%${brand}%`);
+        const { data, error } = await query.order('name').limit(20);
         if (error) fail('Could not load live catalog examples for this campaign.', 503);
-        catalogExamples = data || [];
+        catalogExamples = (data || []).filter(item => productImageUrl(item.image_url));
         if (brand !== 'HC Apparel' && !catalogExamples.length) fail(`No live ${brand} products were found for this selection. Choose another brand or category.`);
       }
-      const imageMode = pick(input.image_mode ?? 'product', ['product', 'lifestyle', 'artwork'], 'image mode');
       const artworkPath = imageMode === 'artwork' ? String(input.artwork_path || '') : '';
       const uploadedArtworkUrl = imageMode === 'artwork' ? await artworkUrl(service, artworkPath, auth.user.id) : '';
       const primaryImageUrl = productImageUrl(product?.image_url);
@@ -370,13 +372,16 @@ Deno.serve(async request => {
         ? product.size_prices.find((item: Record<string, unknown>) => String(item.size || '').startsWith(`${selectedColor} /`) && productImageUrl(item.image_url)) : null;
       if (selectedColor && imageMode === 'product' && !selectedVariant) fail('No catalog image matches that color. Choose another color, clear the color, or use lifestyle mode.');
       const catalogImageUrl = productImageUrl(selectedVariant?.image_url) || primaryImageUrl;
+      const representative = !product ? catalogExamples[0] : null;
+      const representativeImageUrl = productImageUrl(representative?.image_url);
       const imageChoices = product ? [product?.image_url, ...(Array.isArray(product.mockup_images) ? product.mockup_images : [])]
         .map(item => productImageUrl(typeof item === 'string' ? item : item?.image_url || item?.url || item?.src || ''))
         .filter(Boolean) : [];
       const imageIndex = Number(input.product_image_index);
       const sourceImageUrl = product && imageMode === 'lifestyle' && Number.isInteger(imageIndex) && imageIndex >= 0
-        ? String(imageChoices[imageIndex] || '') : catalogImageUrl;
+        ? String(imageChoices[imageIndex] || '') : product ? catalogImageUrl : representativeImageUrl;
       if (product && imageMode === 'product' && !catalogImageUrl) fail('This catalog product has no usable image. Choose Generate Lifestyle Image or Upload My Artwork.');
+      if (!product && imageMode === 'product' && !representativeImageUrl) fail('No live catalog image is available for this category. Choose another category, Upload My Artwork, or explicitly select Generate Lifestyle Image.');
       const actualBrand = product ? productBrand(product) : brand;
       const rawDisplayName = product ? limited(product.name, 180) : '';
       const displayName = actualBrand && !rawDisplayName.toLowerCase().startsWith(actualBrand.toLowerCase()) ? `${actualBrand} ${rawDisplayName}` : rawDisplayName;
@@ -387,12 +392,12 @@ Deno.serve(async request => {
         ? realGarmentColor ? `The garment itself must match the real catalog color "${realGarmentColor}"${selectedColor ? ' selected by the admin' : ' available for this product'}. Do not recolor the garment to HC Apparel brand colors.` : 'The catalog does not verify a garment color. Do not assert a specific garment color.'
         : 'Do not force garments into HC Apparel website colors; use plausible blank apparel colors.';
       const productContext = product
-        ? `Exact live storefront product: ${displayName}. Source: ${product.vendor_source || 'site catalog'}. Brand: ${actualBrand || 'not specified'}. Style: ${product.style_number || product.supplier_sku || 'not listed'}. Category: ${product.category || 'apparel blanks'}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (do not put price in caption unless specifically requested and unambiguous). Description: ${limited(product.description, 450)}. Fabric: ${limited(product.fabric_material, 160)}. Weight: ${limited(product.garment_weight, 100)}. Fit: ${limited(product.fit, 100)}. Features: ${limited(Array.isArray(product.features) ? product.features.join('; ') : product.features, 300)}. Product image available: ${Boolean(primaryImageUrl)}.`
-        : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Live catalog examples: ${catalogExamples.map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
-      const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'none'}; image visual subject ${visualSubject}.\nVerified catalog context: ${productContext}\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a concrete product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}"` : 'apparel blanks'}. Also mention ${actualBrand && actualBrand !== 'HC Apparel' ? `"${actualBrand}"` : 'HC Apparel'}. Say blank apparel/blanks unless the content type is Custom Printing. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Avoid generic boutique, lifestyle, fashion collections, luxury/premium claims unsupported by the catalog, runway imagery, invented discounts/sales/free shipping/delivery/guarantees, or implying finished custom apparel. If Sale Post has no verified offer, do not claim a sale. Image prompt must depict ${visualSubject} in a clean product promo or flat lay with olive green, cream/linen, and restrained gold, no fake logos/graphics or unrelated fashion imagery. Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
+        ? `Exact live storefront product: ${displayName}. Source: ${product.vendor_source || 'site catalog'}. Brand: ${actualBrand || 'not specified'}. Style: ${product.style_number || product.supplier_sku || 'not listed'}. Category: ${product.category || 'apparel blanks'}. Other catalog categories: ${limited(JSON.stringify(product.categories || []), 180)}. Selected color: ${selectedColor || 'none'}. Available colors: ${availableColors.slice(0, 20).join(', ') || 'not listed'}. Available sizes: ${colorNames(product.available_sizes).slice(0, 20).join(', ') || 'not listed'}. Site price: ${product.price ?? 'not listed'} (only mention an exact price if requested by the admin and unambiguous). Description: ${limited(product.description, 450)}. Vendor specs: ${limited(JSON.stringify(product.vendor_specs || {}), 500)}. Fabric: ${limited(product.fabric_material, 160)}. Weight: ${limited(product.garment_weight, 100)}. Fit: ${limited(product.fit, 100)}. Features: ${limited(Array.isArray(product.features) ? product.features.join('; ') : product.features, 300)}. Product image available: ${Boolean(primaryImageUrl)}.`
+        : `Selected category: ${categoryLabel || 'Apparel Blanks'}. Selected brand: ${brand}. Representative live catalog image: ${representative?.name || 'none'} (${representative?.brand || representative?.vendor_source || 'catalog'}, ${representative?.category || 'apparel'}). This image is visual context only; do not describe it as a selected product. Other live examples: ${catalogExamples.slice(0, 5).map(item => `${item.name} (${item.category})`).join('; ') || 'none sampled'}.`;
+      const artworkContext = imageMode === 'artwork' ? 'Use the admin-uploaded artwork as-is. You cannot inspect its visual content here, so do not invent artwork details. Ground the caption in the selected product or category and refer to artwork only generically if relevant.' : '';
+      const brief = `HC Apparel sells affordable apparel blanks first: t-shirts, hoodies, fleece, outerwear, hats, bags, tank tops, women's styles, and sports/activewear. Customers include brands, teams, creators, churches, schools, businesses, and events. Bulk apparel orders of 50+ can request a quote. Custom printing is optional support, secondary unless content type is Custom Printing.\nCampaign: ${platform} ${contentType}; audience ${audience}; tone ${tone}; caption length ${captionLength}; CTA exactly "${cta}"; hashtags ${includeHashtags ? 'yes' : 'no'}; selected brand ${actualBrand || 'HC Apparel'}; selected category ${categoryLabel || 'Apparel Blanks'}; image visual subject ${visualSubject}. Image mode: ${imageMode}.\nVerified catalog context: ${productContext}\nArtwork context: ${artworkContext || 'none'}.\nAdmin notes: ${notes || 'none'}. Treat notes as creative preferences, not verification of prices, stock, offers, or product specifications.\nWrite a direct product-first caption. Mention HC Apparel and ${product ? `the exact product name "${displayName}"` : category ? `the category "${categoryLabel}"` : brand !== 'HC Apparel' ? `the brand "${brand}" and apparel blanks` : 'apparel blanks'}. ${brand !== 'HC Apparel' && !product ? `Mention ${brand} and ${categoryLabel || 'apparel blanks'} together.` : ''} Say "apparel blanks" or "blank apparel" unless the content type is Custom Printing. Describe the selected real color only when verified. End with the exact CTA. Hashtags must relate to apparel blanks, the selected subject, small brands, teams, creators, and optional custom printing. Never use generic fashion language such as "elevate your style", "fashion collection", "luxury look", "perfect blend of comfort and sophistication", or vague inspiration. Never invent discounts, sale claims, free shipping, delivery times, guarantees, stock levels, or product qualities absent from the catalog. Do not imply finished custom apparel. If Sale Post has no verified offer, do not claim a sale. ${imageMode === 'lifestyle' ? `Image prompt must depict ${visualSubject} as blank apparel in a clean product promo or flat lay, with real catalog garment colors and optional HC Apparel design accents, no fake logos or unrelated fashion imagery.` : 'No image will be generated. Return an empty image_prompt string.'} Return only JSON keys image_prompt, caption, hashtags; hashtags are a space-separated string.`;
       const colorBrief = `\nColor accuracy: ${garmentColorRule} HC Apparel olive, cream/linen, and gold may appear only as subtle layout, background, border, or text accents. When relevant, describe only a verified real product color in the caption. Do not make apparel match the website palette by default.`;
-      const accurateBrief = brief.replace('with olive green, cream/linen, and restrained gold', 'with real catalog garment colors and optional HC Apparel design accents');
-      const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'blank';
+      const requiredSubject = product ? displayName : category ? categoryLabel : brand !== 'HC Apparel' ? brand : 'apparel blanks';
       let generated: Record<string, unknown> = {};
       let caption = '';
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -400,17 +405,19 @@ Deno.serve(async request => {
           model: env('OPENAI_TEXT_MODEL') || 'gpt-4o-mini',
           response_format: { type: 'json_schema', json_schema: { name: 'hc_apparel_social_draft', strict: true, schema: { type: 'object', additionalProperties: false, properties: { image_prompt: { type: 'string' }, caption: { type: 'string' }, hashtags: { type: 'string' } }, required: ['image_prompt', 'caption', 'hashtags'] } } },
           messages: [
-            { role: 'system', content: 'You write accurate social promotions for HC Apparel, an affordable apparel blanks retailer with optional custom printing. Use only the verified catalog context. Open with the named blank apparel product or category, never with "Elevate your brand" or vague inspiration. Never write fashion boutique, runway, luxury, fabricated pricing, shipping, inventory, or custom-finished-apparel claims. Image prompts should show blank apparel products in real catalog colors, not garments recolored to the website palette or models on a runway. No copyrighted graphics, third-party logos on garments, watermarks, or fake text.' },
-            { role: 'user', content: `${accurateBrief}${colorBrief}${attempt ? '\nThe previous draft was too generic or omitted required facts. Rewrite with an explicit product-first opening, HC Apparel, blank apparel, the exact selected subject, and the requested CTA.' : ''}` },
+            { role: 'system', content: 'You write specific, accurate social promotions for HC Apparel, an apparel blanks retailer with optional custom printing. Use only verified catalog facts. Lead with the named blank apparel product or category. Mention HC Apparel, the exact selected subject, and apparel blanks or blank apparel. Make custom printing secondary except in Custom Printing posts. Avoid generic boutique, runway, luxury, fabricated pricing, sale, shipping, stock, delivery, guarantee, or finished-custom-apparel claims. For lifestyle image prompts only, use real catalog garment colors and no copyrighted graphics, third-party logos, watermarks, or fake text.' },
+            { role: 'user', content: `${brief}${colorBrief}${attempt ? '\nThe previous draft omitted required facts or used prohibited language. Rewrite with a concrete product-first opening, HC Apparel, the exact selected subject, apparel blanks, and the requested CTA.' : ''}` },
           ],
         }));
         try { generated = JSON.parse(copy.choices?.[0]?.message?.content || '{}'); }
         catch { generated = {}; }
         caption = limited(generated.caption, 3000);
-        if (limited(generated.image_prompt, 1800) && caption && caption.toLowerCase().includes('hc apparel')
+        if ((imageMode !== 'lifestyle' || limited(generated.image_prompt, 1800)) && caption && caption.toLowerCase().includes('hc apparel')
           && caption.toLowerCase().includes(requiredSubject.toLowerCase())
-          && (contentType === 'Custom Printing' || /\bblank(s)?\b/i.test(caption))
-          && !/fashion collections|elevate your (creative vision|brand)|runway|luxury/i.test(caption)) break;
+          && (brand === 'HC Apparel' || product || caption.toLowerCase().includes(brand.toLowerCase()))
+          && (contentType === 'Custom Printing' || /\b(apparel blanks|blank apparel)\b/i.test(caption))
+          && caption.toLowerCase().includes(cta.toLowerCase())
+          && !/elevate your (style|brand|creative vision)|fashion collection|luxury look|perfect blend of comfort and sophistication|runway|free shipping|guaranteed delivery|limited time sale/i.test(caption)) break;
         if (attempt === 1) fail('OpenAI returned generic or off-brand copy. No image was generated; please try again.', 502);
       }
       const finalCaption = caption.toLowerCase().includes(cta.toLowerCase()) ? caption : `${caption}\n\n${cta}`;
@@ -418,9 +425,9 @@ Deno.serve(async request => {
         .filter(tag => /^#[\w]+$/.test(tag) && !/fashion|luxury|runway/i.test(tag)) : [];
       if (includeHashtags && !hashtags.some(tag => /^#ApparelBlanks$/i.test(tag))) hashtags.unshift('#ApparelBlanks');
       if (includeHashtags && category === 't_shirts' && !hashtags.some(tag => /^#BlankTees$/i.test(tag))) hashtags.push('#BlankTees');
-      const imagePrompt = `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. ${garmentColorRule} Square 1:1 social image; HC Apparel olive green, cream linen, and restrained gold only as optional background or graphic accents, never forced garment colors. Modern composition, generous negative space, no prices, watermarks, copyrighted graphics, third-party logos, fake product claims, runway or luxury imagery, or readable text.`;
-      let postImageUrl = imageMode === 'artwork' ? uploadedArtworkUrl : catalogImageUrl;
-      if (imageMode === 'lifestyle' || (!product && imageMode === 'product')) {
+      const imagePrompt = imageMode === 'lifestyle' ? `${limited(generated.image_prompt, 1400)} Show ${visualSubject} as actual blank apparel products in a clean ecommerce flat lay or product promo. ${garmentColorRule} Square 1:1 social image; HC Apparel olive green, cream linen, and restrained gold only as optional background or graphic accents, never forced garment colors. Modern composition, generous negative space, no prices, watermarks, copyrighted graphics, third-party logos, fake product claims, runway or luxury imagery, or readable text.` : '';
+      let postImageUrl = imageMode === 'artwork' ? uploadedArtworkUrl : product ? catalogImageUrl : representativeImageUrl;
+      if (imageMode === 'lifestyle') {
         let imageBody: BodyInit;
         let imageUrl = 'https://api.openai.com/v1/images/generations';
         let json = true;
@@ -453,7 +460,7 @@ Deno.serve(async request => {
         product_id: product?.id || null, product_name: displayName || null,
         tone, audience, caption_length: captionLength, cta, include_hashtags: includeHashtags,
         notes, image_prompt: imagePrompt, source_image_url: uploadedArtworkUrl || sourceImageUrl || null,
-        image_url: postImageUrl, image_mode: imageMode === 'product' && !product ? 'lifestyle' : imageMode,
+        image_url: postImageUrl, image_mode: imageMode,
         artwork_path: artworkPath || null, caption: finalCaption,
         hashtags: hashtags.join(' '), status: 'draft',
       };
