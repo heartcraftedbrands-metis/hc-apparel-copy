@@ -9,18 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const OPTIONS = {
   platform: [['instagram', 'Instagram'], ['facebook', 'Facebook'], ['x', 'X'], ['pinterest', 'Pinterest'], ['tiktok', 'TikTok'], ['linkedin', 'LinkedIn'], ['youtube', 'YouTube'], ['threads', 'Threads'], ['bluesky', 'Bluesky'], ['google', 'Google Business Profile']],
-  content_type: ['Product Promo', 'Brand Promo', 'Sale Post', 'New Arrival', 'Seasonal Post'],
+  content_type: ['Product Promo', 'Brand Promo', 'Sale Post', 'New Arrival', 'Seasonal Post', 'Bulk Order', 'Custom Printing'],
+  category: [['', 'All Apparel Blanks'], ['t_shirts', 'T-Shirts'], ['hoodies', 'Hoodies'], ['fleece', 'Fleece'], ['outerwear', 'Outerwear'], ['hats', 'Hats'], ['bags', 'Bags'], ['tank_tops', 'Tank Tops'], ['womens', "Women's Styles"], ['sportswear', 'Sports / Activewear'], ['crewnecks', 'Crewnecks / Sweatshirts'], ['long_sleeve', 'Long Sleeve'], ['polos', 'Polos']],
   brand: ['HC Apparel', 'Shaka Wear', 'Champion', 'Columbia', 'Bella + Canvas', 'Gildan', 'Comfort Colors', 'Next Level', 'Independent Trading Co.', 'Port & Company', 'Hanes', 'District', 'Rabbit Skins', 'Lane Seven', 'adidas', 'Oakley'],
   tone: ['professional', 'bold', 'clean', 'modern', 'premium', 'streetwear'],
   audience: ['brands', 'teams', 'creators', 'churches', 'schools', 'businesses'],
   caption_length: ['short', 'medium', 'long'],
-  cta: ['Shop Now', 'Order Blanks', 'Start Your Brand', 'Bulk Orders Available', 'Explore Collection'],
+  cta: ['Shop Blanks', 'Order Blanks', 'Request Bulk Quote', 'Start Your Brand', 'Explore Collection'],
 };
 
 const INITIAL = {
-  platform: 'instagram', content_type: 'Product Promo', brand: 'HC Apparel',
-  product_id: '', product_image_index: -1, tone: 'premium', audience: 'creators',
-  caption_length: 'medium', cta: 'Shop Now', include_hashtags: true, notes: '',
+  platform: 'instagram', content_type: 'Product Promo', brand: 'HC Apparel', category: '',
+  product_id: '', product_image_index: -1, product_color: '', tone: 'professional', audience: 'creators',
+  caption_length: 'medium', cta: 'Shop Blanks', include_hashtags: true, notes: '',
 };
 
 const statusLabel = {
@@ -31,6 +32,9 @@ const platformService = platform => platform === 'x' ? 'twitter' : platform === 
 
 const displayImage = url => url?.startsWith('Images/') || url?.startsWith('/Images/')
   ? `https://www.ssactivewear.com/${url.replace(/^\//, '')}` : url;
+const productColors = product => (Array.isArray(product?.available_colors) ? product.available_colors : [])
+  .map(item => typeof item === 'string' ? item : item?.name || item?.color_name || item?.color || '')
+  .filter(Boolean);
 
 async function studio(action, payload = {}) {
   const { data, error } = await supabase.functions.invoke('social-media-studio', { body: { action, ...payload } });
@@ -84,7 +88,7 @@ export default function AdminSocialMediaStudio() {
 
   const loadHistory = async () => {
     const { data, error: loadError } = await supabase.from('social_studio_posts')
-      .select('id,created_at,platform,content_type,brand,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at')
+      .select('id,created_at,platform,content_type,brand,category,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at')
       .order('created_at', { ascending: false }).limit(50);
     if (loadError) throw new Error('Could not load post history. Apply the Studio database migration.');
     setPosts(data || []);
@@ -93,7 +97,7 @@ export default function AdminSocialMediaStudio() {
   useEffect(() => {
     let active = true;
     Promise.all([
-      supabase.from('social_studio_posts').select('id,created_at,platform,content_type,brand,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at').order('created_at', { ascending: false }).limit(50),
+      supabase.from('social_studio_posts').select('id,created_at,platform,content_type,brand,category,product_name,image_url,caption,hashtags,image_prompt,status,buffer_post_id,scheduled_at').order('created_at', { ascending: false }).limit(50),
       studio('status'),
     ]).then(([history, settings]) => {
       if (!active) return;
@@ -130,7 +134,7 @@ export default function AdminSocialMediaStudio() {
     setCaption(item.caption || '');
     setHashtags(item.hashtags || '');
     setImagePrompt(item.image_prompt || '');
-    setForm(current => ({ ...current, platform: item.platform }));
+    setForm(current => ({ ...current, platform: item.platform, category: item.category || '', brand: item.brand || 'HC Apparel' }));
     setChannelId('');
     setBoardId('');
     setConfirmed(false);
@@ -217,6 +221,7 @@ export default function AdminSocialMediaStudio() {
                 <SelectField label="Platform" value={form.platform} options={OPTIONS.platform} onChange={value => { set('platform', value); setChannelId(''); setBoardId(''); setConfirmed(false); }} />
                 <SelectField label="Content type" value={form.content_type} options={OPTIONS.content_type} onChange={value => set('content_type', value)} />
                 <SelectField label="Brand" value={form.brand} options={OPTIONS.brand} onChange={value => set('brand', value)} />
+                <SelectField label="Category" value={form.category} options={OPTIONS.category} onChange={value => set('category', value)} />
                 <SelectField label="Tone" value={form.tone} options={OPTIONS.tone} onChange={value => set('tone', value)} />
                 <SelectField label="Audience" value={form.audience} options={OPTIONS.audience} onChange={value => set('audience', value)} />
                 <SelectField label="Caption length" value={form.caption_length} options={OPTIONS.caption_length} onChange={value => set('caption_length', value)} />
@@ -225,8 +230,9 @@ export default function AdminSocialMediaStudio() {
               </div>
               <div className="rounded-xl border bg-stone-50 p-4">
                 <Field label="Find an existing product (optional)"><Input value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Search name, style, or vendor" /></Field>
-                {selectedProduct && <div className="mt-2 flex items-center justify-between gap-3 text-sm"><span className="truncate font-medium">Selected: {selectedProduct.name}</span><button type="button" className="text-primary underline" onClick={() => { setSelectedProduct(null); set('product_id', ''); set('product_image_index', -1); }}>Clear</button></div>}
-                {productMatches.length > 0 && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border bg-white">{productMatches.map(item => <button key={item.id} type="button" onClick={() => { setSelectedProduct(item); setForm(current => ({ ...current, product_id: String(item.id), product_image_index: -1 })); setProductSearch(''); setProductMatches([]); }} className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-muted"><span className="font-medium">{item.name}</span><span className="ml-2 text-muted-foreground">{item.supplier_sku || item.vendor_source}</span></button>)}</div>}
+                {selectedProduct && <div className="mt-2 flex items-center justify-between gap-3 text-sm"><span className="truncate font-medium">Selected: {selectedProduct.name}</span><button type="button" className="text-primary underline" onClick={() => { setSelectedProduct(null); setForm(current => ({ ...current, product_id: '', product_image_index: -1, product_color: '' })); }}>Clear</button></div>}
+                {productMatches.length > 0 && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border bg-white">{productMatches.map(item => <button key={item.id} type="button" onClick={() => { setSelectedProduct(item); setForm(current => ({ ...current, product_id: String(item.id), product_image_index: -1, product_color: '' })); setProductSearch(''); setProductMatches([]); }} className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-muted"><span className="font-medium">{item.name}</span><span className="ml-2 text-muted-foreground">{item.supplier_sku || item.vendor_source}</span></button>)}</div>}
+                {selectedProduct && productColors(selectedProduct).length > 0 && <div className="mt-4"><SelectField label="Product color (optional)" value={form.product_color} options={[['', 'No color selected'], ...productColors(selectedProduct).map(color => [color, color])]} onChange={value => set('product_color', value)} /></div>}
                 {selectedProduct && <div className="mt-4"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product image reference</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => set('product_image_index', -1)} className={`rounded-lg border px-3 py-2 text-xs ${form.product_image_index === -1 ? 'border-primary bg-primary/10' : 'bg-white'}`}>Generate without reference</button>{imageChoices.map((url, index) => <button key={`${url}-${index}`} type="button" onClick={() => set('product_image_index', index)} className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-white ${form.product_image_index === index ? 'border-accent' : 'border-transparent'}`} title={`Use product image ${index + 1}`}><img src={displayImage(url)} alt={`Product reference ${index + 1}`} className="h-full w-full object-contain" /></button>)}</div></div>}
               </div>
               <Field label="Custom instructions (optional)"><Textarea value={form.notes} onChange={event => set('notes', event.target.value)} maxLength={1000} rows={3} placeholder="Campaign angle, specific product qualities, approved offer details…" /></Field>
