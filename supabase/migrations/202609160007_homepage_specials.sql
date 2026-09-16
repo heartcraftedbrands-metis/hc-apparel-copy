@@ -109,7 +109,9 @@ begin
       when nullif(btrim(coalesce(s.color_front_image, s.color_on_model_front_image, p.image_url)), '') is null then 'Missing image'
       else 'Ready for admin review'
     end
-  from matched;
+  from matched m
+  cross join lateral (select (m.p).*) p
+  cross join lateral (select (m.s).*) s;
 end;
 $$;
 revoke all on function public.homepage_special_candidates() from public;
