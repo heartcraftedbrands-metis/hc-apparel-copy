@@ -15,7 +15,6 @@ export default function NavigationTracker() {
         if (isPrivateMarketingRoute(location.pathname)) disablePublicPixels();
     }, [location.pathname]);
 
-    // Log user activity when navigating to a page
     useEffect(() => {
         if (!isPrivateMarketingRoute(location.pathname)) {
             void trackMarketingEvent('page_view', null, location.pathname);
@@ -25,6 +24,10 @@ export default function NavigationTracker() {
             }
             if (location.pathname.toLowerCase() === '/checkout') void trackMarketingEvent('begin_checkout', null, 'checkout');
         }
+    }, [location.pathname, location.search]);
+
+    // App activity logging is separate so authentication changes do not duplicate marketing events.
+    useEffect(() => {
         // Extract page name from pathname
         const pathname = location.pathname;
         let pageName;
@@ -49,7 +52,7 @@ export default function NavigationTracker() {
                 // Silently fail - logging shouldn't break the app
             });
         }
-    }, [location, isAuthenticated, Pages, mainPageKey]);
+    }, [location.pathname, isAuthenticated, Pages, mainPageKey]);
 
     return null;
 }
