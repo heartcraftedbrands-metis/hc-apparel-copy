@@ -75,6 +75,7 @@ import AdminInbox from './pages/AdminInbox';
 import AdminVendorOrderDraftDetail from './pages/AdminVendorOrderDraftDetail';
 import AdminVendorOrderDraft from './pages/AdminVendorOrderDraft';
 import AdminMessageTemplates from './pages/AdminMessageTemplates';
+import AdminSocialMediaStudio from './pages/AdminSocialMediaStudio';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 
 const { Layout } = pagesConfig;
@@ -125,6 +126,7 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}
       <Route path="/AdminDashboard" element={<LayoutWrapper currentPageName="AdminDashboard"><AdminDashboard /></LayoutWrapper>} />
+      <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminProducts" element={<LayoutWrapper currentPageName="AdminProducts"><AdminProducts /></LayoutWrapper>} />
       <Route path="/AdminDigitalArchive" element={<LayoutWrapper currentPageName="AdminDigitalArchive"><AdminDigitalArchive /></LayoutWrapper>} />
       <Route path="/AdminOrders" element={<LayoutWrapper currentPageName="AdminOrders"><AdminOrders /></LayoutWrapper>} />

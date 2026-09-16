@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Inbox, Package, ShoppingBag, Truck, Mail, MessageSquare,
   Store, FileText, Phone, ChevronRight, BarChart3, Archive,
-  DollarSign, Clock, AlertTriangle
+  DollarSign, Clock, AlertTriangle, Sparkles
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
@@ -197,6 +197,7 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {[
               { to: '/AdminProducts',              label: 'Products',            icon: <ShoppingBag /> },
+              { to: '/AdminSocialMediaStudio',     label: 'Social Media Studio', icon: <Sparkles /> },
               { to: '/AdminVendors',               label: 'Vendors',             icon: <Truck /> },
               { to: '/AdminVendorPricing',         label: 'Vendor Pricing',      icon: <DollarSign /> },
               { to: '/AdminQuotes',                label: 'Quotes',              icon: <FileText /> },

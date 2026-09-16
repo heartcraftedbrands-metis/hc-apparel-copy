@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Tag, Calculator, MessageSquare, Mail, DollarSign, CheckCircle2, Inbox } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Tag, Calculator, MessageSquare, Mail, DollarSign, CheckCircle2, Inbox, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
@@ -145,6 +145,7 @@ function LayoutInner({ children }) {
                       <>
                         <DropdownMenuSeparator />
                         <Link to="/AdminDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Admin Dashboard</DropdownMenuItem></Link>
+                        <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
                         <Link to="/AdminPaymentSettings"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
                         <Link to="/AdminSSApiSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />S&amp;S Vendor Settings</DropdownMenuItem></Link>
                         <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />Vendor Order Drafts</DropdownMenuItem></Link>
