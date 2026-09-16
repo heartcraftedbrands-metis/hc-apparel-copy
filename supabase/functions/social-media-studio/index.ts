@@ -13,7 +13,7 @@ const origins = new Set([
 ]);
 
 const options = {
-  platform: ['instagram', 'facebook', 'x'],
+  platform: ['instagram', 'facebook', 'x', 'pinterest', 'tiktok', 'linkedin', 'youtube', 'threads', 'bluesky', 'google'],
   content_type: ['Product Promo', 'Brand Promo', 'Sale Post', 'New Arrival', 'Seasonal Post'],
   brand: ['HC Apparel', 'Shaka Wear', 'Champion', 'Columbia', 'Bella + Canvas', 'Gildan', 'Comfort Colors', 'Next Level', 'Independent Trading Co.', 'Port & Company', 'Hanes', 'District', 'Rabbit Skins', 'Lane Seven', 'adidas', 'Oakley'],
   tone: ['professional', 'bold', 'clean', 'modern', 'premium', 'streetwear'],
@@ -114,7 +114,15 @@ async function channels(key: string) {
       ...channel, organization_name: organization.name,
     }));
   }));
-  return groups.flat().filter(channel => ['instagram', 'facebook', 'twitter'].includes(String(channel.service)));
+  return await Promise.all(groups.flat().map(async channel => {
+    if (String(channel.service).toLowerCase() !== 'pinterest') return channel;
+    try {
+      const detail = await bufferRequest(key, `query { channel(input: { id: ${JSON.stringify(channel.id)} }) { metadata { ... on PinterestMetadata { boards { name serviceId } } } } }`);
+      return { ...channel, boards: detail?.channel?.metadata?.boards || [] };
+    } catch (error) {
+      return { ...channel, boards: [], board_error: (error as Error).message };
+    }
+  }));
 }
 
 async function openaiRequest(url: string, key: string, body: BodyInit, json = true) {
@@ -299,6 +307,7 @@ Deno.serve(async request => {
     }
 
     if (action === 'send_buffer') {
+      if (input.confirmed !== true) fail('Confirm this Buffer handoff before continuing.');
       const id = String(input.post_id || '');
       const channelId = String(input.channel_id || '');
       const mode = input.mode === 'schedule' ? 'schedule' : 'draft';
@@ -308,18 +317,27 @@ Deno.serve(async request => {
       if (!channel || channel.isDisconnected || channel.isLocked) fail('Choose a connected, available Buffer channel.');
       const { data: post, error: postError } = await service.from('social_studio_posts').select('*').eq('id', id).single();
       if (postError || !post) fail('Save the post before sending it to Buffer.');
-      const expectedService = post.platform === 'x' ? 'twitter' : post.platform;
-      if (channel.service !== expectedService) fail('The Buffer channel does not match the post platform.');
+      const expectedService = post.platform === 'x' ? 'twitter' : post.platform === 'google' ? 'googlebusiness' : post.platform;
+      if (String(channel.service).toLowerCase() !== expectedService) fail('The Buffer channel does not match the post platform.');
       if (post.status !== 'draft' || post.buffer_post_id) fail('This post has already been sent to Buffer. Create a new draft to send again.');
       if (!post.caption?.trim()) fail('Add a caption before sending.');
       if (post.platform === 'instagram' && !post.image_url) fail('Instagram posts need an image.');
+      if (post.platform === 'pinterest' && !post.image_url) fail('Pinterest posts need an image.');
+      if (post.platform === 'tiktok' && !post.image_url) fail('TikTok posts need an image or video.');
+      if (post.platform === 'youtube') fail('YouTube posting needs video media, which Social Media Studio does not generate.');
+      const boardId = String(input.pinterest_board_id || '');
+      const boards = 'boards' in channel && Array.isArray(channel.boards) ? channel.boards : [];
+      if (post.platform === 'pinterest' && !boards.some((board: { serviceId: string }) => board.serviceId === boardId)) {
+        fail('Select an available Pinterest board before sending.');
+      }
       const text = [post.caption.trim(), post.hashtags?.trim()].filter(Boolean).join('\n\n');
       if (post.platform === 'x' && text.length > 280) fail('X posts must be 280 characters or less, including hashtags.');
       const dueAt = mode === 'schedule' && input.scheduled_at ? new Date(String(input.scheduled_at)) : null;
       if (dueAt && (!Number.isFinite(dueAt.getTime()) || dueAt.getTime() <= Date.now())) fail('Choose a future date and time.');
       const scheduling = dueAt ? `customScheduled, dueAt: ${JSON.stringify(dueAt.toISOString())}` : 'addToQueue';
       const assets = post.image_url ? `, assets: [{ image: { url: ${JSON.stringify(post.image_url)} } }]` : '';
-      const mutation = `mutation { createPost(input: { text: ${JSON.stringify(text)}, channelId: ${JSON.stringify(channelId)}, schedulingType: automatic, mode: ${scheduling}${mode === 'draft' ? ', saveToDraft: true' : ''}${assets} }) { ... on PostActionSuccess { post { id dueAt } } ... on MutationError { message } } }`;
+      const metadata = post.platform === 'pinterest' ? `, metadata: { pinterest: { boardServiceId: ${JSON.stringify(boardId)} } }` : '';
+      const mutation = `mutation { createPost(input: { text: ${JSON.stringify(text)}, channelId: ${JSON.stringify(channelId)}, schedulingType: automatic, mode: ${scheduling}${mode === 'draft' ? ', saveToDraft: true' : ''}${assets}${metadata} }) { ... on PostActionSuccess { post { id dueAt } } ... on MutationError { message } } }`;
       const result = await bufferRequest(key, mutation);
       if (result?.createPost?.message) fail(`Buffer: ${result.createPost.message}`, 502);
       const bufferPost = result?.createPost?.post;

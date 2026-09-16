@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const OPTIONS = {
-  platform: [['instagram', 'Instagram'], ['facebook', 'Facebook'], ['x', 'X']],
+  platform: [['instagram', 'Instagram'], ['facebook', 'Facebook'], ['x', 'X'], ['pinterest', 'Pinterest'], ['tiktok', 'TikTok'], ['linkedin', 'LinkedIn'], ['youtube', 'YouTube'], ['threads', 'Threads'], ['bluesky', 'Bluesky'], ['google', 'Google Business Profile']],
   content_type: ['Product Promo', 'Brand Promo', 'Sale Post', 'New Arrival', 'Seasonal Post'],
   brand: ['HC Apparel', 'Shaka Wear', 'Champion', 'Columbia', 'Bella + Canvas', 'Gildan', 'Comfort Colors', 'Next Level', 'Independent Trading Co.', 'Port & Company', 'Hanes', 'District', 'Rabbit Skins', 'Lane Seven', 'adidas', 'Oakley'],
   tone: ['professional', 'bold', 'clean', 'modern', 'premium', 'streetwear'],
@@ -26,6 +26,8 @@ const INITIAL = {
 const statusLabel = {
   draft: 'Draft', sent_to_buffer: 'Sent to Buffer', scheduled: 'Scheduled', posted: 'Posted',
 };
+const platformName = service => ({ twitter: 'X', tiktok: 'TikTok', linkedin: 'LinkedIn', youtube: 'YouTube', googlebusiness: 'Google Business Profile', googlebusinessprofile: 'Google Business Profile' }[service] || service?.replace(/^./, letter => letter.toUpperCase()) || 'Unknown');
+const platformService = platform => platform === 'x' ? 'twitter' : platform === 'google' ? 'googlebusiness' : platform;
 
 const displayImage = url => url?.startsWith('Images/') || url?.startsWith('/Images/')
   ? `https://www.ssactivewear.com/${url.replace(/^\//, '')}` : url;
@@ -71,6 +73,8 @@ export default function AdminSocialMediaStudio() {
   const [status, setStatus] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [channelId, setChannelId] = useState('');
+  const [boardId, setBoardId] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -114,10 +118,12 @@ export default function AdminSocialMediaStudio() {
   const imageChoices = [selectedProduct?.image_url, ...(Array.isArray(selectedProduct?.mockup_images) ? selectedProduct.mockup_images : [])]
     .map(item => typeof item === 'string' ? item : item?.image_url || item?.url || item?.src || '')
     .filter(Boolean);
-  const channels = (status?.channels || []).filter(channel => channel.service === (form.platform === 'x' ? 'twitter' : form.platform));
+  const channels = status?.channels || [];
   const selectedChannel = channels.find(channel => channel.id === channelId);
-  const dirty = Boolean(post && (caption !== post.caption || hashtags !== post.hashtags || imagePrompt !== post.image_prompt));
+  const matchingChannel = selectedChannel && (selectedChannel.service === platformService(form.platform) || (form.platform === 'google' && selectedChannel.service === 'googlebusinessprofile'));
   const xLength = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n').length;
+  const requiredFieldsComplete = Boolean(post && post.status === 'draft' && caption.trim() && selectedChannel && matchingChannel && !selectedChannel.isDisconnected && !selectedChannel.isLocked && (form.platform !== 'pinterest' || (post.image_url && selectedChannel.boards?.some(board => board.serviceId === boardId))) && form.platform !== 'youtube' && (form.platform !== 'tiktok' || post.image_url) && (form.platform !== 'x' || xLength <= 280));
+  const dirty = Boolean(post && (caption !== post.caption || hashtags !== post.hashtags || imagePrompt !== post.image_prompt));
 
   const choosePost = item => {
     setPost(item);
@@ -126,6 +132,8 @@ export default function AdminSocialMediaStudio() {
     setImagePrompt(item.image_prompt || '');
     setForm(current => ({ ...current, platform: item.platform }));
     setChannelId('');
+    setBoardId('');
+    setConfirmed(false);
     setError('');
     setNotice('');
   };
@@ -158,6 +166,7 @@ export default function AdminSocialMediaStudio() {
   const send = mode => run(mode, async () => {
     if (!post) throw new Error('Generate or open a post first.');
     if (!channelId || !selectedChannel) throw new Error('Choose a Buffer channel for this platform.');
+    if (!matchingChannel || !requiredFieldsComplete || !confirmed) throw new Error('Complete the platform requirements and confirm this Buffer handoff.');
     if (selectedChannel.isDisconnected || selectedChannel.isLocked) throw new Error('The selected Buffer channel is unavailable.');
     if (form.platform === 'x' && xLength > 280) throw new Error('X posts must be 280 characters or less, including hashtags.');
     const scheduledDate = mode === 'schedule' && scheduleAt ? new Date(scheduleAt) : null;
@@ -166,7 +175,7 @@ export default function AdminSocialMediaStudio() {
     }
     const saved = dirty ? await saveDraft() : post;
     const result = await studio('send_buffer', {
-      post_id: saved.id, channel_id: channelId, mode,
+      post_id: saved.id, channel_id: channelId, pinterest_board_id: boardId, confirmed: true, mode,
       scheduled_at: scheduledDate?.toISOString() || null,
     });
     choosePost(result.post);
@@ -205,7 +214,7 @@ export default function AdminSocialMediaStudio() {
             <CardHeader><CardTitle className="text-lg">Create a post</CardTitle><p className="text-sm text-muted-foreground">Choose the campaign details. Generation saves a private draft; it never publishes automatically.</p></CardHeader>
             <CardContent className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <SelectField label="Platform" value={form.platform} options={OPTIONS.platform} onChange={value => { set('platform', value); setChannelId(''); }} />
+                <SelectField label="Platform" value={form.platform} options={OPTIONS.platform} onChange={value => { set('platform', value); setChannelId(''); setBoardId(''); setConfirmed(false); }} />
                 <SelectField label="Content type" value={form.content_type} options={OPTIONS.content_type} onChange={value => set('content_type', value)} />
                 <SelectField label="Brand" value={form.brand} options={OPTIONS.brand} onChange={value => set('brand', value)} />
                 <SelectField label="Tone" value={form.tone} options={OPTIONS.tone} onChange={value => set('tone', value)} />
@@ -245,10 +254,17 @@ export default function AdminSocialMediaStudio() {
               <CardHeader><CardTitle className="text-lg">Buffer handoff</CardTitle><p className="text-sm text-muted-foreground">Drafts stay unpublished. Scheduling adds the post to the selected Buffer channel queue.</p></CardHeader>
               <CardContent className="space-y-4">
                 <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Buffer connection settings</summary><div className="mt-3 space-y-3"><p className="text-xs text-muted-foreground">Connect a Buffer personal API key. It is encrypted by the server and never returned to this page. The Supabase function needs SOCIAL_STUDIO_ENCRYPTION_KEY.</p><Input type="password" autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Buffer API key" /><Button variant="outline" size="sm" onClick={connectBuffer} disabled={!apiKey || Boolean(busy)}>{busy === 'connect' ? 'Connecting…' : status?.buffer_configured ? 'Replace connection' : 'Connect Buffer'}</Button></div></details>
-                <p className="text-xs text-muted-foreground">{status?.buffer_configured ? `${(status.channels || []).length} supported channel(s) available` : 'Buffer not connected'}{status?.buffer_error ? ` · ${status.buffer_error}` : ''}</p>
-                <Field label="Buffer channel"><select value={channelId} onChange={event => setChannelId(event.target.value)} className="h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="">Choose a {form.platform} channel</option>{channels.map(channel => <option key={channel.id} value={channel.id} disabled={channel.isDisconnected || channel.isLocked}>{channel.name} ({channel.organization_name}){channel.isDisconnected || channel.isLocked ? ' — unavailable' : ''}</option>)}</select></Field>
+                <p className="text-xs text-muted-foreground">{status?.buffer_configured ? `${channels.length} connected channel(s) found` : 'Buffer not connected'}{status?.buffer_error ? ` · ${status.buffer_error}` : ''}</p>
+                <Field label="Buffer channel"><select value={channelId} onChange={event => { setChannelId(event.target.value); setBoardId(''); setConfirmed(false); }} className="h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="">Choose a channel</option>{channels.map(channel => <option key={channel.id} value={channel.id} disabled={channel.isDisconnected || channel.isLocked}>{platformName(channel.service)} — {channel.name} ({channel.organization_name}){channel.isDisconnected || channel.isLocked ? ' — unavailable' : ''}</option>)}</select></Field>
+                {selectedChannel && !matchingChannel && <p className="text-xs text-amber-800">This channel is visible but the selected draft targets {platformName(platformService(form.platform))}. Choose a matching channel or create a draft for {platformName(selectedChannel.service)}.</p>}
+                {selectedChannel?.service === 'pinterest' && <Field label="Pinterest board (required)"><select value={boardId} onChange={event => { setBoardId(event.target.value); setConfirmed(false); }} className="h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="">Choose a board</option>{(selectedChannel.boards || []).map(board => <option key={board.serviceId} value={board.serviceId}>{board.name}</option>)}</select></Field>}
+                {selectedChannel?.service === 'pinterest' && (!selectedChannel.boards?.length || selectedChannel.board_error) && <p className="text-xs text-amber-800">Pinterest board information is unavailable. Buffer handoff is blocked until a board can be selected. {selectedChannel.board_error || ''}</p>}
+                {selectedChannel?.service === 'tiktok' && <p className="text-xs text-amber-800">TikTok connected — media requirements may apply.</p>}
+                {selectedChannel?.service === 'youtube' && <p className="text-xs text-amber-800">YouTube requires video media. Image-only Studio drafts cannot be sent to this channel.</p>}
+                {selectedChannel && !['pinterest', 'tiktok', 'youtube'].includes(selectedChannel.service) && <p className="text-xs text-amber-800">Review this channel’s media and posting requirements in Buffer before handoff.</p>}
                 <Field label="Exact schedule time (optional)"><Input type="datetime-local" value={scheduleAt} onChange={event => setScheduleAt(event.target.value)} /><p className="mt-1 text-xs font-normal text-muted-foreground">Leave blank for the next available Buffer queue slot.</p></Field>
-                <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="gap-2" onClick={() => send('draft')} disabled={!post || post.status !== 'draft' || !selectedChannel || Boolean(busy)}><Send className="h-4 w-4" />Send to Buffer Drafts</Button><Button className="gap-2" onClick={() => send('schedule')} disabled={!post || post.status !== 'draft' || !selectedChannel || Boolean(busy)}><CalendarClock className="h-4 w-4" />Schedule in Buffer</Button></div>
+                <label className="flex items-start gap-2 text-xs text-foreground"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={!requiredFieldsComplete || Boolean(busy)} className="mt-0.5" />I reviewed this draft, channel, media requirements, and Buffer handoff.</label>
+                <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="gap-2" onClick={() => send('draft')} disabled={!requiredFieldsComplete || !confirmed || Boolean(busy)}><Send className="h-4 w-4" />Send to Buffer Drafts</Button><Button className="gap-2" onClick={() => send('schedule')} disabled={!requiredFieldsComplete || !confirmed || Boolean(busy)}><CalendarClock className="h-4 w-4" />Schedule in Buffer</Button></div>
                 {post?.buffer_post_id && <p className="text-xs text-muted-foreground">Buffer post ID: {post.buffer_post_id}</p>}
                 {post?.buffer_post_id && <Button variant="ghost" size="sm" onClick={refreshBufferPost} disabled={Boolean(busy)}>Refresh Buffer status</Button>}
               </CardContent>
