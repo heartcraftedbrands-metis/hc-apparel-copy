@@ -173,7 +173,7 @@ Deno.serve(async request => {
     const anonKey = env('SUPABASE_ANON_KEY');
     const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
     if (!supabaseUrl || !anonKey || !serviceKey) fail('Supabase function credentials are missing.', 503);
-    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { authorization: `Bearer ${jwt}` } } });
+    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
     const { data: auth, error: authError } = await userClient.auth.getUser(jwt);
     if (authError || !auth.user) fail('Admin sign-in is required.', 401);
     const { data: admin, error: roleError } = await userClient.rpc('is_admin');
