@@ -145,6 +145,7 @@ function LayoutInner({ children }) {
                       <>
                         <DropdownMenuSeparator />
                         <Link to="/AdminDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Admin Dashboard</DropdownMenuItem></Link>
+                        <Link to="/AdminHomepageSpecials"><DropdownMenuItem><Tag className="w-4 h-4 mr-2" />Homepage Specials Manager</DropdownMenuItem></Link>
                         <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
                         <Link to="/AdminPaymentSettings"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
                         <Link to="/AdminSSApiSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />S&amp;S Vendor Settings</DropdownMenuItem></Link>

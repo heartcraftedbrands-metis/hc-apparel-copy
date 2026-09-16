@@ -79,6 +79,7 @@ import AdminSocialMediaStudio from './pages/AdminSocialMediaStudio';
 import AdminEmailMarketingSettings from './pages/AdminEmailMarketingSettings';
 import AdminSubscribers from './pages/AdminSubscribers';
 import AdminMarketingAnalytics from './pages/AdminMarketingAnalytics';
+import AdminHomepageSpecials from './pages/AdminHomepageSpecials';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 
 const { Layout } = pagesConfig;
@@ -133,6 +134,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />
       <Route path="/AdminSubscribers" element={<LayoutWrapper currentPageName="AdminSubscribers"><AdminSubscribers /></LayoutWrapper>} />
       <Route path="/AdminMarketingAnalytics" element={<LayoutWrapper currentPageName="AdminMarketingAnalytics"><AdminMarketingAnalytics /></LayoutWrapper>} />
+      <Route path="/AdminHomepageSpecials" element={<LayoutWrapper currentPageName="AdminHomepageSpecials"><AdminHomepageSpecials /></LayoutWrapper>} />
       <Route path="/AdminProducts" element={<LayoutWrapper currentPageName="AdminProducts"><AdminProducts /></LayoutWrapper>} />
       <Route path="/AdminDigitalArchive" element={<LayoutWrapper currentPageName="AdminDigitalArchive"><AdminDigitalArchive /></LayoutWrapper>} />
       <Route path="/AdminOrders" element={<LayoutWrapper currentPageName="AdminOrders"><AdminOrders /></LayoutWrapper>} />

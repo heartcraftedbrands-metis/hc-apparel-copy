@@ -1,69 +1,57 @@
-import React from 'react';
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useCart } from "@/components/shop/CartContext";
-import { toast } from "sonner";
+import { supabase } from '@/api/supabaseClient';
+import { getPublicProductName } from '@/lib/productDisplayName';
+
+const money = value => `$${Number(value).toFixed(2)}`;
 
 export default function SpecialsSection() {
-  const { addToCart } = useCart();
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['specials'],
-    queryFn: () => base44.entities.Product.filter({ is_active: true }, '-created_date', 4),
+  const { data: specials = [] } = useQuery({
+    queryKey: ['storefront-homepage-specials'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('storefront_homepage_specials')
+        .select('id,product_id,sku,brand,name,subtitle,category,image_url,price,comparison_price,badge,display_order')
+        .order('display_order', { ascending: true }).limit(6);
+      if (error) throw error;
+      return data || [];
+    },
   });
 
-  const handleAdd = (product) => {
-    addToCart(product);
-    toast.success(`${product.name} added to cart`);
-  };
-
-  if (products.length === 0) return null;
+  if (!specials.length) return null;
+  const hasVendorSpecial = specials.some(item => item.badge === 'Special');
 
   return (
-    <section className="py-14 bg-white">
+    <section className="bg-[#f6f3e9] py-14 md:py-20" aria-labelledby="homepage-specials-title">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900">🔥 Specials</h2>
-            <p className="text-gray-500 mt-1">Hand-picked deals just for you</p>
-          </div>
-          <Link to={createPageUrl('Home') + '#shop'}>
-            <Button variant="outline">View All</Button>
-          </Link>
+        <div className="mb-8 max-w-2xl">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.24em] text-[#9d7b35]">HC Apparel</p>
+          <h2 id="homepage-specials-title" className="text-3xl font-bold tracking-tight text-[#283820] md:text-4xl">
+            {hasVendorSpecial ? 'Current Specials' : 'Current Picks'}
+          </h2>
+          <p className="mt-2 text-[#586251]">
+            {hasVendorSpecial ? 'Real deals on blanks and printing-ready apparel.' : 'In-stock blanks and printing-ready apparel, selected from our catalog.'}
+          </p>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {products.map((product) => (
-            <div key={product.id} className="bg-gray-50 rounded-2xl overflow-hidden shadow hover:shadow-md transition group">
-              <Link to={`${createPageUrl('ProductDetail')}?id=${product.id}`}>
-                <div className="aspect-square overflow-hidden">
-                  <img
-                    src={product.image_url || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=400&q=80'}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                </div>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {specials.map(item => (
+            <article key={item.id} className="overflow-hidden rounded-2xl border border-[#d9d4c4] bg-white shadow-sm sm:grid sm:grid-cols-[43%_1fr]">
+              <Link to={`/ProductDetail?id=${encodeURIComponent(item.product_id)}`} className="block aspect-[4/3] overflow-hidden bg-[#f3f0e8] sm:aspect-auto">
+                <img src={item.image_url} alt={getPublicProductName(item)} className="h-full w-full object-contain p-4" loading="lazy" />
               </Link>
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold text-gray-900 text-sm line-clamp-2">{product.name}</h3>
-                  <Badge className="shrink-0 bg-red-100 text-red-700 border-0">Special</Badge>
+              <div className="flex flex-col justify-center p-5 md:p-7">
+                <span className="mb-3 w-fit rounded-full border border-[#d9bd75] bg-[#fbf3dd] px-3 py-1 text-xs font-semibold text-[#655021]">{item.badge}</span>
+                <p className="text-xs font-bold uppercase tracking-widest text-[#6a735c]">{item.brand} · {String(item.category || 'Apparel blanks').replaceAll('_', ' ')}</p>
+                <h3 className="mt-2 text-xl font-bold leading-tight text-[#26351f]">{getPublicProductName(item)}</h3>
+                {item.subtitle && <p className="mt-2 text-sm text-[#586251]">{item.subtitle}</p>}
+                <div className="mt-5 flex items-baseline gap-3">
+                  <span className="text-2xl font-extrabold text-[#26351f]">{money(item.price)}</span>
+                  {item.badge === 'Special' && Number(item.comparison_price) > Number(item.price) && (
+                    <span className="text-sm text-[#727b6e] line-through" aria-label={`Regular price ${money(item.comparison_price)}`}>{money(item.comparison_price)}</span>
+                  )}
                 </div>
-                <p className="text-lg font-bold text-gray-900 mb-3">${product.price?.toFixed(2)}</p>
-                <Button
-                  size="sm"
-                  className="w-full"
-                  onClick={() => handleAdd(product)}
-                  disabled={product.product_type === 'physical' && product.stock <= 0}
-                >
-                  {product.product_type === 'physical' && product.stock <= 0 ? 'Out of Stock' : 'Add to Cart'}
-                </Button>
+                <Link to={`/ProductDetail?id=${encodeURIComponent(item.product_id)}`} className="mt-5 inline-flex w-fit items-center justify-center rounded-lg bg-[#34472c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#253720]">Shop Blanks</Link>
               </div>
-            </div>
+            </article>
           ))}
         </div>
       </div>

@@ -5,6 +5,7 @@ import { base44 } from '@/api/base44Client';
 import HomeHero from '../components/home/HomeHero';
 import HomeFeaturedCategories from '../components/home/HomeFeaturedCategories';
 import HomeFeaturedBrands from '../components/home/HomeFeaturedBrands';
+import SpecialsSection from '../components/home/SpecialsSection';
 import HomeHowItWorks from '../components/home/HomeHowItWorks';
 import HomeWhyUs from '../components/home/HomeWhyUs';
 import HomeQuoteRequest from '../components/home/HomeQuoteRequest';
@@ -24,6 +25,7 @@ export default function Home() {
       <HomeHero products={publicProducts} />
       <HomeFeaturedCategories products={publicProducts} />
       <HomeFeaturedBrands products={publicProducts} />
+      <SpecialsSection />
       <HomeHowItWorks />
       <HomeWhyUs />
       <ReviewsSection />
