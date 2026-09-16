@@ -29,6 +29,7 @@ const statusLabel = {
 };
 const platformName = service => ({ twitter: 'X', tiktok: 'TikTok', linkedin: 'LinkedIn', youtube: 'YouTube', googlebusiness: 'Google Business Profile', googlebusinessprofile: 'Google Business Profile' }[service] || service?.replace(/^./, letter => letter.toUpperCase()) || 'Unknown');
 const platformService = platform => platform === 'x' ? 'twitter' : platform === 'google' ? 'googlebusiness' : platform;
+const servicePlatform = service => ({ twitter: 'x', googlebusiness: 'google', googlebusinessprofile: 'google' }[service] || service);
 
 const displayImage = url => url?.startsWith('Images/') || url?.startsWith('/Images/')
   ? `https://www.ssactivewear.com/${url.replace(/^\//, '')}` : url;
@@ -54,10 +55,10 @@ function Field({ label, children }) {
   return <label className="block min-w-0 text-sm font-medium text-foreground">{label}<div className="mt-1.5">{children}</div></label>;
 }
 
-function SelectField({ label, value, options, onChange }) {
+function SelectField({ label, value, options, onChange, disabled = false }) {
   return (
     <Field label={label}>
-      <select value={value} onChange={event => onChange(event.target.value)} className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm">
+      <select value={value} onChange={event => onChange(event.target.value)} disabled={disabled} className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm disabled:opacity-60">
         {options.map(option => {
           const [key, text] = Array.isArray(option) ? option : [option, option];
           return <option key={key} value={key}>{text}</option>;
@@ -129,9 +130,12 @@ export default function AdminSocialMediaStudio() {
     .filter(Boolean);
   const channels = status?.channels || [];
   const selectedChannel = channels.find(channel => channel.id === channelId);
-  const matchingChannel = selectedChannel && (selectedChannel.service === platformService(form.platform) || (form.platform === 'google' && selectedChannel.service === 'googlebusinessprofile'));
+  const draftPlatform = post?.platform || form.platform;
+  const connectedPlatformOptions = [...new Set(channels.map(channel => servicePlatform(channel.service)).filter(platform => OPTIONS.platform.some(([key]) => key === platform)))];
+  const draftPlatformOptions = OPTIONS.platform.filter(([key]) => key === draftPlatform || connectedPlatformOptions.includes(key));
+  const matchingChannel = selectedChannel && servicePlatform(selectedChannel.service) === draftPlatform;
   const xLength = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n').length;
-  const requiredFieldsComplete = Boolean(post && post.status === 'draft' && caption.trim() && selectedChannel && matchingChannel && !selectedChannel.isDisconnected && !selectedChannel.isLocked && (form.platform !== 'pinterest' || (post.image_url && selectedChannel.boards?.some(board => board.serviceId === boardId))) && form.platform !== 'youtube' && (form.platform !== 'tiktok' || post.image_url) && (form.platform !== 'x' || xLength <= 280));
+  const requiredFieldsComplete = Boolean(post && post.status === 'draft' && !post.buffer_post_id && caption.trim() && selectedChannel && matchingChannel && !selectedChannel.isDisconnected && !selectedChannel.isLocked && (draftPlatform !== 'pinterest' || (post.image_url && selectedChannel.boards?.some(board => board.serviceId === boardId))) && draftPlatform !== 'youtube' && (draftPlatform !== 'tiktok' || post.image_url) && (draftPlatform !== 'x' || xLength <= 280));
   const scheduleReady = scheduleChoice === 'queue' || (scheduleAt && new Date(scheduleAt).getTime() > Date.now());
   const dirty = Boolean(post && (caption !== post.caption || hashtags !== post.hashtags || imagePrompt !== post.image_prompt));
 
@@ -210,12 +214,25 @@ export default function AdminSocialMediaStudio() {
     return data;
   };
 
+  const updateDraftPlatform = (platform, keepChannel = false) => run('platform', async () => {
+    if (!post || post.status !== 'draft' || post.buffer_post_id) throw new Error('Only an unsent HC Apparel draft can change platforms.');
+    if (platform === post.platform) return;
+    if (!draftPlatformOptions.some(([key]) => key === platform)) throw new Error('Choose a connected Buffer platform.');
+    const selectedId = keepChannel && selectedChannel && servicePlatform(selectedChannel.service) === platform ? channelId : '';
+    const saved = dirty ? await saveDraft() : post;
+    const result = await studio('update_draft_platform', { post_id: saved.id, platform });
+    choosePost(result.post);
+    setChannelId(selectedId);
+    await loadHistory();
+    setNotice(`Draft changed to ${platformName(platformService(platform))}. Image, caption, and hashtags were kept. Review platform requirements before Buffer handoff.`);
+  });
+
   const send = mode => run(mode, async () => {
     if (!post) throw new Error('Generate or open a post first.');
     if (!channelId || !selectedChannel) throw new Error('Choose a Buffer channel for this platform.');
     if (!matchingChannel || !requiredFieldsComplete || !confirmed) throw new Error('Complete the platform requirements and confirm this Buffer handoff.');
     if (selectedChannel.isDisconnected || selectedChannel.isLocked) throw new Error('The selected Buffer channel is unavailable.');
-    if (form.platform === 'x' && xLength > 280) throw new Error('X posts must be 280 characters or less, including hashtags.');
+    if (draftPlatform === 'x' && xLength > 280) throw new Error('X posts must be 280 characters or less, including hashtags.');
     if (mode === 'schedule' && !scheduleReady) throw new Error('Choose a future date/time or explicitly choose the next Buffer queue slot.');
     const saved = dirty ? await saveDraft() : post;
     const result = await studio('send_buffer', {
@@ -294,9 +311,11 @@ export default function AdminSocialMediaStudio() {
                 {post ? <>
                   <div className="aspect-square overflow-hidden rounded-xl border bg-[#ece7db]">{post.image_url ? <img src={displayImage(post.image_url)} alt="Social post preview" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-muted-foreground">No image</div>}</div>
                   {post.image_mode === 'artwork' ? <p className="text-xs text-muted-foreground">Your uploaded artwork · saved with this draft</p> : post.image_mode === 'product' ? <p className="text-xs text-muted-foreground">{post.product_id ? 'Actual catalog product image' : 'Representative live catalog image'} · saved with this draft</p> : <p className="text-xs text-muted-foreground">AI-generated lifestyle image · saved with this draft</p>}
+                  <SelectField label="Post platform" value={post.platform} options={draftPlatformOptions} onChange={value => updateDraftPlatform(value)} disabled={Boolean(busy) || post.status !== 'draft' || Boolean(post.buffer_post_id)} />
+                  {post.status === 'draft' && <p className="text-xs text-muted-foreground">Change the saved draft’s platform without regenerating its image or copy. Connected Buffer platforms are listed.</p>}
                   <Field label="Caption"><Textarea value={caption} onChange={event => setCaption(event.target.value)} rows={6} disabled={post.status !== 'draft'} /></Field>
                   <Field label="Hashtags"><Textarea value={hashtags} onChange={event => setHashtags(event.target.value)} rows={2} disabled={post.status !== 'draft'} /></Field>
-                  {form.platform === 'x' && <p className={`text-xs ${xLength > 280 ? 'text-red-700' : 'text-muted-foreground'}`}>X: {xLength}/280 characters, including hashtags</p>}
+                  {draftPlatform === 'x' && <p className={`text-xs ${xLength > 280 ? 'text-red-700' : 'text-muted-foreground'}`}>X: {xLength}/280 characters, including hashtags</p>}
                   <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Image prompt</summary><Textarea value={imagePrompt} onChange={event => setImagePrompt(event.target.value)} rows={5} disabled={post.status !== 'draft'} className="mt-3" /><p className="mt-2 text-xs text-muted-foreground">Editing this prompt saves the brief but does not regenerate the existing image.</p></details>
                   <Button variant="outline" className="w-full gap-2" onClick={() => run('save', async () => { await saveDraft(); setNotice('Draft saved inside HC Apparel only.'); })} disabled={Boolean(busy) || post.status !== 'draft'}><Save className="h-4 w-4" />Save Draft</Button>
                   {post.status === 'draft' && <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" onClick={() => duplicateDraft(post)} disabled={Boolean(busy)} className="gap-2"><Copy className="h-4 w-4" />Duplicate</Button><Button variant="outline" onClick={() => deleteDraft(post)} disabled={Boolean(busy)} className="gap-2 text-red-700"><Trash2 className="h-4 w-4" />Delete Draft</Button></div>}
@@ -310,7 +329,7 @@ export default function AdminSocialMediaStudio() {
                 <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Buffer connection settings</summary><div className="mt-3 space-y-3"><p className="text-xs text-muted-foreground">Connect a Buffer personal API key. It is encrypted by the server and never returned to this page. The Supabase function needs SOCIAL_STUDIO_ENCRYPTION_KEY.</p><Input type="password" autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Buffer API key" /><Button variant="outline" size="sm" onClick={connectBuffer} disabled={!apiKey || Boolean(busy)}>{busy === 'connect' ? 'Connecting…' : status?.buffer_configured ? 'Replace connection' : 'Connect Buffer'}</Button></div></details>
                 <p className="text-xs text-muted-foreground">{status?.buffer_configured ? `${channels.length} connected channel(s) found` : 'Buffer not connected'}{status?.buffer_error ? ` · ${status.buffer_error}` : ''}</p>
                 <Field label="Buffer channel"><select value={channelId} onChange={event => { setChannelId(event.target.value); setBoardId(''); setConfirmed(false); }} className="h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="">Choose a channel</option>{channels.map(channel => <option key={channel.id} value={channel.id} disabled={channel.isDisconnected || channel.isLocked}>{platformName(channel.service)} — {channel.name} ({channel.organization_name}){channel.isDisconnected || channel.isLocked ? ' — unavailable' : ''}</option>)}</select></Field>
-                {selectedChannel && !matchingChannel && <p className="text-xs text-amber-800">This channel is visible but the selected draft targets {platformName(platformService(form.platform))}. Choose a matching channel or create a draft for {platformName(selectedChannel.service)}.</p>}
+                {post && selectedChannel && !matchingChannel && <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">This draft is currently set for {platformName(platformService(post.platform))}. Change the draft platform to {platformName(selectedChannel.service)} before sending it to this {platformName(selectedChannel.service)} channel.</p>{post.status === 'draft' && !post.buffer_post_id && <Button type="button" size="sm" variant="outline" onClick={() => updateDraftPlatform(servicePlatform(selectedChannel.service), true)} disabled={Boolean(busy)}>Update draft to {platformName(selectedChannel.service)}</Button>}</div>}
                 {selectedChannel?.service === 'pinterest' && <Field label="Pinterest board (required)"><select value={boardId} onChange={event => { setBoardId(event.target.value); setConfirmed(false); }} className="h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="">Choose a board</option>{(selectedChannel.boards || []).map(board => <option key={board.serviceId} value={board.serviceId}>{board.name}</option>)}</select></Field>}
                 {selectedChannel?.service === 'pinterest' && (!selectedChannel.boards?.length || selectedChannel.board_error) && <p className="text-xs text-amber-800">Pinterest board information is unavailable. Buffer handoff is blocked until a board can be selected. {selectedChannel.board_error || ''}</p>}
                 {selectedChannel?.service === 'tiktok' && <p className="text-xs text-amber-800">TikTok connected — media requirements may apply.</p>}

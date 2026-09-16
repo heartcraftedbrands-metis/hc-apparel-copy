@@ -287,6 +287,21 @@ Deno.serve(async request => {
       return reply({ post: data }, 200, origin);
     }
 
+    if (action === 'update_draft_platform') {
+      const platform = pick(input.platform, options.platform, 'platform');
+      const id = String(input.post_id || '');
+      const { data: original, error: readError } = await service.from('social_studio_posts')
+        .select('*').eq('id', id).eq('status', 'draft').is('buffer_post_id', null).maybeSingle();
+      if (readError || !original) fail('Only an unsent HC Apparel draft can change platforms.');
+      if (original.platform === platform) return reply({ post: original, unchanged: true }, 200, origin);
+      const { data: updated, error: updateError } = await service.from('social_studio_posts')
+        .update({ platform, updated_at: new Date().toISOString() })
+        .eq('id', id).eq('platform', original.platform).eq('status', 'draft').is('buffer_post_id', null).select().maybeSingle();
+      if (updateError || !updated) fail('The draft platform could not be changed. Reload and try again.');
+      await service.from('social_studio_draft_audit').insert({ actor_id: auth.user.id, post_id: id, action: 'platform_changed', details: { from: original.platform, to: platform } });
+      return reply({ post: updated }, 200, origin);
+    }
+
     if (action === 'duplicate_draft') {
       const { data: original, error } = await service.from('social_studio_posts').select('*').eq('id', String(input.post_id || '')).eq('status', 'draft').maybeSingle();
       if (error || !original) fail('Only an HC Apparel draft can be duplicated.');
