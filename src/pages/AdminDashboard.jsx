@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Inbox, Package, ShoppingBag, Truck, Mail, MessageSquare,
   Store, FileText, Phone, ChevronRight, BarChart3, Archive,
-  DollarSign, Clock, AlertTriangle, Sparkles
+  DollarSign, Clock, AlertTriangle, Sparkles, User
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
@@ -208,6 +208,9 @@ export default function AdminDashboard() {
               { to: '/AdminSubscribers',           label: 'Subscribers', icon: <Mail /> },
               { to: '/AdminMarketingAnalytics',    label: 'Marketing Analytics', icon: <BarChart3 /> },
               { to: '/AdminHomepageSpecials', label: 'Homepage Specials Manager', icon: <ShoppingBag /> },
+              { to: '/AdminProductivityDashboard', label: 'Productivity Dashboard / AI Schedule Assistant', icon: <Clock /> },
+              { to: '/AdminCalendarSettings', label: 'Calendar Settings', icon: <Clock /> },
+              { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', icon: <User /> },
               { to: '/AdminVendors',               label: 'Vendors',             icon: <Truck /> },
               { to: '/AdminVendorPricing',         label: 'Vendor Pricing',      icon: <DollarSign /> },
               { to: '/AdminQuotes',                label: 'Quotes',              icon: <FileText /> },

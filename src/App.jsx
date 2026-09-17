@@ -81,6 +81,9 @@ import AdminEmailMarketingSettings from './pages/AdminEmailMarketingSettings';
 import AdminSubscribers from './pages/AdminSubscribers';
 import AdminMarketingAnalytics from './pages/AdminMarketingAnalytics';
 import AdminHomepageSpecials from './pages/AdminHomepageSpecials';
+import AdminProductivityDashboard from './pages/AdminProductivityDashboard';
+import AdminCalendarSettings from './pages/AdminCalendarSettings';
+import AdminTeamProductivity from './pages/AdminTeamProductivity';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 
 const { Layout } = pagesConfig;
@@ -137,6 +140,9 @@ const AuthenticatedApp = () => {
       <Route path="/AdminSubscribers" element={<LayoutWrapper currentPageName="AdminSubscribers"><AdminSubscribers /></LayoutWrapper>} />
       <Route path="/AdminMarketingAnalytics" element={<LayoutWrapper currentPageName="AdminMarketingAnalytics"><AdminMarketingAnalytics /></LayoutWrapper>} />
       <Route path="/AdminHomepageSpecials" element={<LayoutWrapper currentPageName="AdminHomepageSpecials"><AdminHomepageSpecials /></LayoutWrapper>} />
+      <Route path="/AdminProductivityDashboard" element={<LayoutWrapper currentPageName="AdminProductivityDashboard"><AdminProductivityDashboard /></LayoutWrapper>} />
+      <Route path="/AdminCalendarSettings" element={<LayoutWrapper currentPageName="AdminCalendarSettings"><AdminCalendarSettings /></LayoutWrapper>} />
+      <Route path="/AdminTeamProductivity" element={<LayoutWrapper currentPageName="AdminTeamProductivity"><AdminTeamProductivity /></LayoutWrapper>} />
       <Route path="/AdminProducts" element={<LayoutWrapper currentPageName="AdminProducts"><AdminProducts /></LayoutWrapper>} />
       <Route path="/AdminDigitalArchive" element={<LayoutWrapper currentPageName="AdminDigitalArchive"><AdminDigitalArchive /></LayoutWrapper>} />
       <Route path="/AdminOrders" element={<LayoutWrapper currentPageName="AdminOrders"><AdminOrders /></LayoutWrapper>} />
