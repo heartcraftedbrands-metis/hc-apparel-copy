@@ -53,7 +53,7 @@ const currentProfile = async () => {
         .eq('id', user.id)
         .maybeSingle();
       if (error) throw asError(error);
-      return { ...user, ...profile, role: profile?.role || 'customer' };
+        return { ...user, ...profile, full_name: user.user_metadata?.full_name || profile?.full_name || '', role: profile?.role || 'customer' };
     })();
   }
   return profilePromise;
