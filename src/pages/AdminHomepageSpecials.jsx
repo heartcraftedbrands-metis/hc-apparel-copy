@@ -14,7 +14,7 @@ const priority = candidate => {
   const brand = String(candidate.brand || '').toLowerCase();
   const category = String(candidate.category || '').toLowerCase();
   const name = String(candidate.product_name || '').toLowerCase();
-  if (/(t-shirt|tshirt|tee|youth)/.test(`${category} ${name}`)) {
+  if (/(t[ _-]?shirts?|tees?|youth|short_sleeve_shirts|long_sleeve_shirts)/.test(`${category} ${name}`)) {
     if (['hanes', 'gildan', 'shaka wear', 'rabbit skins'].some(name => brand.includes(name))) return 0;
     return 1;
   }
