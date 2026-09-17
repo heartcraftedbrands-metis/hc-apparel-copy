@@ -24,7 +24,8 @@ export function destinationAfterAuth() {
   if (returnTo) {
     try {
       const url = new URL(returnTo, window.location.origin);
-      if (url.origin === window.location.origin && !url.pathname.startsWith('/Admin')) {
+      // ProtectedRoute still checks the server-backed role for admin destinations.
+      if (url.origin === window.location.origin) {
         return `${url.pathname}${url.search}${url.hash}`;
       }
     } catch {
