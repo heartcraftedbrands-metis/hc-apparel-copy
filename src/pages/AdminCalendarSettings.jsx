@@ -82,7 +82,7 @@ export default function AdminCalendarSettings() {
           {calendarError && <p role="alert" className="text-sm text-red-700">{calendarError.message}</p>}
           <p className="text-sm">{list?.calendars?.length ?? 0} Google calendar(s) found.</p>
           <div className="space-y-4">{selector('king')}{selector('yho')}{selector('shared', true)}</div>
-          <button className="rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50" disabled={busy || !list || !choices.king || !choices.yho || choices.king === choices.yho} onClick={configure}>Save team calendars</button>
+          <button className="rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50" disabled={busy || !list || !choices.king || !choices.yho || (choices.king === choices.yho && choices.king !== '__create__')} onClick={configure}>Save team calendars</button>
           <div className="rounded-lg bg-[#f8f6ef] p-3 text-sm"><p>King Terik: {status.connection.king_calendar_name || 'Not assigned'}</p><p>YHO / Mario: {status.connection.yho_calendar_name || 'Not assigned'}</p><p>Shared fallback: {status.connection.shared_calendar_name || 'None'}</p></div>
           <button className="text-sm text-red-700 underline" disabled={busy} onClick={disconnect}>Disconnect</button>
         </>}
