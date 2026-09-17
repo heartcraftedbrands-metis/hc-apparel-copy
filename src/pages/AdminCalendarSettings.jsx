@@ -78,8 +78,8 @@ export default function AdminCalendarSettings() {
         <p className="break-all text-xs text-muted-foreground">Google Cloud redirect URI: {status.redirect_uri}</p>
         {!status.connected ? <button className="rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50" disabled={busy || !status.google_configured} onClick={connect}>Connect Google Calendar</button> : <>
           <p className="text-sm text-muted-foreground">Only calendars with writer or owner access can be assigned. YHO does not need a separate Google login.</p>
-          <button className="rounded-lg border px-4 py-2" disabled={busy} onClick={() => loadCalendars()}>Refresh calendars</button>
-          {calendarError && <p role="alert" className="text-sm text-red-700">Could not list calendars. Reconnect if authorization expired.</p>}
+          <div className="flex flex-wrap gap-2"><button className="rounded-lg border px-4 py-2" disabled={busy} onClick={() => loadCalendars()}>Refresh calendars</button><button className="rounded-lg border px-4 py-2" disabled={busy || !status.google_configured} onClick={connect}>Reconnect Google Calendar</button></div>
+          {calendarError && <p role="alert" className="text-sm text-red-700">{calendarError.message}</p>}
           <p className="text-sm">{list?.calendars?.length ?? 0} Google calendar(s) found.</p>
           <div className="space-y-4">{selector('king')}{selector('yho')}{selector('shared', true)}</div>
           <button className="rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50" disabled={busy || !list || !choices.king || !choices.yho || choices.king === choices.yho} onClick={configure}>Save team calendars</button>

@@ -7,6 +7,11 @@ const TEAM_CALENDARS = {
   yho: 'HC Apparel — YHO Operations',
   shared: 'HC Apparel Operations',
 } as const;
+const CALENDAR_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.app.created',
+];
 type CalendarTarget = keyof typeof TEAM_CALENDARS;
 const FN = `${Deno.env.get('SUPABASE_URL')}/functions/v1/productivity-calendar`;
 const env = (key: string) => Deno.env.get(key)?.trim() || '';
@@ -59,8 +64,25 @@ function config() {
 async function tokens(params: URLSearchParams) {
   const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: params });
   const result = await response.json();
-  if (!response.ok || !result.access_token) bad('Google authorization failed. Try connecting again.', 502);
+  if (!response.ok || !result.access_token) {
+    if (params.get('grant_type') === 'refresh_token' && ['invalid_grant', 'invalid_client'].includes(result.error)) bad('Google Calendar token refresh failed. Reconnect Google Calendar to restore access.', 401);
+    bad('Google authorization failed. Reconnect Google Calendar and review the requested permissions.', 502);
+  }
   return result;
+}
+async function googleApiFailure(response: Response, action: string): Promise<never> {
+  let reason = '';
+  let status = '';
+  try {
+    const body = await response.json();
+    reason = String(body?.error?.details?.find((detail: { reason?: string }) => detail.reason)?.reason || body?.error?.errors?.[0]?.reason || '');
+    status = String(body?.error?.status || '');
+  } catch { /* Google may return a non-JSON gateway error. */ }
+  if (['SERVICE_DISABLED', 'accessNotConfigured'].includes(reason) || status === 'SERVICE_DISABLED') bad('Google Calendar API is disabled for the HC Apparel Calendar project. Enable it in Google Cloud, then refresh calendars.', 503);
+  if (['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'].includes(reason) || status === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT') bad('Google Calendar permissions are missing from this connection. Reconnect Google Calendar and approve the calendar scopes.', 403);
+  if (response.status === 401) bad('Google Calendar access expired or was revoked. Reconnect Google Calendar.', 401);
+  if (response.status === 429) bad('Google Calendar is rate-limiting requests. Wait a moment and retry.', 429);
+  bad(`Google Calendar could not ${action} (HTTP ${response.status}${reason ? `, ${limited(reason, 60)}` : ''}). Check the Calendar API and connection, then retry.`, 502);
 }
 async function connection(userId: string) {
   const { data } = await db.from('calendar_connections').select('*').eq('owner_user_id', userId).maybeSingle();
@@ -84,7 +106,7 @@ async function calendars(row: Record<string, string>) {
     url.searchParams.set('maxResults', '250');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
-    if (!response.ok) bad('Could not list Google calendars. Reconnect the account.', 502);
+    if (!response.ok) await googleApiFailure(response, 'list calendars');
     const result = await response.json();
     found.push(...(result.items || []).map((item: Record<string, unknown>) => ({ id: String(item.id), name: String(item.summary || ''), access_role: String(item.accessRole || ''), primary: Boolean(item.primary) })));
     pageToken = result.nextPageToken || '';
@@ -114,8 +136,9 @@ async function configureTeamCalendars(row: Record<string, string>, body: Record<
           method: 'POST', headers: { authorization: `Bearer ${await access(row)}`, 'content-type': 'application/json' },
           body: JSON.stringify({ summary: TEAM_CALENDARS[target], description: 'Private HC Apparel internal operations calendar.' }),
         });
+        if (!response.ok) await googleApiFailure(response, `create ${TEAM_CALENDARS[target]}`);
         const created = await response.json();
-        if (!response.ok || !created.id) bad(`Could not create ${TEAM_CALENDARS[target]}. Check Google Calendar API consent and scope.`, 502);
+        if (!created.id) bad(`Google did not confirm creation of ${TEAM_CALENDARS[target]}. Refresh calendars before retrying.`, 502);
         match = { id: String(created.id), name: TEAM_CALENDARS[target], access_role: 'owner', primary: false };
         existing.push(match);
       }
@@ -159,6 +182,7 @@ async function callback(url: URL) {
     const { data: challenge, error } = await db.from('calendar_oauth_states').delete().eq('state_hash', stateHash).select('owner_user_id,expires_at').maybeSingle();
     if (error || !challenge || new Date(challenge.expires_at).getTime() < Date.now()) return callbackPage(false, 'Connection expired. Please try again.');
     const result = await tokens(new URLSearchParams({ code, client_id: env('GOOGLE_CLIENT_ID'), client_secret: env('GOOGLE_CLIENT_SECRET'), redirect_uri: env('GOOGLE_REDIRECT_URI'), grant_type: 'authorization_code' }));
+    if (result.scope && CALENDAR_SCOPES.some(scope => !String(result.scope).split(' ').includes(scope))) return callbackPage(false, 'Google did not grant all required Calendar permissions. Reconnect and approve each scope.');
     const identity = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${result.access_token}` } });
     const info = identity.ok ? await identity.json() : {};
     if (info.email?.toLowerCase() !== OWNER || !info.email_verified) return callbackPage(false, `Authorize ${OWNER} to connect this calendar.`);
@@ -258,7 +282,7 @@ Deno.serve(async req => {
       const { error } = await db.from('calendar_oauth_states').insert({ state_hash: await digest(state), owner_user_id: user.id, expires_at: new Date(Date.now() + 10 * 60_000).toISOString() });
       if (error) bad('Could not start Google connection.', 500);
       const target = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      for (const [key, value] of Object.entries({ client_id: env('GOOGLE_CLIENT_ID'), redirect_uri: FN, response_type: 'code', scope: 'openid email https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.app.created', access_type: 'offline', prompt: 'consent select_account', login_hint: OWNER, state })) target.searchParams.set(key, value);
+      for (const [key, value] of Object.entries({ client_id: env('GOOGLE_CLIENT_ID'), redirect_uri: FN, response_type: 'code', scope: `openid email ${CALENDAR_SCOPES.join(' ')}`, access_type: 'offline', prompt: 'consent select_account', login_hint: OWNER, state })) target.searchParams.set(key, value);
       return json({ authorization_url: target.toString() }, 200, origin);
     }
     if (action === 'disconnect') {
