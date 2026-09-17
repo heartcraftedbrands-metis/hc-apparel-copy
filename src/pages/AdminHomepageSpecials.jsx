@@ -17,6 +17,8 @@ export default function AdminHomepageSpecials() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState(null);
   const { data: candidates = [], isLoading, error: loadError } = useQuery({
     queryKey: ['homepage-special-candidates'],
     queryFn: async () => {
@@ -100,6 +102,20 @@ export default function AdminHomepageSpecials() {
     finally { setBusy(false); }
   };
 
+  const refreshExistingSkus = async () => {
+    setRefreshing(true); setError(''); setMessage('');
+    try {
+      const { data, error: requestError } = await supabase.functions.invoke('homepage-specials-refresh', {
+        body: { action: 'refresh_existing_candidates' },
+      });
+      if (requestError || data?.error) throw new Error(data?.error || requestError?.message || 'S&S refresh failed');
+      setRefreshResult(data);
+      await client.invalidateQueries({ queryKey: ['homepage-special-candidates'] });
+      setMessage(`Read-only S&S refresh complete: ${data.products_refreshed} catalog products and ${data.skus_refreshed} existing SKUs updated. No product prices or orders changed.`);
+    } catch (cause) { setError(cause.message || 'S&S refresh failed.'); }
+    finally { setRefreshing(false); }
+  };
+
   return (
     <main className="min-h-screen bg-[#f6f3e9] p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -107,6 +123,11 @@ export default function AdminHomepageSpecials() {
         <div>
           <h1 className="text-3xl font-bold text-[#283820]">Homepage Specials Manager</h1>
           <p className="mt-1 max-w-3xl text-sm text-[#586251]">Review real S&amp;S SKU prices and inventory. Nothing appears on the homepage until you approve and activate it. Regular product and checkout prices remain unchanged.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#d9d4c4] bg-white p-4">
+          <button type="button" disabled={refreshing} onClick={refreshExistingSkus} className="rounded-lg bg-[#34472c] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{refreshing ? 'Refreshing existing S&S SKUs…' : 'Refresh existing S&S pricing & inventory'}</button>
+          <p className="text-xs text-[#586251]">Fetches only selected SKUs for products already in the catalog. Does not import styles, change storefront prices, or submit orders.</p>
+          {refreshResult && <p className="w-full text-xs text-[#586251]">API requests: {refreshResult.api_requests} · SKUs skipped: {refreshResult.skipped} · Fetched: {new Date(refreshResult.fetched_at).toLocaleString()}</p>}
         </div>
         {(loadError || rowsError || error) && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error || loadError?.message || rowsError?.message}</p>}
         {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}

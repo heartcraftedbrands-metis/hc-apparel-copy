@@ -75,6 +75,7 @@ begin
       and p.visibility = 'public' and p.is_active is true and p.is_sample is false
       and p.product_type = 'physical'
     order by p.id,
+      (s.fetched_at >= now() - interval '30 days') desc,
       (s.inventory_qty > 0) desc,
       (s.sale_price > 0 and s.sale_price = s.customer_price and s.piece_price > s.sale_price and s.sale_expiration is null) desc,
       s.customer_price asc,
