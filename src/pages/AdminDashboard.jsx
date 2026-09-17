@@ -113,6 +113,12 @@ export default function AdminDashboard() {
 
       <div className="container mx-auto max-w-6xl px-4 py-8 space-y-10">
 
+        <aside className="rounded-xl border bg-white p-4 text-sm space-y-2" aria-label="Customer authentication setup">
+          <h2 className="font-bold">Customer authentication setup</h2>
+          <p>In Supabase Auth → URL Configuration, use Site URL <code>https://www.ilovehcapparel.net</code> and allow redirects <code>https://www.ilovehcapparel.net/**</code> and <code>https://ilovehcapparel.net/**</code>. Confirmation links return to /Login; password recovery links return to /ResetPassword.</p>
+          <p>Confirmation is enabled. Custom SMTP must be configured in Supabase before the HC Apparel confirmation and reset email templates can be edited. Keep credentials server-side; do not paste service-role keys into this site.</p>
+        </aside>
+
         {/* Live Summary Counts */}
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Live Counts</h2>

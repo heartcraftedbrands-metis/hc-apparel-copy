@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, LogIn, Mail } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
+import { authRedirect, destinationAfterAuth, friendlyAuthError } from '@/lib/customerAuth';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,26 +27,13 @@ export default function Login() {
     event.preventDefault();
     setLoading(true);
     setError('');
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     setLoading(false);
     if (signInError) {
-      setError(signInError.message);
+      setError(friendlyAuthError(signInError));
       return;
     }
-    const returnTo = sessionStorage.getItem('hc_login_return_to');
-    sessionStorage.removeItem('hc_login_return_to');
-    if (returnTo) {
-      try {
-        const url = new URL(returnTo, window.location.origin);
-        if (url.origin === window.location.origin) {
-          navigate(`${url.pathname}${url.search}${url.hash}`, { replace: true });
-          return;
-        }
-      } catch {
-        // Ignore invalid legacy return URLs.
-      }
-    }
-    navigate('/Profile', { replace: true });
+    navigate(destinationAfterAuth(), { replace: true });
   };
 
   const handlePasswordRecovery = async () => {
@@ -57,13 +45,13 @@ export default function Login() {
     setRecoveryLoading(true);
     setError('');
     setRecoverySent(false);
-    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/ResetPassword`,
+    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: authRedirect('/ResetPassword'),
     });
     setRecoveryLoading(false);
 
     if (recoveryError) {
-      setError(recoveryError.message);
+      setError(friendlyAuthError(recoveryError, 'reset'));
       return;
     }
 
@@ -82,8 +70,11 @@ export default function Login() {
             {searchParams.get('passwordReset') === '1' && (
               <Alert><AlertDescription>Password updated. Sign in with your new password.</AlertDescription></Alert>
             )}
+            {searchParams.get('confirmed') === '1' && (
+              <Alert><AlertDescription>Your HC Apparel email is confirmed. Please sign in.</AlertDescription></Alert>
+            )}
             {recoverySent && (
-              <Alert><AlertDescription>Check your email for the password-reset link.</AlertDescription></Alert>
+              <Alert><AlertDescription>Password reset email sent. Please check your inbox.</AlertDescription></Alert>
             )}
             {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
             <div className="space-y-2">
@@ -108,6 +99,7 @@ export default function Login() {
               {recoveryLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
               Reset password
             </Button>
+            <p className="text-sm text-center">New to HC Apparel? <Link className="underline" to="/Signup">Create an account</Link></p>
           </form>
         </CardContent>
       </Card>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, LockKeyhole } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
+import { friendlyAuthError } from '@/lib/customerAuth';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,12 +20,21 @@ export default function ResetPassword() {
   useEffect(() => {
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (active && data.session) setSessionReady(true);
-    });
+    const query = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const recoveryLink = query.get('type') === 'recovery' || hash.get('type') === 'recovery' || query.has('code');
+    const linkError = query.get('error_description') || hash.get('error_description');
+    if (linkError) setError('This reset link is invalid or has expired. Request a new reset email.');
+
+    // A normal signed-in session is not sufficient authority to use this page.
+    if (recoveryLink && !linkError) {
+      supabase.auth.getSession().then(({ data, error: sessionError }) => {
+        if (active && !sessionError && data.session) setSessionReady(true);
+      });
+    }
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (active && (event === 'PASSWORD_RECOVERY' || session)) setSessionReady(true);
+      if (active && session && event === 'PASSWORD_RECOVERY') setSessionReady(true);
     });
 
     return () => {
@@ -42,7 +52,7 @@ export default function ResetPassword() {
       return;
     }
     if (password.length < 8) {
-      setError('Use at least 8 characters for your password.');
+      setError('Please use a stronger password with at least 8 characters.');
       return;
     }
     if (password !== confirmation) {
@@ -54,7 +64,7 @@ export default function ResetPassword() {
     const { error: updateError } = await supabase.auth.updateUser({ password });
     if (updateError) {
       setLoading(false);
-      setError(updateError.message);
+      setError(friendlyAuthError(updateError, 'reset'));
       return;
     }
 
@@ -94,7 +104,8 @@ export default function ResetPassword() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            {!sessionReady && !error && <p className="text-sm text-muted-foreground">Open the password reset link from your email to continue.</p>}
+            <Button type="submit" className="w-full" disabled={loading || !sessionReady}>
               {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LockKeyhole className="w-4 h-4 mr-2" />}
               Save new password
             </Button>

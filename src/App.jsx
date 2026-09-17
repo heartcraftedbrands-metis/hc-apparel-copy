@@ -23,6 +23,7 @@ import ProductDetailPage from './pages/ProductDetail';
 import CheckoutPage from './pages/Checkout';
 import OrderConfirmationPage from './pages/OrderConfirmation';
 import LoginPage from './pages/Login';
+import SignupPage from './pages/Signup';
 import ResetPasswordPage from './pages/ResetPassword';
 import RequestOrderHelpPage from './pages/RequestOrderHelp';
 
@@ -125,6 +126,7 @@ const AuthenticatedApp = () => {
       <Route path="/RequestOrderHelp" element={<LayoutWrapper currentPageName="RequestOrderHelp"><RequestOrderHelpPage /></LayoutWrapper>} />
       <Route path="/TrackOrder" element={<LayoutWrapper currentPageName="TrackOrder"><TrackOrder /></LayoutWrapper>} />
       <Route path="/Login" element={<LayoutWrapper currentPageName="Login"><LoginPage /></LayoutWrapper>} />
+      <Route path="/Signup" element={<LayoutWrapper currentPageName="Signup"><SignupPage /></LayoutWrapper>} />
       <Route path="/ResetPassword" element={<LayoutWrapper currentPageName="ResetPassword"><ResetPasswordPage /></LayoutWrapper>} />
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>
