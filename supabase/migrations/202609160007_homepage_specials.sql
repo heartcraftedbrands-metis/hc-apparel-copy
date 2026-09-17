@@ -65,7 +65,8 @@ begin
           and staged.customer_price > 0
         order by staged.sku, staged.fetched_at desc
       ) latest
-      order by (latest.inventory_qty > 0) desc,
+      order by (latest.fetched_at >= now() - interval '30 days') desc,
+        (latest.inventory_qty > 0) desc,
         (latest.sale_price > 0 and latest.sale_price = latest.customer_price
           and latest.piece_price > latest.sale_price and latest.sale_expiration is null) desc,
         latest.customer_price asc
