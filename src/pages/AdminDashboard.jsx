@@ -132,6 +132,25 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        <section className="rounded-2xl border border-primary/20 bg-[#f8f6ef] p-5 sm:p-6" aria-labelledby="google-calendar-heading">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white"><Clock className="h-5 w-5" /></div>
+              <div>
+                <h2 id="google-calendar-heading" className="text-lg font-bold">Google Calendars</h2>
+                <p className="text-sm text-muted-foreground">View King Terik and YHO Operations calendars and upcoming events in one read-only place.</p>
+              </div>
+            </div>
+            <Link to="/AdminGoogleCalendar" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90">
+              View Google Calendars <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 pl-0 text-sm sm:pl-[52px]">
+            <Link className="text-primary underline" to="/AdminProductivityDashboard">AI Schedule Assistant</Link>
+            <Link className="text-primary underline" to="/AdminCalendarSettings">Calendar Settings</Link>
+          </div>
+        </section>
+
         {/* Payment Provider Status */}
          <div>
            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Payment Providers</h2>
