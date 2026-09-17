@@ -29,7 +29,7 @@ export default function SpecialsSection() {
             {hasVendorSpecial ? 'Current Specials' : 'Current Picks'}
           </h2>
           <p className="mt-2 text-[#586251]">
-            {hasVendorSpecial ? 'Real deals on blanks and printing-ready apparel.' : 'In-stock blanks and printing-ready apparel, selected from our catalog.'}
+            {hasVendorSpecial ? 'Real deals on blanks and printing-ready apparel.' : 'Smart picks on blanks and printing-ready apparel.'}
           </p>
         </div>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
