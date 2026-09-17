@@ -2,7 +2,13 @@ import { supabase } from '@/api/supabaseClient';
 
 export async function calendarAction(action, values = {}) {
   const { data, error } = await supabase.functions.invoke('productivity-calendar', { body: { action, ...values } });
-  if (error || data?.error) throw new Error(data?.error || error?.message || 'Calendar request failed.');
+  if (error || data?.error) {
+    let detail = data?.error;
+    if (!detail && error?.context instanceof Response) {
+      try { detail = (await error.context.json())?.error; } catch { /* Keep the transport error below. */ }
+    }
+    throw new Error(detail || error?.message || 'Calendar request failed.');
+  }
   return data;
 }
 
