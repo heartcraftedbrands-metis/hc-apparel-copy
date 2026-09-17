@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useCart } from '@/components/shop/CartContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import {
   validateCheckoutCustomer,
 } from '@/lib/smallOrderCheckout';
 import { markCheckoutPending } from '@/lib/checkoutCompletion';
+import { checkoutErrorMessage, CHECKOUT_CONNECT, PAYMENT_UNAVAILABLE, SIGN_IN_AGAIN } from '@/lib/checkoutErrors';
 
 const emptyAddress = {
   street: '',
@@ -72,6 +74,8 @@ export default function Checkout() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState([]);
+  const [prepareError, setPrepareError] = useState('');
+  const [createdOrder, setCreatedOrder] = useState(null);
 
   const cartErrors = useMemo(() => validateCheckoutCart(cart), [cart]);
   const total = useMemo(
@@ -83,7 +87,7 @@ export default function Checkout() {
     let active = true;
     Promise.all([
       base44.auth.me(),
-      base44.functions.invoke('getPublicPaymentSettings', {}).catch(() => ({ data: null })),
+      base44.functions.invoke('getPublicPaymentSettings', {}),
     ]).then(([user, paymentResponse]) => {
       if (!active) return;
       setForm(current => ({
@@ -91,10 +95,13 @@ export default function Checkout() {
         customer_name: user.full_name || '',
         customer_email: user.email || '',
       }));
-      if (paymentResponse.data) setSettings(paymentResponse.data);
-    }).catch((error) => {
-      if (error?.status === 401) base44.auth.redirectToLogin(window.location.href);
-      else setErrors([error.message || 'Unable to prepare checkout.']);
+      if (!paymentResponse?.data) throw new Error('Payment settings unavailable');
+      setSettings(paymentResponse.data);
+    }).catch(async (error) => {
+      if (!active) return;
+      const message = await checkoutErrorMessage(error, 'prepare');
+      if (message === SIGN_IN_AGAIN) base44.auth.redirectToLogin(window.location.href);
+      else setPrepareError(message);
     }).finally(() => active && setLoading(false));
     return () => { active = false; };
   }, []);
@@ -115,14 +122,31 @@ export default function Checkout() {
       setErrors(validationErrors);
       return;
     }
+    if (settings.payment_mode === 'stripe' && !settings.stripe_connected) {
+      setErrors([PAYMENT_UNAVAILABLE]);
+      return;
+    }
 
     setSubmitting(true);
+    const payload = buildSmallOrderCheckoutPayload(cart, customer);
+    const payloadKey = JSON.stringify(payload);
+    let orderId = createdOrder?.payloadKey === payloadKey ? createdOrder.orderId : null;
     try {
-      const payload = buildSmallOrderCheckoutPayload(cart, customer);
-      const { data } = await base44.functions.invoke('createSmallOrderCheckout', payload);
-      const orderId = data?.order_id;
-      if (!orderId) throw new Error('Checkout did not return an order number.');
-
+      if (!orderId) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!session) throw Object.assign(new Error('Authentication required'), { status: 401 });
+        const { data } = await base44.functions.invoke('createSmallOrderCheckout', payload);
+        orderId = data?.order_id;
+        if (!orderId) throw new Error('Checkout did not return an order number.');
+        setCreatedOrder({ orderId, payloadKey });
+      }
+    } catch (error) {
+      setErrors([await checkoutErrorMessage(error, 'order')]);
+      setSubmitting(false);
+      return;
+    }
+    try {
       if (settings.payment_mode === 'stripe' && settings.stripe_connected) {
         const origin = window.location.origin;
         const payment = await base44.functions.invoke('createStripeCheckoutSession', {
@@ -131,17 +155,19 @@ export default function Checkout() {
           cancelUrl: `${origin}/Checkout`,
         });
         const paymentUrl = payment.data?.checkout_url || payment.data?.sessionUrl;
-        if (paymentUrl) {
-          markCheckoutPending(window.localStorage, orderId);
-          window.location.assign(paymentUrl);
-          return;
+        if (!paymentUrl || new URL(paymentUrl).hostname !== 'checkout.stripe.com' || !paymentUrl.startsWith('https://')) {
+          throw new Error(PAYMENT_UNAVAILABLE);
         }
+        try { markCheckoutPending(window.localStorage, orderId); }
+        catch { /* Safari private storage restrictions must not block a valid Stripe redirect. */ }
+        window.location.assign(paymentUrl);
+        return;
       }
 
       toast.success('Order created securely. Payment confirmation is still required.');
       navigate(`/OrderConfirmation?orderId=${encodeURIComponent(orderId)}`);
     } catch (error) {
-      setErrors([error.message || 'Checkout could not be completed.']);
+      setErrors([await checkoutErrorMessage(error, 'payment')]);
     } finally {
       setSubmitting(false);
     }
@@ -284,21 +310,23 @@ export default function Checkout() {
               </CardContent>
             </Card>
 
-            {(cartErrors.length > 0 || errors.length > 0) && (
+            {(cartErrors.length > 0 || errors.length > 0 || prepareError) && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 <p className="mb-2 flex items-center gap-2 font-bold">
                   <AlertCircle className="h-4 w-4" /> Checkout needs attention
                 </p>
                 <ul className="list-disc space-y-1 pl-5">
-                  {[...new Set([...cartErrors, ...errors])].map(error => <li key={error}>{error}</li>)}
+                  {[...new Set([...cartErrors, ...errors, prepareError].filter(Boolean))].map(error => <li key={error}>{error}</li>)}
                 </ul>
               </div>
             )}
 
-            <Button type="submit" size="lg" className="w-full" disabled={submitting || cartErrors.length > 0}>
+            <Button type="submit" size="lg" className="w-full" disabled={submitting || cartErrors.length > 0 || Boolean(prepareError)}>
               <PackageCheck className="mr-2 h-4 w-4" />
               {submitting ? 'Preparing order…' : 'Create Order & Continue to Payment'}
             </Button>
+            {errors.includes(SIGN_IN_AGAIN) && <Link className="block text-center text-sm text-primary underline" to="/Login">Sign in again</Link>}
+            {prepareError === CHECKOUT_CONNECT && <button type="button" className="block w-full text-center text-sm text-primary underline" onClick={() => window.location.reload()}>Refresh checkout</button>}
             <p className="text-center text-xs text-muted-foreground">
               No S&S or ZeroTouch order is submitted from checkout.
             </p>

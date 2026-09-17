@@ -9,21 +9,34 @@ import {
   normalizeStripeMode,
 } from '../_shared/stripeCredentials.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
-};
+const allowedOrigins = ['https://www.ilovehcapparel.net', 'https://ilovehcapparel.net', 'http://localhost:5173'];
+const corsHeaders = (origin: string) => ({
+  'Access-Control-Allow-Origin': allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
+  'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-retry-count, traceparent, tracestate, baggage',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Expose-Headers': 'x-checkout-request-id',
+  'Vary': 'Origin',
+  'Cache-Control': 'no-store',
+});
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+const json = (body: unknown, status: number, origin: string, requestId: string) => new Response(JSON.stringify(body), {
   status,
-  headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  headers: { ...corsHeaders(origin), 'Content-Type': 'application/json', 'x-checkout-request-id': requestId },
 });
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const origin = request.headers.get('Origin') || '';
+  const requestId = crypto.randomUUID();
+  let stage = 'request';
+  const respond = (body: unknown, status = 200) => {
+    console.info('Stripe checkout request', { request_id: requestId, stage, status, origin: allowedOrigins.includes(origin) ? origin : 'unrecognized' });
+    return json(body, status, origin, requestId);
+  };
+  if (request.method === 'OPTIONS') return respond({ ok: true });
+  if (request.method !== 'POST') return respond({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
 
   try {
+    stage = 'configuration';
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getSupabasePublishableKey();
     const serviceCredential = getSupabaseServiceCredential();
@@ -33,24 +46,30 @@ Deno.serve(async (request) => {
       present: serviceCredential.present,
     });
     if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
-      return json({ error: 'Payment service is not configured' }, 503);
+      return respond({ error: 'Payment service is not configured', code: 'CONFIG_UNAVAILABLE' }, 503);
     }
 
+    stage = 'authentication';
     const authorization = request.headers.get('Authorization') || '';
     const userClient = createClient(supabaseUrl, publishableKey, {
       global: { headers: { Authorization: authorization } },
     });
     const { data: { user }, error: userError } = await userClient.auth.getUser();
-    if (userError || !user) return json({ error: 'Authentication required' }, 401);
+    if (userError || !user) return respond({ error: 'Authentication required', code: 'AUTH_REQUIRED' }, 401);
 
-    const { orderId, successUrl, cancelUrl } = await request.json();
+    stage = 'validation';
+    let body;
+    try { body = await request.json(); }
+    catch { return respond({ error: 'Invalid checkout request', code: 'INVALID_REQUEST' }, 400); }
+    const { orderId, successUrl, cancelUrl } = body || {};
     if (typeof orderId !== 'string' || !orderId.trim()) {
-      return json({ error: 'A valid order ID is required' }, 400);
+      return respond({ error: 'A valid order ID is required', code: 'INVALID_REQUEST' }, 400);
     }
     if (typeof successUrl !== 'string' || !successUrl || typeof cancelUrl !== 'string' || !cancelUrl) {
-      return json({ error: 'Order ID, success URL, and cancel URL are required' }, 400);
+      return respond({ error: 'Order ID, success URL, and cancel URL are required', code: 'INVALID_REQUEST' }, 400);
     }
 
+    stage = 'payment_settings';
     const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: paymentSettings, error: settingsError } = await admin
       .from('payment_settings')
@@ -58,7 +77,7 @@ Deno.serve(async (request) => {
       .order('updated_date', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (settingsError) return json({ error: 'Unable to load payment configuration' }, 500);
+    if (settingsError) return respond({ error: 'Unable to load payment configuration', code: 'PAYMENT_SETTINGS_UNAVAILABLE' }, 500);
 
     const stripeMode = normalizeStripeMode(paymentSettings?.stripe_mode);
     const stripeCredentials = getStripeCredentials(stripeMode);
@@ -69,8 +88,9 @@ Deno.serve(async (request) => {
       configured: stripeCredentials.configured,
     });
     if (!stripeCredentials.configured || !stripeCredentials.secretKey) {
-      return json({ error: `Stripe ${stripeMode} mode is not configured` }, 503);
+      return respond({ error: 'Payment checkout could not be started', code: 'STRIPE_UNAVAILABLE' }, 503);
     }
+    stage = 'order_lookup';
     const { data: order, error: orderError } = await admin
       .from('orders')
       .select('id,owner_user_id,customer_email,order_items,total_amount,payment_status,checkout_source')
@@ -79,20 +99,20 @@ Deno.serve(async (request) => {
     if (orderError) {
       console.error('Stripe checkout order lookup failed', {
         code: orderError.code,
-        message: orderError.message,
+        request_id: requestId,
       });
-      return json({ error: 'Unable to load customer order' }, 500);
+      return respond({ error: 'Unable to load customer order', code: 'ORDER_LOOKUP_FAILED' }, 500);
     }
-    if (!order) return json({ error: 'Order not found' }, 404);
-    if (order.owner_user_id !== user.id) return json({ error: 'Order access denied' }, 403);
+    if (!order) return respond({ error: 'Order not found', code: 'ORDER_NOT_FOUND' }, 404);
+    if (order.owner_user_id !== user.id) return respond({ error: 'Order access denied', code: 'ORDER_ACCESS_DENIED' }, 403);
     if (order.checkout_source !== 'customized_small_order') {
-      return json({ error: 'Unsupported checkout order' }, 400);
+      return respond({ error: 'Unsupported checkout order', code: 'UNSUPPORTED_ORDER' }, 400);
     }
-    if (order.payment_status === 'paid') return json({ error: 'Order is already paid' }, 409);
+    if (order.payment_status === 'paid') return respond({ error: 'Order is already paid', code: 'ORDER_ALREADY_PAID' }, 409);
 
     const items = Array.isArray(order.order_items) ? order.order_items : [];
     if (!items.length || Number(order.total_amount) <= 0) {
-      return json({ error: 'Order does not have valid payable items' }, 400);
+      return respond({ error: 'Order does not have valid payable items', code: 'INVALID_ITEMS' }, 400);
     }
 
     const stripe = new Stripe(stripeCredentials.secretKey);
@@ -103,6 +123,7 @@ Deno.serve(async (request) => {
       owner_user_id: user.id,
       stripe_mode: stripeMode,
     };
+    stage = 'stripe_session';
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -130,15 +151,16 @@ Deno.serve(async (request) => {
         description: `HC Apparel order ${order.id}`,
         metadata: stripeOrderMetadata,
       },
-    });
+    }, { idempotencyKey: `hc-apparel-order-${order.id}` });
 
+    stage = 'order_update';
     await admin.from('orders').update({
       stripe_session_id: session.id,
       payment_method: 'Stripe',
       stripe_mode: stripeMode,
     }).eq('id', order.id);
 
-    return json({
+    return respond({
       checkout_url: session.url,
       session_id: session.id,
       payment_status: 'awaiting_payment',
@@ -146,6 +168,7 @@ Deno.serve(async (request) => {
       live_ss_submission_enabled: false,
     });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Unable to create payment session' }, 500);
+    console.error('Stripe checkout failure', { request_id: requestId, stage, error_name: error instanceof Error ? error.name : 'Unknown' });
+    return respond({ error: 'Payment checkout could not be started', code: stage === 'stripe_session' ? 'STRIPE_SESSION_FAILED' : 'CHECKOUT_FAILED' }, 502);
   }
 });
