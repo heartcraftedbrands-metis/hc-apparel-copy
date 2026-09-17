@@ -114,6 +114,40 @@ async function calendars(row: Record<string, string>) {
   return found;
 }
 
+async function calendarEvents(row: Record<string, string>, requestedId: unknown, requestedDays: unknown) {
+  const available = await calendars(row);
+  const calendarId = limited(requestedId, 300) || '__hc__';
+  const days = requestedDays === 90 ? 90 : 30;
+  const assignedIds = [row.king_calendar_id, row.yho_calendar_id, row.shared_calendar_id].filter(Boolean);
+  const selected = calendarId === '__hc__'
+    ? available.filter(item => assignedIds.includes(item.id))
+    : available.filter(item => item.id === calendarId);
+  if (!selected.length) bad('Choose a connected Google calendar, or assign the HC Apparel team calendars first.', 400);
+  const timeMin = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const timeMax = new Date(Date.now() + days * 86_400_000).toISOString();
+  const token = await access(row);
+  const results = await Promise.all(selected.map(async calendar => {
+    const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events`);
+    for (const [key, value] of Object.entries({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250', fields: 'items(id,summary,start,end,htmlLink,status),nextPageToken' })) url.searchParams.set(key, value);
+    const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!response.ok) await googleApiFailure(response, 'list events');
+    const result = await response.json();
+    return { events: (result.items || []).filter((item: Record<string, unknown>) => item.status !== 'cancelled').map((item: Record<string, unknown>) => {
+      const start = item.start as { dateTime?: string; date?: string } | undefined;
+      const end = item.end as { dateTime?: string; date?: string } | undefined;
+      return {
+        id: String(item.id || ''), title: limited(item.summary, 180) || '(Untitled event)',
+        start: start?.dateTime || start?.date || null, end: end?.dateTime || end?.date || null,
+        all_day: Boolean(start?.date && !start?.dateTime),
+        url: typeof item.htmlLink === 'string' && item.htmlLink.startsWith('https://calendar.google.com/') ? item.htmlLink : null,
+        calendar_id: calendar.id, calendar_name: calendar.name,
+      };
+    }), has_more: Boolean(result.nextPageToken) };
+  }));
+  const events = results.flatMap(result => result.events).sort((a, b) => String(a.start).localeCompare(String(b.start)));
+  return { events, has_more: results.some(result => result.has_more), time_min: timeMin, time_max: timeMax };
+}
+
 async function configureTeamCalendars(row: Record<string, string>, body: Record<string, unknown>) {
   if (row.google_email?.toLowerCase() !== OWNER) bad(`Connect ${OWNER} first.`, 403);
   const existing = await calendars(row);
@@ -291,6 +325,7 @@ Deno.serve(async req => {
       return json({ connected: false }, 200, origin);
     }
     if (action === 'calendars') return json({ calendars: await calendars(await connection(user.id)) }, 200, origin);
+    if (action === 'calendar_events') return json(await calendarEvents(await connection(user.id), body.calendar_id, body.window_days), 200, origin);
     if (action === 'configure_team_calendars') return json(await configureTeamCalendars(await connection(user.id), body), 200, origin);
     if (action === 'select_calendar') {
       const row = await connection(user.id);

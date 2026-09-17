@@ -210,6 +210,7 @@ export default function AdminDashboard() {
               { to: '/AdminHomepageSpecials', label: 'Homepage Specials Manager', icon: <ShoppingBag /> },
               { to: '/AdminProductivityDashboard', label: 'Productivity Dashboard / AI Schedule Assistant', icon: <Clock /> },
               { to: '/AdminCalendarSettings', label: 'Calendar Settings', icon: <Clock /> },
+              { to: '/AdminGoogleCalendar', label: 'View Google Calendars', icon: <Clock /> },
               { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', icon: <User /> },
               { to: '/AdminVendors',               label: 'Vendors',             icon: <Truck /> },
               { to: '/AdminVendorPricing',         label: 'Vendor Pricing',      icon: <DollarSign /> },

@@ -83,6 +83,7 @@ import AdminMarketingAnalytics from './pages/AdminMarketingAnalytics';
 import AdminHomepageSpecials from './pages/AdminHomepageSpecials';
 import AdminProductivityDashboard from './pages/AdminProductivityDashboard';
 import AdminCalendarSettings from './pages/AdminCalendarSettings';
+import AdminGoogleCalendar from './pages/AdminGoogleCalendar';
 import AdminTeamProductivity from './pages/AdminTeamProductivity';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 
@@ -142,6 +143,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminHomepageSpecials" element={<LayoutWrapper currentPageName="AdminHomepageSpecials"><AdminHomepageSpecials /></LayoutWrapper>} />
       <Route path="/AdminProductivityDashboard" element={<LayoutWrapper currentPageName="AdminProductivityDashboard"><AdminProductivityDashboard /></LayoutWrapper>} />
       <Route path="/AdminCalendarSettings" element={<LayoutWrapper currentPageName="AdminCalendarSettings"><AdminCalendarSettings /></LayoutWrapper>} />
+      <Route path="/AdminGoogleCalendar" element={<LayoutWrapper currentPageName="AdminGoogleCalendar"><AdminGoogleCalendar /></LayoutWrapper>} />
       <Route path="/AdminTeamProductivity" element={<LayoutWrapper currentPageName="AdminTeamProductivity"><AdminTeamProductivity /></LayoutWrapper>} />
       <Route path="/AdminProducts" element={<LayoutWrapper currentPageName="AdminProducts"><AdminProducts /></LayoutWrapper>} />
       <Route path="/AdminDigitalArchive" element={<LayoutWrapper currentPageName="AdminDigitalArchive"><AdminDigitalArchive /></LayoutWrapper>} />
