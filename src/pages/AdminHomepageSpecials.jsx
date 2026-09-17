@@ -13,11 +13,12 @@ const isCurrentPick = candidate => candidate.eligible && !candidate.is_vendor_sp
 const priority = candidate => {
   const brand = String(candidate.brand || '').toLowerCase();
   const category = String(candidate.category || '').toLowerCase();
-  if (category.includes('t-shirt') || category.includes('tshirt') || category.includes('tee') || category.includes('youth')) {
+  const name = String(candidate.product_name || '').toLowerCase();
+  if (/(t-shirt|tshirt|tee|youth)/.test(`${category} ${name}`)) {
     if (['hanes', 'gildan', 'shaka wear', 'rabbit skins'].some(name => brand.includes(name))) return 0;
     return 1;
   }
-  if (category.includes('hoodie') || category.includes('fleece')) return 2;
+  if (/(hoodie|hooded|fleece)/.test(`${category} ${name}`)) return 2;
   return 3;
 };
 
