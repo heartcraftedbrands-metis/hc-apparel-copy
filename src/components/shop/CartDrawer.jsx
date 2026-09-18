@@ -77,7 +77,8 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                         <Button
                           size="icon"
                           variant="outline"
-                          className="h-7 w-7"
+                          className="h-11 w-11 sm:h-8 sm:w-8"
+                          aria-label={`Decrease quantity of ${item.name}`}
                           onClick={() => onUpdateQuantity(itemKey, item.quantity - 1)}
                         >
                           <Minus className="h-3 w-3" />
@@ -86,7 +87,8 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                         <Button
                           size="icon"
                           variant="outline"
-                          className="h-7 w-7"
+                          className="h-11 w-11 sm:h-8 sm:w-8"
+                          aria-label={`Increase quantity of ${item.name}`}
                           onClick={() => onUpdateQuantity(itemKey, item.quantity + 1)}
                           disabled={(item.product_type || 'physical') === 'physical' && garmentQuantity >= 49}
                         >
@@ -95,7 +97,8 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="ml-auto h-7 w-7 text-red-500 hover:text-red-600"
+                          className="ml-auto h-11 w-11 text-red-500 hover:text-red-600 sm:h-8 sm:w-8"
+                          aria-label={`Remove ${item.name} from cart`}
                           onClick={() => onRemoveItem(itemKey)}
                         >
                           <Trash2 className="h-3 w-3" />

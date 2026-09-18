@@ -76,7 +76,7 @@ export default function GarmentProductCard({ product }) {
         <Link to={`/ProductDetail?id=${product.id}`}>
           <h3 className="font-semibold text-sm leading-snug mb-1 hover:text-primary transition-colors line-clamp-2">{publicName}</h3>
         </Link>
-        {styleLabel && <p className="mb-2 text-[11px] text-muted-foreground">Style: {styleLabel}</p>}
+        {styleLabel && <p className="mb-2 hidden text-[11px] text-muted-foreground sm:block">Style: {styleLabel}</p>}
 
         {/* Price */}
         <div className="flex items-baseline gap-1.5 mb-2">
@@ -129,7 +129,7 @@ export default function GarmentProductCard({ product }) {
         {/* Actions */}
         <div className="mt-auto pt-2 space-y-1.5">
           <Link to={`/ProductDetail?id=${product.id}`} className="block">
-            <Button size="sm" variant="outline" className="w-full h-8 gap-1.5 text-xs border-primary text-primary hover:bg-primary hover:text-primary-foreground">
+            <Button size="sm" variant="outline" className="w-full min-h-11 sm:min-h-8 gap-1.5 text-xs border-primary text-primary hover:bg-primary hover:text-primary-foreground">
               <Eye className="w-3.5 h-3.5" /> View Product
             </Button>
           </Link>
@@ -137,7 +137,7 @@ export default function GarmentProductCard({ product }) {
             product={product}
             blankFirst={blankFirst}
             trigger={(
-              <Button size="sm" className="w-full h-8 gap-1 text-xs">
+              <Button size="sm" className="w-full min-h-11 sm:min-h-8 gap-1 text-xs">
                 <ShoppingCart className="w-3.5 h-3.5" /> {blankFirst ? 'Add Blank to Cart' : 'Customize & Add to Cart'}
               </Button>
             )}
