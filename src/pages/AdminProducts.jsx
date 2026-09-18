@@ -448,6 +448,8 @@ export default function AdminProducts() {
               const isPrivateSSTest = vis === 'draft'
                 && product.vendor_source === 'S&S Activewear'
                 && product.is_sample;
+              const awaitsAdminApproval = vis === 'draft'
+                && product.draft_qa_status === 'ready_for_admin_approval';
               return (
                 <div key={product.id} className={`bg-white rounded-2xl border overflow-hidden shadow-sm hover:shadow-md transition-shadow ${isArchived ? 'opacity-70' : ''}`}>
                   <div className="aspect-square bg-muted overflow-hidden relative">
@@ -475,6 +477,11 @@ export default function AdminProducts() {
                       Vendor: {product.name}{getProductStyleLabel(product) ? ` · Style: ${getProductStyleLabel(product)}` : ''}
                     </p>
                     <p className="text-accent font-bold text-sm mb-1">${product.price?.toFixed(2)}</p>
+                    {awaitsAdminApproval && (
+                      <p className="mb-2 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">
+                        Ready for Admin Approval · Not published
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground mb-3">
                       {product.product_subtype ? product.product_subtype.replace(/_/g, ' ') : 'Physical'} · {product.category?.replace(/_/g, ' ') || 'Other'}
                     </p>
@@ -483,12 +490,12 @@ export default function AdminProducts() {
                         <Pencil className="w-3 h-3" /> Edit
                       </Button>
                       {/* Quick visibility toggle */}
-                      {isPrivateSSTest ? (
+                      {isPrivateSSTest || awaitsAdminApproval ? (
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-7 px-2"
-                          title="Publishing locked until private QA is approved"
+                          title="Publishing locked until explicit admin approval"
                           disabled
                         >
                           <LockKeyhole className="w-3 h-3" />
