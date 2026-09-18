@@ -40,6 +40,9 @@ const emptyItem = () => ({
   notes: '',
 });
 
+const addressValue = (address, ...keys) =>
+  keys.map((key) => address?.[key]).find((value) => String(value ?? '').trim()) || '';
+
 function validationWarnings(draft) {
   const warnings = getVendorDraftWarnings(draft);
   const items = Array.isArray(draft?.items) ? draft.items : [];
