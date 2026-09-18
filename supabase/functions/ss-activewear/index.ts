@@ -1199,11 +1199,12 @@ Deno.serve(async (request) => {
           return json(request, { error: 'Only Comfort Colors or DRI DUCK can be staged with this action' }, 400);
         }
         const brandStyles = selectedBrand ? styles.filter(style => style.canonicalBrand === selectedBrand) : [];
-        const driDuckFocus = [/fleece/i, /jacket|outerwear/i, /headwear|cap|hat/i, /women/i, /workwear|outdoor|work/i];
+        // These are the five existing private draft style names. S&S partNumber
+        // is a different internal identifier for DRI DUCK and must not be used
+        // as the draft style-number match.
+        const driDuckDraftStyles = new Set(['3458', '5020', '7035', '9340', '9416']);
         const focusedDriDuck = selectedBrand === 'DRI DUCK'
-          ? [...new Map(driDuckFocus.flatMap(pattern => brandStyles.filter(style =>
-            pattern.test([style.baseCategory, style.styleName, style.title].join(' '))
-          ).slice(0, 3)).map(style => [style.styleID, style])).values()].slice(0, 15)
+          ? brandStyles.filter(style => driDuckDraftStyles.has(String(style.styleName || '').trim()))
           : [];
         const selectedStyles = selectedBrand === 'DRI DUCK'
           ? focusedDriDuck
