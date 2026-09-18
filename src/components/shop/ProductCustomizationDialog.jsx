@@ -178,7 +178,7 @@ export default function ProductCustomizationDialog({
         <div className="space-y-5">
           <div className="rounded-xl border bg-muted/40 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected product</p>
-            <p className="font-semibold">{product?.name}</p>
+            <p className="font-semibold">{publicName}</p>
             {variant?.sku && <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>}
             <p className="mt-1 text-sm font-semibold text-primary">
               {variant
