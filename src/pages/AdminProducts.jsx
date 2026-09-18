@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +116,7 @@ const EMPTY_FORM = {
   tags: [], is_featured: false, is_best_seller: false,
   care_instructions: '', shipping_note: '',
   vendor_source: '', vendor_cost: '', blank_garment_cost: '', print_cost_estimate: '',
-  profit_estimate: '', internal_notes: '', supplier_sku: '', vendor_pricing_id: '',
+  profit_estimate: '', internal_notes: '', supplier_sku: '', vendor_pricing_id: '', price_edit_note: '',
 };
 
 export default function AdminProducts() {
@@ -142,6 +143,37 @@ export default function AdminProducts() {
     queryFn: () => base44.entities.Product.list('-created_date'),
   });
 
+  const { data: pricingRules = [] } = useQuery({
+    queryKey: ['admin-storefront-pricing-rules'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('storefront_pricing_rules').select('*').eq('is_active', true);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const category = formData.category || '';
+  const fallbackRuleKey = category.includes('hood') ? 'hoodie'
+    : category.includes('crew') || category.includes('sweat') ? 'crewneck'
+      : category.includes('long_sleeve') ? 'long_sleeve'
+        : category.includes('jacket') || category.includes('outerwear') ? 'outerwear'
+          : category.includes('fleece') ? 'fleece'
+            : category.includes('hat') ? 'hat'
+              : category.includes('youth') ? 'youth_kids' : 'premium_tshirt';
+  const pricingRule = pricingRules.find(rule => rule.rule_key === editingProduct?.storefront_pricing_rule_key)
+    || pricingRules.find(rule => rule.rule_key === fallbackRuleKey);
+  const vendorCost = Number(formData.vendor_cost);
+  const marginFloor = vendorCost > 0 ? Math.max(
+    Number(pricingRule?.minimum_price || 0),
+    vendorCost + Number(pricingRule?.storefront_margin_buffer ?? 3),
+    vendorCost / (1 - Number(pricingRule?.minimum_margin_percent || 0)),
+  ) : null;
+  const recommendedPrice = vendorCost > 0 ? Math.max(
+    marginFloor,
+    vendorCost * Number(pricingRule?.cost_multiplier || 1) + Number(pricingRule?.fixed_allowance || 0)
+      + Number(pricingRule?.storefront_margin_buffer ?? 3),
+  ) : null;
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Product.create(data),
     onSuccess: () => { queryClient.invalidateQueries(['admin-products']); setIsDialogOpen(false); resetForm(); toast.success('Product created successfully.'); },
@@ -151,7 +183,7 @@ export default function AdminProducts() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Product.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries(['admin-products']); setIsDialogOpen(false); setEditingProduct(null); resetForm(); toast.success('Product updated successfully.'); },
-    onError: () => { toast.error('Product update failed. Please check required fields.'); },
+    onError: (error) => { toast.error(error?.message || 'Product update failed. Please check required fields.'); },
   });
 
   const deleteMutation = useMutation({
@@ -199,6 +231,7 @@ export default function AdminProducts() {
       internal_notes: product.internal_notes || '',
       supplier_sku: product.supplier_sku || '',
       vendor_pricing_id: product.vendor_pricing_id || '',
+      price_edit_note: '',
     });
     setIsDialogOpen(true);
   };
@@ -217,6 +250,13 @@ export default function AdminProducts() {
     }
     if (!formData.visibility) {
       toast.error('Product status is required');
+      return;
+    }
+    if (editingProduct && marginFloor !== null && (
+      Number(formData.price) < Math.round(marginFloor * 100) / 100
+      || (formData.sale_price !== '' && Number(formData.sale_price) < Math.round(marginFloor * 100) / 100)
+    )) {
+      toast.error(`Public price is below the current cost and margin floor ($${marginFloor.toFixed(2)}).`);
       return;
     }
     if (
@@ -262,6 +302,7 @@ export default function AdminProducts() {
       ...(formData.profit_estimate && { profit_estimate: parseFloat(formData.profit_estimate) }),
       ...(formData.internal_notes && { internal_notes: formData.internal_notes }),
       ...(formData.vendor_pricing_id && { vendor_pricing_id: formData.vendor_pricing_id }),
+      ...(editingProduct && { price_edit_note: formData.price_edit_note?.trim() || null }),
     };
 
     if (editingProduct) {
@@ -507,6 +548,19 @@ export default function AdminProducts() {
                 <Label>Sale Price ($) <span className="text-xs text-muted-foreground">optional</span></Label>
                 <Input type="number" step="0.01" min="0" value={formData.sale_price} onChange={e => setFormData(p => ({...p, sale_price: e.target.value}))} placeholder="Leave blank if no sale" className="mt-1" />
               </div>
+              {editingProduct && (
+                <div className="col-span-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-sm">
+                  <p className="font-semibold">Admin pricing review</p>
+                  <p>Current public price: ${Number(editingProduct.price || 0).toFixed(2)} · Vendor cost: {vendorCost > 0 ? `$${vendorCost.toFixed(2)}` : 'not verified'}</p>
+                  <p>Rule: {pricingRule?.display_name || 'No stored rule — vendor + $3 default'} · Recommended: {recommendedPrice === null ? 'unavailable without cost' : `$${recommendedPrice.toFixed(2)}`}</p>
+                  <p>Minimum allowed: {marginFloor === null ? 'unverified without cost' : `$${marginFloor.toFixed(2)}`}</p>
+                  {marginFloor !== null && Number(formData.price) < Math.round(marginFloor * 100) / 100 && (
+                    <p className="font-semibold text-red-700">Price is below the margin floor and cannot be saved.</p>
+                  )}
+                  <Label htmlFor="price-edit-note" className="mt-2 block">Price change reason (admin audit)</Label>
+                  <Input id="price-edit-note" value={formData.price_edit_note || ''} onChange={e => setFormData(p => ({ ...p, price_edit_note: e.target.value }))} placeholder="Optional reason for this price edit" className="mt-1" />
+                </div>
+              )}
               <div>
                 <Label>Product Type *</Label>
                 <Select value={formData.product_type} onValueChange={v => setFormData(p => ({...p, product_type: v}))}>
