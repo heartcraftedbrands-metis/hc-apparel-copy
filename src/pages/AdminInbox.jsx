@@ -8,11 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   Mail, MessageSquare, Package, Clock, Eye, CheckCircle, Archive,
-  Loader2, ChevronRight, Inbox, DollarSign, Truck, ExternalLink, ArrowLeft
+  Loader2, ChevronRight, Inbox, DollarSign, Truck, ExternalLink, ArrowLeft, AlertTriangle
 } from 'lucide-react';
 import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import { format } from 'date-fns';
-import { isActiveInboxItem, isArchivedInboxItem, isActiveInboxOrder, isQaTestInboxItem } from '@/lib/inboxFilters';
+import { isActiveInboxItem, isArchivedInboxItem, isActiveInboxOrder, isQaTestInboxItem, isCheckoutIssueOrder } from '@/lib/inboxFilters';
 
 // Simple in-page toast
 function useToast() {
@@ -126,6 +126,10 @@ export default function AdminInbox() {
   const [activeTemplate, setActiveTemplate] = useState(null);
   const [templateVars, setTemplateVars] = useState({});
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [issueFilter, setIssueFilter] = useState('open');
+  const [retryingPayment, setRetryingPayment] = useState(false);
+  const [retryPaymentUrl, setRetryPaymentUrl] = useState('');
+  const [checkoutReadiness, setCheckoutReadiness] = useState('');
   const [paymentNote, setPaymentNote]   = useState('');
   const [trackingNum, setTrackingNum]   = useState('');
   const [savingNote, setSavingNote]     = useState(false);
@@ -200,6 +204,53 @@ export default function AdminInbox() {
     base44.entities.Order.update(id, data).then(() =>
       qc.invalidateQueries({ queryKey: ['orders_inbox'] })
     );
+  };
+
+  const updateCheckoutIssue = async (order, data) => {
+    try {
+      await base44.entities.Order.update(order.id, data);
+      setSelectedOrder(null);
+      await qc.invalidateQueries({ queryKey: ['orders_inbox'] });
+      showToast(data.checkout_issue_archived_at ? 'Checkout issue archived.' : 'Checkout issue marked resolved.');
+    } catch {
+      showToast('Could not update the checkout issue. Please try again.');
+    }
+  };
+
+  const retryPaymentLink = async (order) => {
+    setRetryingPayment(true);
+    setRetryPaymentUrl('');
+    try {
+      const origin = window.location.origin;
+      const { data } = await base44.functions.invoke('createStripeCheckoutSession', {
+        orderId: order.id,
+        adminRetry: true,
+        successUrl: `${origin}/OrderConfirmation?orderId=${encodeURIComponent(order.id)}&session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${origin}/Checkout`,
+      });
+      const url = data?.checkout_url;
+      if (!url || new URL(url).hostname !== 'checkout.stripe.com') throw new Error('Invalid payment link');
+      setRetryPaymentUrl(url);
+      setSelectedOrder(null);
+      await qc.invalidateQueries({ queryKey: ['orders_inbox'] });
+      showToast('Payment link ready to copy. No email was sent.');
+    } catch {
+      showToast('Payment link could not be created. No email was sent.');
+    } finally {
+      setRetryingPayment(false);
+    }
+  };
+
+  const checkCheckoutReadiness = async () => {
+    setCheckoutReadiness('Checking…');
+    try {
+      const { data } = await base44.functions.invoke('createStripeCheckoutSession', { adminHealthCheck: true });
+      setCheckoutReadiness(data?.ready
+        ? `Stripe ${data.stripe_mode} checkout configuration is ready. No session was created.`
+        : 'Checkout is not ready. Review the server logs.');
+    } catch {
+      setCheckoutReadiness('Checkout readiness check failed. Review the server logs.');
+    }
   };
 
   // Mark paid: update locally, clear from payment list, auto-select next
@@ -376,6 +427,7 @@ export default function AdminInbox() {
 
   // ── Filter predicates ────────────────────────────────────────
   function isAwaitingPayment(o) {
+    if (isCheckoutIssueOrder(o)) return false;
     const ps = o.payment_status;
     const bal = (o.total_amount || 0) - (o.amount_paid || 0);
     if (['paid', 'partially_paid', 'refunded', 'canceled', 'demo'].includes(ps)) return false;
@@ -393,6 +445,12 @@ export default function AdminInbox() {
   // ── Derived lists ────────────────────────────────────────────
   const awaitingPaymentOrders    = orders.filter(isAwaitingPayment);
   const awaitingFulfillmentOrders = orders.filter(isAwaitingFulfillment);
+  const checkoutIssueOrders = orders.filter(isCheckoutIssueOrder);
+  const visibleCheckoutIssues = checkoutIssueOrders.filter(o => issueFilter === 'archived'
+    ? Boolean(o.checkout_issue_archived_at)
+    : issueFilter === 'resolved'
+      ? Boolean(o.checkout_issue_resolved_at) && !o.checkout_issue_archived_at
+      : !o.checkout_issue_resolved_at && !o.checkout_issue_archived_at);
 
   // ── Tab switching: reset selection, auto-select first ────────
   const switchTab = (tab) => {
@@ -401,6 +459,7 @@ export default function AdminInbox() {
     setSelectedQ(null);
     setSelectedArchived(null);
     setSelectedOrder(null);
+    setRetryPaymentUrl('');
     setPaymentNote('');
     setTrackingNum('');
     // Auto-select first item after state settles (next tick)
@@ -468,6 +527,9 @@ export default function AdminInbox() {
           </TabBtn>
           <TabBtn active={activeTab === 'payment'}     onClick={() => switchTab('payment')}     badge={awaitingPayCount}>
             <DollarSign className="w-4 h-4" />Awaiting Payment
+          </TabBtn>
+          <TabBtn active={activeTab === 'checkout_issues'} onClick={() => switchTab('checkout_issues')} badge={checkoutIssueOrders.filter(o => !o.checkout_issue_resolved_at && !o.checkout_issue_archived_at).length}>
+            <AlertTriangle className="w-4 h-4" />Checkout Issues
           </TabBtn>
           <TabBtn active={activeTab === 'fulfillment'} onClick={() => switchTab('fulfillment')} badge={awaitingFulfCount}>
             <Truck className="w-4 h-4" />Awaiting Fulfillment
@@ -759,6 +821,95 @@ export default function AdminInbox() {
               ) : <EmptyPanel icon={<Archive className="w-8 h-8 opacity-20" />}>
                 Select an archived item to view details
               </EmptyPanel>}
+            </div>
+          </div>
+        )}
+
+        {/* ── CHECKOUT ISSUES TAB ──────────────────────────────── */}
+        {activeTab === 'checkout_issues' && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-white p-4">
+              <Button size="sm" variant="outline" onClick={checkCheckoutReadiness}>Check Checkout Readiness</Button>
+              <p className="text-xs text-muted-foreground">{checkoutReadiness || 'Read-only check; no order or Stripe session is created.'}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'open', label: 'Open' },
+                { key: 'resolved', label: 'Resolved' },
+                { key: 'archived', label: 'Archived' },
+              ].map(filter => (
+                <Button key={filter.key} size="sm" variant={issueFilter === filter.key ? 'default' : 'outline'}
+                  onClick={() => { setIssueFilter(filter.key); setSelectedOrder(null); }}>
+                  {filter.label}
+                </Button>
+              ))}
+            </div>
+            {retryPaymentUrl && (
+              <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm space-y-2">
+                <p className="font-semibold text-green-800">Payment link created. No email was sent.</p>
+                <a href={retryPaymentUrl} target="_blank" rel="noreferrer" className="break-all text-primary underline">Open Stripe Checkout link</a>
+                <Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(retryPaymentUrl)
+                  .then(() => showToast('Payment link copied.')).catch(() => showToast('Copy failed. Open the link and copy its address.'))}>
+                  Copy Payment Link
+                </Button>
+              </div>
+            )}
+            <div className="grid lg:grid-cols-5 gap-6">
+              <div className="lg:col-span-2 space-y-2">
+                {loadingOrders ? <Spinner /> : visibleCheckoutIssues.length === 0 ? (
+                  <Empty>No {issueFilter} checkout issues.</Empty>
+                ) : visibleCheckoutIssues.map(o => (
+                  <button key={o.id} onClick={() => setSelectedOrder(o)} className={cardCls(o.id, selectedOrder)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-sm">Order {orderNum(o)}</p>
+                      <Badge className="bg-amber-100 text-amber-800 text-xs">{o.payment_status === 'checkout_failed' ? 'Failed start' : 'No session'}</Badge>
+                    </div>
+                    <p className="text-sm font-medium mt-1">{o.customer_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{o.customer_email}</p>
+                    <p className="text-xs text-muted-foreground truncate">{itemPreview(o)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{fmt(o.checkout_failure_at || o.created_date, true)}</p>
+                    <p className="text-sm font-bold mt-1">{money(o.total_amount)}</p>
+                  </button>
+                ))}
+              </div>
+              <div className="lg:col-span-3">
+                {selectedOrder && visibleCheckoutIssues.some(o => o.id === selectedOrder.id) ? (
+                  <div className="bg-white border border-border rounded-2xl p-6 shadow-sm space-y-4">
+                    <h2 className="font-bold text-lg">Checkout issue for order {orderNum(selectedOrder)}</h2>
+                    <Field label="Customer" value={selectedOrder.customer_name} />
+                    <Field label="Email" value={selectedOrder.customer_email} />
+                    <Field label="Items" value={itemPreview(selectedOrder)} />
+                    <Field label="Order total" value={money(selectedOrder.total_amount)} />
+                    <Field label="Attempted" value={fmt(selectedOrder.checkout_failure_at || selectedOrder.created_date, true)} />
+                    <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-900">
+                      {selectedOrder.payment_status === 'checkout_failed'
+                        ? 'Stripe checkout session failed to start'
+                        : 'No Stripe checkout session is recorded for this order.'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">No payment, vendor submission, or customer email is triggered by viewing this issue.</p>
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                      {issueFilter === 'open' && selectedOrder.payment_status === 'checkout_failed' && (
+                        <Button size="sm" variant="outline" disabled={retryingPayment} onClick={() => retryPaymentLink(selectedOrder)}>
+                          {retryingPayment ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}Retry Payment Link
+                        </Button>
+                      )}
+                      {issueFilter === 'open' && (
+                        <Button size="sm" variant="outline" onClick={() => updateCheckoutIssue(selectedOrder, { checkout_issue_resolved_at: new Date().toISOString() })}>
+                          Mark Resolved
+                        </Button>
+                      )}
+                      {issueFilter !== 'archived' && (
+                        <Button size="sm" variant="outline" onClick={() => updateCheckoutIssue(selectedOrder, { checkout_issue_archived_at: new Date().toISOString() })}>
+                          Archive
+                        </Button>
+                      )}
+                      <Link to={`/AdminOrderDetail?id=${selectedOrder.id}`}><Button size="sm" variant="outline">View Order Details</Button></Link>
+                    </div>
+                  </div>
+                ) : <EmptyPanel icon={<AlertTriangle className="w-8 h-8 opacity-20" />}>
+                  Select a checkout issue to view details
+                </EmptyPanel>}
+              </div>
             </div>
           </div>
         )}

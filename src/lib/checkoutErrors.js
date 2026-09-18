@@ -1,6 +1,6 @@
 export const SIGN_IN_AGAIN = 'Please sign in again to continue checkout.';
 export const CHECKOUT_CONNECT = 'Checkout could not connect. Please refresh and try again.';
-export const PAYMENT_UNAVAILABLE = 'Payment checkout could not be started. Please contact support@ilovehcapparel.net.';
+export const PAYMENT_UNAVAILABLE = 'Payment checkout could not be started. Please refresh and try again. If this continues, contact support@ilovehcapparel.net.';
 
 const safeValidationReasons = new Set([
   'At least one garment item is required',

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
-import { isActiveInboxItem, isActiveInboxOrder } from '@/lib/inboxFilters';
+import { isActiveInboxItem, isActiveInboxOrder, isCheckoutIssueOrder } from '@/lib/inboxFilters';
 
 function money(v) {
   if (v == null) return '$0';
@@ -85,6 +85,7 @@ export default function AdminDashboard() {
   const newQuotes    = quotes.filter(q => isActiveInboxItem(q) && q.status === 'new').length;
   const inboxOrders = orders.filter(isActiveInboxOrder);
   const awaitingPay  = inboxOrders.filter(o => {
+    if (isCheckoutIssueOrder(o)) return false;
     const ps = o.payment_status;
     return ['awaiting_payment','unpaid','pending','pay_later'].includes(ps) || (!ps && (o.total_amount || 0) > (o.amount_paid || 0));
   }).length;
