@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from "@/components/ui/button";
+import { getPublicProductDescription } from '@/lib/publicProductCopy';
 
 export default function CarouselSection() {
   const [current, setCurrent] = useState(0);
@@ -45,7 +46,7 @@ export default function CarouselSection() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-8">
                   <h3 className="text-2xl font-bold text-white mb-1">{product.name}</h3>
-                  <p className="text-white/80 mb-4 text-sm line-clamp-2">{product.description}</p>
+                  <p className="text-white/80 mb-4 text-sm line-clamp-2">{getPublicProductDescription(product, product.name)}</p>
                   <div className="flex items-center gap-4">
                     <span className="text-white text-xl font-semibold">${product.price?.toFixed(2)}</span>
                     <Link to={`${createPageUrl('ProductDetail')}?id=${product.id}`}>

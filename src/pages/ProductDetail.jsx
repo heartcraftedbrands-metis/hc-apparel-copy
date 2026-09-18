@@ -12,6 +12,7 @@ import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarm
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 import { getProductBrand, getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
+import { getPublicProductDescription, getPublicProductText } from "@/lib/publicProductCopy";
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -310,6 +311,7 @@ export default function ProductDetail() {
     enabled: !!productId,
   });
   const publicName = getPublicProductName(product);
+  const publicDescription = getPublicProductDescription(product, publicName);
   const productBrand = getProductBrand(product);
   const styleLabel = getProductStyleLabel(product);
 
@@ -416,17 +418,26 @@ export default function ProductDetail() {
     && !Array.isArray(product.vendor_specs)
     && typeof product.vendor_specs === 'object'
   )
-    ? Object.entries(product.vendor_specs).filter(([, value]) => (
-      value !== null && value !== undefined && String(value).trim()
+    ? Object.entries(product.vendor_specs).filter(([key, value]) => (
+      getPublicProductText(key) && value !== null && value !== undefined
+      && getPublicProductText(Array.isArray(value) ? value.join(', ') : value)
     ))
     : [];
+  const publicFabricMaterial = getPublicProductText(product.fabric_material);
+  const publicGarmentWeight = getPublicProductText(product.garment_weight);
+  const publicFit = getPublicProductText(product.fit);
+  const publicFeatures = Array.isArray(product.features)
+    ? product.features.filter(feature => getPublicProductText(feature))
+    : [];
+  const publicShippingNote = getPublicProductText(product.shipping_note);
+  const publicCareInstructions = getPublicProductText(product.care_instructions);
   const hasProductSpecs = Boolean(
-    product.fabric_material
-    || product.garment_weight
-    || product.fit
+    publicFabricMaterial
+    || publicGarmentWeight
+    || publicFit
     || product.style_number
     || product.supplier_sku
-    || (Array.isArray(product.features) && product.features.length > 0)
+    || publicFeatures.length > 0
     || vendorSpecEntries.length > 0
   );
 
@@ -636,11 +647,11 @@ export default function ProductDetail() {
             </div>
 
             <div className="space-y-5 border-t pt-5">
-              {product.description && (
+              {publicDescription && (
                 <section>
                   <h2 className="mb-2 text-lg font-bold">Description</h2>
                   <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                    {product.description}
+                    {publicDescription}
                   </p>
                 </section>
               )}
@@ -649,14 +660,14 @@ export default function ProductDetail() {
                 {hasProductSpecs ? (
                   <>
                   <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                    {product.fabric_material && (
-                      <div><dt className="font-semibold">Fabric / material</dt><dd className="text-muted-foreground">{product.fabric_material}</dd></div>
+                    {publicFabricMaterial && (
+                      <div><dt className="font-semibold">Fabric / material</dt><dd className="text-muted-foreground">{publicFabricMaterial}</dd></div>
                     )}
-                    {product.garment_weight && (
-                      <div><dt className="font-semibold">Weight</dt><dd className="text-muted-foreground">{product.garment_weight}</dd></div>
+                    {publicGarmentWeight && (
+                      <div><dt className="font-semibold">Weight</dt><dd className="text-muted-foreground">{publicGarmentWeight}</dd></div>
                     )}
-                    {product.fit && (
-                      <div><dt className="font-semibold">Fit</dt><dd className="text-muted-foreground">{product.fit}</dd></div>
+                    {publicFit && (
+                      <div><dt className="font-semibold">Fit</dt><dd className="text-muted-foreground">{publicFit}</dd></div>
                     )}
                     {(product.style_number || product.supplier_sku) && (
                       <div><dt className="font-semibold">Style</dt><dd className="text-muted-foreground">{product.style_number || product.supplier_sku}</dd></div>
@@ -668,9 +679,9 @@ export default function ProductDetail() {
                       </div>
                     ))}
                   </dl>
-                  {Array.isArray(product.features) && product.features.length > 0 && (
+                  {publicFeatures.length > 0 && (
                     <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {product.features.map(feature => <li key={feature}>{feature}</li>)}
+                      {publicFeatures.map(feature => <li key={feature}>{feature}</li>)}
                     </ul>
                   )}
                   </>
@@ -735,10 +746,10 @@ export default function ProductDetail() {
 
             {/* Info cards */}
             <div className="space-y-2 border-t pt-4">
-              {product.shipping_note ? (
+              {publicShippingNote ? (
                 <div className="flex items-start gap-2.5 text-sm bg-primary/5 border border-primary/10 rounded-xl p-3">
                   <Truck className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-                  <p className="text-foreground/80">{product.shipping_note}</p>
+                  <p className="text-foreground/80">{publicShippingNote}</p>
                 </div>
               ) : (
                 <div className="flex items-start gap-2.5 text-sm bg-muted/40 rounded-xl p-3">
@@ -746,12 +757,12 @@ export default function ProductDetail() {
                   <p className="text-muted-foreground">Production & shipping times vary. Contact us for rush orders.</p>
                 </div>
               )}
-              {product.care_instructions && (
+              {publicCareInstructions && (
                 <div className="flex items-start gap-2.5 text-sm bg-muted/40 rounded-xl p-3">
                   <Scissors className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="font-semibold text-foreground mb-0.5">Care Instructions</p>
-                    <p className="text-muted-foreground">{product.care_instructions}</p>
+                  <p className="text-muted-foreground">{publicCareInstructions}</p>
                   </div>
                 </div>
               )}

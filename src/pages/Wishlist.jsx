@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getPublicProductName, getProductStyleLabel } from '@/lib/productDisplayName';
+import { getPublicProductDescription } from '@/lib/publicProductCopy';
 
 export default function Wishlist() {
   const { items, toggle } = useWishlist();
@@ -77,7 +78,7 @@ export default function Wishlist() {
                   <h3 className="font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1">{publicName}</h3>
                 </Link>
                 {styleLabel && <p className="text-xs text-gray-500">Style: {styleLabel}</p>}
-                <p className="text-gray-500 text-sm line-clamp-1 mt-0.5">{product.description}</p>
+                <p className="text-gray-500 text-sm line-clamp-1 mt-0.5">{getPublicProductDescription(product, publicName)}</p>
                 <p className="text-lg font-bold text-gray-900 mt-1">${product.price?.toFixed(2)}</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">

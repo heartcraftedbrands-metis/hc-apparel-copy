@@ -1,3 +1,5 @@
+import { hasInternalProductCopy } from './publicProductCopy.js';
+
 const KNOWN_BRANDS = [
   'American Apparel', 'Bella + Canvas', 'Comfort Colors', 'Independent Trading Co.',
   'Independent Trading Co', 'Lane Seven', 'Next Level', 'Rabbit Skins', 'Shaka Wear',
@@ -70,7 +72,7 @@ const descriptiveNameTitle = (product, brand) => {
 
 const descriptionTitle = (product, brand) => {
   let value = cleanWhitespace(product?.description);
-  if (!value || /private s&s activewear|not approved for the public storefront/i.test(value)) return '';
+  if (!value || hasInternalProductCopy(value)) return '';
   value = value.split(/\.\s+(?:Custom decoration|Brand:|Style:)/i)[0];
   value = value.replace(/\s+(?:Heavyweight\s+Shaka Wear|Premium\s+Columbia)\s+blank apparel.*$/i, '');
   const title = stripLeadingVendorReference(value, brand);
