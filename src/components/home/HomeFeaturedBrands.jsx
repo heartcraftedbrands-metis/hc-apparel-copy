@@ -9,19 +9,19 @@ const FEATURED_BRANDS = [
   {
     name: 'Columbia',
     description: 'Outdoor-ready fleece, jackets and cold-weather essentials with a technical edge.',
-    href: '/ShopGarments?brand=columbia',
+    href: '/brand/columbia',
     eyebrow: 'Outdoor layers',
   },
   {
     name: 'Shaka Wear',
     description: 'Heavyweight streetwear blanks with structure, presence and an unmistakable fit.',
-    href: '/ShopGarments?brand=shaka_wear',
+    href: '/brand/shaka-wear',
     eyebrow: 'Heavyweight icons',
   },
   {
     name: 'Champion',
     description: 'Athletic fleece, hoodies and everyday essentials rooted in sport heritage.',
-    href: '/ShopGarments?brand=champion',
+    href: '/brand/champion',
     eyebrow: 'Sport heritage',
   },
 ];

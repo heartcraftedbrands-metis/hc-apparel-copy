@@ -5,7 +5,7 @@ import { ArrowRight, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getCatalogProductImage as getHeroProductImage } from '@/lib/homeCatalogImages';
 import { getProductBrand } from '@/lib/shopGarmentFilters';
-import { brandFilterValue } from '@/lib/ssBrands';
+import { brandPageByName } from '@/lib/brandPages';
 
 const HERO_BRANDS = ['Columbia', 'Shaka Wear', 'Champion'];
 
@@ -16,7 +16,7 @@ function normalizeBrand(value) {
 function FeaturedBrandCard({ brand, product }) {
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = getHeroProductImage(product);
-  const href = `/ShopGarments?brand=${brandFilterValue(brand)}`;
+  const href = `/brand/${brandPageByName(brand)?.slug}`;
   const showImage = imageUrl && !imageFailed;
 
   return (

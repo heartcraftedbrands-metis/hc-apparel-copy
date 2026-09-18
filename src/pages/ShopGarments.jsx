@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, MessageSquare, Search, SlidersHorizontal, Sparkles, Star, X } from 'lucide-react';
 
@@ -28,6 +28,7 @@ import {
   matchesCategory,
 } from '@/lib/shopGarmentFilters';
 import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from '@/lib/ssBrands';
+import { BRAND_PAGES, brandPageByName } from '@/lib/brandPages';
 
 function toggleListValue(setter, value) {
   setter(current => (
@@ -298,6 +299,7 @@ function FilterPanel({
 }
 
 export default function ShopGarments() {
+  const navigate = useNavigate();
   const [category, setCategory] = useState('all');
   const [brand, setBrand] = useState('all');
   const [search, setSearch] = useState('');
@@ -330,7 +332,8 @@ export default function ShopGarments() {
     setSearch(params.get('q') || '');
     setCategory(categoryExists ? requestedType : 'all');
     setBrand(matchedBrand ? brandFilterValue(matchedBrand) : 'all');
-  }, [location.search]);
+    if (matchedBrand && brandPageByName(matchedBrand)) navigate(`/brand/${brandPageByName(matchedBrand).slug}`, { replace: true });
+  }, [location.search, navigate]);
 
   const {
     data: allProducts = [],
@@ -396,7 +399,11 @@ export default function ShopGarments() {
     category,
     setCategory,
     brand,
-    setBrand,
+    setBrand: value => {
+      const page = BRAND_PAGES.find(item => brandFilterValue(item.name) === value);
+      if (page) navigate(`/brand/${page.slug}`);
+      else setBrand(value);
+    },
     selectedSizes,
     setSelectedSizes,
     selectedColors,
@@ -480,6 +487,7 @@ export default function ShopGarments() {
       </div>
 
       <div className="container mx-auto px-4 py-6">
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-2" aria-label="Shop by brand">{BRAND_PAGES.map(item => <Link key={item.slug} to={`/brand/${item.slug}`} className="shrink-0 rounded-full border bg-white px-4 py-2 text-xs font-bold hover:border-primary hover:text-primary">{item.name}</Link>)}</div>
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <div className="relative min-w-[180px] max-w-sm flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

@@ -12,6 +12,7 @@ const approvedBrands = [
   'Gildan',
   'Bella + Canvas',
   'Comfort Colors',
+  'DRI DUCK',
   'Shaka Wear',
   'Next Level',
   'Jerzees',
@@ -34,6 +35,7 @@ const coldWeatherBrands = new Set([
   'Lane Seven',
   'Independent Trading Co',
   'Comfort Colors',
+  'DRI DUCK',
   'Tultex',
   'adidas',
   'Oakley',
@@ -335,6 +337,7 @@ Deno.serve(async (request) => {
     'test_connection',
     'preview_catalog',
     'stage_styles',
+    'stage_brand_styles',
     'stage_cold_weather_styles',
     'sync_brand_products',
     'refresh_public_style_content',
@@ -876,6 +879,8 @@ Deno.serve(async (request) => {
       .from('ss_import_staging')
       .select('import_session_id')
       .eq('row_status', 'pending')
+      .eq('brand', brand)
+      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
       .order('created_date', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -1182,24 +1187,40 @@ Deno.serve(async (request) => {
     if (
       payload.action === 'preview_catalog'
       || payload.action === 'stage_styles'
+      || payload.action === 'stage_brand_styles'
       || payload.action === 'stage_cold_weather_styles'
     ) {
       const { counts, samples, styles } = collectApprovedStyles(result);
 
-      if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles') {
+      if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles' || payload.action === 'stage_brand_styles') {
         const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
-        const selectedStyles = coldWeatherOnly ? styles.filter(isColdWeatherStyle) : styles;
+        const selectedBrand = payload.action === 'stage_brand_styles' ? canonicalApprovedBrand(payload.brand) : null;
+        if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK'].includes(selectedBrand || '')) {
+          return json(request, { error: 'Only Comfort Colors or DRI DUCK can be staged with this action' }, 400);
+        }
+        const brandStyles = selectedBrand ? styles.filter(style => style.canonicalBrand === selectedBrand) : [];
+        const driDuckFocus = [/fleece/i, /jacket|outerwear/i, /headwear|cap|hat/i, /women/i, /workwear|outdoor|work/i];
+        const focusedDriDuck = selectedBrand === 'DRI DUCK'
+          ? [...new Map(driDuckFocus.flatMap(pattern => brandStyles.filter(style =>
+            pattern.test([style.baseCategory, style.styleName, style.title].join(' '))
+          ).slice(0, 3)).map(style => [style.styleID, style])).values()].slice(0, 15)
+          : [];
+        const selectedStyles = selectedBrand === 'DRI DUCK'
+          ? focusedDriDuck
+          : selectedBrand === 'Comfort Colors'
+            ? brandStyles.filter(style => ['00108', '00208', '00808', '00908', '10008', '70108'].includes(String(style.partNumber)))
+            : coldWeatherOnly ? styles.filter(isColdWeatherStyle) : styles;
         if (selectedStyles.length === 0) {
-          return json(request, { error: 'No eligible cold-weather S&S styles were available' }, 409);
+          return json(request, { error: selectedBrand ? `No S&S styles were available for ${selectedBrand}` : 'No eligible S&S styles were available' }, 409);
         }
 
-        const sessionPrefix = coldWeatherOnly ? 'ss-cold-weather' : 'ss-api';
+        const sessionPrefix = selectedBrand ? `ss-brand-${normalizeBrand(selectedBrand)}` : coldWeatherOnly ? 'ss-cold-weather' : 'ss-api';
         const sessionId = `${sessionPrefix}-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
         const rows = selectedStyles.map((style, index) => ({
           import_session_id: sessionId,
           file_name: coldWeatherOnly
             ? 'ss-activewear-api-v2-cold-weather-styles'
-            : 'ss-activewear-api-v2-styles',
+            : selectedBrand ? `ss-activewear-api-v2-${normalizeBrand(selectedBrand)}-styles` : 'ss-activewear-api-v2-styles',
           total_staged_rows: selectedStyles.length,
           row_number: index + 1,
           raw_row_data: JSON.stringify(style),

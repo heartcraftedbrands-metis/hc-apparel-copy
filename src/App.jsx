@@ -12,6 +12,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 // Public pages
 import HomePage from './pages/Home';
 import ShopGarmentsPage from './pages/ShopGarments';
+import BrandPage from './pages/BrandPage';
 import CustomPrintingPage from './pages/CustomPrinting';
 import PrintSupportPage from './pages/PrintSupport';
 import AboutPage from './pages/About';
@@ -29,6 +30,7 @@ import RequestOrderHelpPage from './pages/RequestOrderHelp';
 
 // Admin pages
 import AdminDashboard from './pages/AdminDashboard';
+import AdminBrandPages from './pages/AdminBrandPages';
 import AdminProducts from './pages/AdminProducts';
 import AdminDigitalArchive from './pages/AdminDigitalArchive';
 import AdminOrders from './pages/AdminOrders';
@@ -116,6 +118,7 @@ const AuthenticatedApp = () => {
 
       {/* Public store */}
       <Route path="/ShopGarments" element={<LayoutWrapper currentPageName="ShopGarments"><ShopGarmentsPage /></LayoutWrapper>} />
+      <Route path="/brand/:slug" element={<LayoutWrapper currentPageName="ShopGarments"><BrandPage /></LayoutWrapper>} />
       <Route path="/CustomPrinting" element={<LayoutWrapper currentPageName="CustomPrinting"><CustomPrintingPage /></LayoutWrapper>} />
       <Route path="/PrintSupport" element={<LayoutWrapper currentPageName="PrintSupport"><PrintSupportPage /></LayoutWrapper>} />
       <Route path="/About" element={<LayoutWrapper currentPageName="About"><AboutPage /></LayoutWrapper>} />
@@ -136,6 +139,7 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}
       <Route path="/AdminDashboard" element={<LayoutWrapper currentPageName="AdminDashboard"><AdminDashboard /></LayoutWrapper>} />
+      <Route path="/AdminBrandPages" element={<LayoutWrapper currentPageName="AdminBrandPages"><AdminBrandPages /></LayoutWrapper>} />
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />
       <Route path="/AdminSubscribers" element={<LayoutWrapper currentPageName="AdminSubscribers"><AdminSubscribers /></LayoutWrapper>} />

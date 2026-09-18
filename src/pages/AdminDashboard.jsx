@@ -225,6 +225,7 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {[
               { to: '/AdminProducts',              label: 'Products',            icon: <ShoppingBag /> },
+              { to: '/AdminBrandPages', label: 'Admin Brand Pages', icon: <Store /> },
               { to: '/AdminSocialMediaStudio',     label: 'Social Media Studio', icon: <Sparkles /> },
               { to: '/AdminEmailMarketingSettings', label: 'Email Marketing Settings', icon: <Mail /> },
               { to: '/AdminSubscribers',           label: 'Subscribers', icon: <Mail /> },

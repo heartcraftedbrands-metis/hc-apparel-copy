@@ -2,6 +2,7 @@ export const SS_ACTIVEWEAR_BRANDS = [
   'Gildan',
   'Bella + Canvas',
   'Comfort Colors',
+  'DRI DUCK',
   'Shaka Wear',
   'Next Level',
   'Jerzees',
@@ -15,6 +16,7 @@ export const SS_ACTIVEWEAR_BRANDS = [
   'Tultex',
   'Columbia',
   'Independent Trading Co',
+  'Port & Company',
 ];
 
 export function brandFilterValue(brand) {
