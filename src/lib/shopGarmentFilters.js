@@ -79,6 +79,9 @@ const YOUTH_CATEGORIES = [
   'kids',
 ];
 const STYLE_CATEGORY_RULES = [
+  { category: 'hats', brand: 'dri duck', styles: ['3458'] },
+  { category: 'outerwear', brand: 'dri duck', styles: ['5020', '9416'] },
+  { category: 'fleece', brand: 'dri duck', styles: ['7035', '9340'] },
   { category: 'hats', brand: 'oakley', styles: ['fos900833'] },
   { category: 'bags', brand: 'oakley', styles: ['fos901100'] },
   { category: 'polos', brand: 'oakley', styles: ['foa402993'] },
