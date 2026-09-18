@@ -286,6 +286,7 @@ Deno.serve(async (request) => {
     action?: string;
     brand?: string;
     draft_id?: string;
+    order_id?: string;
     ss_live_submission_enabled?: boolean;
     zerotouch_live_submission_enabled?: boolean;
   };
@@ -342,6 +343,8 @@ Deno.serve(async (request) => {
     'sync_brand_products',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
+    'check_blank_fulfillment_inventory',
+    'create_blank_fulfillment_draft',
     'get_admin_status',
     'set_live_controls',
     'submit_vendor_order',
@@ -351,6 +354,76 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'check_blank_fulfillment_inventory'
+    || payload.action === 'create_blank_fulfillment_draft') {
+    if (!payload.order_id) return json(request, { error: 'Customer order ID is required' }, 400);
+    const { data: order, error: orderError } = await userClient.from('orders')
+      .select('id,payment_status,total_amount,amount_paid,balance_due,shipping_address,order_items,artwork_file_url,artwork_link,print_method,print_placement,what_to_print')
+      .eq('id', payload.order_id).maybeSingle();
+    if (orderError || !order) return json(request, { error: 'Customer order not found' }, 404);
+    if (order.payment_status !== 'paid'
+      || Number(order.balance_due ?? (Number(order.total_amount) - Number(order.amount_paid))) > 0
+      || Number(order.amount_paid) < Number(order.total_amount)) {
+      return json(request, { error: 'Payment must be confirmed with no balance due' }, 400);
+    }
+    const address = order.shipping_address || {};
+    if (!(address.street || address.line1 || address.address1)
+      || !address.city || !address.state || !(address.zip || address.postal_code)) {
+      return json(request, { error: 'A complete shipping address is required' }, 400);
+    }
+    const items = Array.isArray(order.order_items) ? order.order_items : [];
+    if (!items.length || order.artwork_file_url || order.artwork_link || order.print_method
+      || (Array.isArray(order.print_placement) ? order.print_placement.length > 0 : Boolean(order.print_placement))
+      || order.what_to_print || items.some((item) =>
+      !item.sku || !item.product_name || !item.color || !item.size
+      || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1
+      || item.purchase_mode === 'customized' || item.is_customized === true
+      || item.artwork_file_url || item.decoration_method || item.print_method
+      || (Array.isArray(item.print_placement) ? item.print_placement.length > 0 : Boolean(item.print_placement))
+    )) return json(request, { error: 'Blank garment SKU, variant, quantity, and no-print validation failed' }, 400);
+    if (!accountNumber || !apiKey) return json(request, { error: 'S&S inventory connection is not configured' }, 503);
+
+    try {
+      const skuList = [...new Set(items.map((item) => String(item.sku).trim()))];
+      const url = new URL(`https://api.ssactivewear.com/v2/products/${skuList.map(encodeURIComponent).join(',')}`);
+      url.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
+      url.searchParams.set('mediatype', 'json');
+      const response = await fetch(url, {
+        headers: { Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) return json(request, { error: 'Current S&S inventory could not be confirmed' }, 502);
+      const body = await response.json();
+      const rows = Array.isArray(body) ? body as Array<Record<string, unknown>> : [];
+      const checks = items.map((item) => {
+        const row = rows.find((candidate) =>
+          String(candidate.sku ?? candidate.Sku ?? '').trim().toLowerCase() === String(item.sku).trim().toLowerCase());
+        const available = row ? inventoryQuantity(row) : 0;
+        const colorMatches = Boolean(row) && String(row?.colorName ?? row?.ColorName ?? '').trim().toLowerCase()
+          === String(item.color).trim().toLowerCase();
+        const sizeMatches = Boolean(row) && String(row?.sizeName ?? row?.SizeName ?? '').trim().toLowerCase()
+          === String(item.size).trim().toLowerCase();
+        const valid = Boolean(row) && colorMatches && sizeMatches && available >= Number(item.quantity);
+        return { sku: item.sku, requested_quantity: Number(item.quantity), available_quantity: available,
+          valid, reason: !row ? 'SKU not found' : !colorMatches || !sizeMatches ? 'Variant mismatch' : 'Insufficient inventory' };
+      });
+      if (payload.action === 'check_blank_fulfillment_inventory') {
+        return json(request, { valid: checks.every((check) => check.valid), items: checks,
+          checked_at: new Date().toISOString(), submitted: false });
+      }
+      if (checks.some((check) => !check.valid)) {
+        return json(request, { error: 'Current S&S inventory or variant could not be confirmed', items: checks }, 409);
+      }
+      const { data: draft, error: draftError } = await userClient.rpc('create_blank_ss_fulfillment_draft',
+        { p_order_id: payload.order_id });
+      if (draftError) return json(request, { error: draftError.message || 'Could not create the private draft' }, 400);
+      return json(request, { ...draft, submitted: false });
+    } catch (error) {
+      console.error('Read-only blank fulfillment inventory check failed', error instanceof Error ? error.name : 'unknown');
+      return json(request, { error: 'S&S inventory check could not connect. Try again before creating a draft.' }, 502);
+    }
+  }
 
   if (payload.action === 'get_admin_status') {
     const { data: settings, error: settingsError } = await userClient

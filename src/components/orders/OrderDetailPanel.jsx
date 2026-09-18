@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';
 import CreateVendorOrderModal from './CreateVendorOrderModal';
+import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
 
 const ORDER_STATUSES = [
   { value: 'new', label: 'New (Awaiting Payment)' },
@@ -146,7 +147,7 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
               {!order.vendor_order_id && (
                 <Button size="sm" onClick={() => setShowVendorModal(true)}
                   className="bg-accent text-accent-foreground hover:bg-accent/90 gap-1.5 h-8">
-                  <Truck className="w-3.5 h-3.5" />Create Vendor Order
+                  <Truck className="w-3.5 h-3.5" />{isBlankGarmentOrder(order, quoteRequest) ? 'Create S&S Fulfillment Draft' : 'Create Production / Print Vendor Order'}
                 </Button>
               )}
             </div>
@@ -333,9 +334,9 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
           onClose={() => setShowVendorModal(false)}
           onCreated={(vo) => {
             setShowVendorModal(false);
-            setOrder(prev => ({ ...prev, vendor_order_id: vo.id }));
+            setOrder(prev => ({ ...prev, vendor_order_id: vo.draft_id || vo.id }));
             if (queryClient) queryClient.invalidateQueries(['admin-orders']);
-            if (onUpdated) onUpdated({ ...order, vendor_order_id: vo.id });
+            if (onUpdated) onUpdated({ ...order, vendor_order_id: vo.draft_id || vo.id });
           }}
         />
       )}

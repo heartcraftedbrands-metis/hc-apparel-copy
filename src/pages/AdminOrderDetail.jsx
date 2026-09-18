@@ -24,6 +24,7 @@ import ProductionPacket from '@/components/orders/ProductionPacket';
 import ProductionWorkflowPanel from '@/components/orders/ProductionWorkflowPanel';
 import SSVendorOrderTimeline from '@/components/orders/SSVendorOrderTimeline';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
+import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
 
 const ORDER_STATUSES = [
   { value: 'awaiting_payment', label: 'Awaiting Payment' },
@@ -48,7 +49,7 @@ const PAYMENT_STATUSES = [
 
 const FULFILLMENT_STATUSES = [
   { value: 'not_started', label: 'Not Started' },
-  { value: 'vendor_order_needed', label: 'Vendor Order Needed' },
+  { value: 'vendor_order_needed', label: 'S&S Fulfillment Needed' },
   { value: 'ordered_from_vendor', label: 'Ordered From Vendor' },
   { value: 'in_transit_to_me', label: 'In Transit to Me' },
   { value: 'ready_to_ship', label: 'Ready to Ship' },
@@ -382,6 +383,20 @@ export default function AdminOrderDetail() {
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
   const primaryVendorOrder = linkedVendorOrders[0] || null;
+  const blankOrder = isBlankGarmentOrder(form, quoteRequest);
+  const fulfillmentDraft = linkedVendorDrafts[0] || null;
+  const fulfillmentActionLabel = blankOrder
+    ? (fulfillmentDraft ? 'Review S&S Draft' : 'Create S&S Fulfillment Draft')
+    : (linkedVendorOrders.length > 0 ? 'Review Vendor Order' : 'Create Production / Print Vendor Order');
+  const openFulfillment = () => {
+    if (blankOrder && fulfillmentDraft) {
+      navigate(`/AdminVendorOrderDraft?id=${fulfillmentDraft.id}`);
+    } else if (!blankOrder && linkedVendorOrders.length > 0) {
+      navigate(`/AdminVendorOrderDetail?id=${linkedVendorOrders[0].id}`);
+    } else {
+      setShowVendorModal(true);
+    }
+  };
 
   const orderNum = form ? `#${form.id.slice(-8).toUpperCase()}` : '';
   const orderTotal = form ? `$${Number(form.total_amount || 0).toFixed(2)}` : '';
@@ -397,9 +412,9 @@ export default function AdminOrderDetail() {
 
   // Map vendor order status → fulfillment status label override
   const VENDOR_STATUS_TO_FULFILLMENT = {
-    draft: 'Vendor Order Created',
-    sent_to_vendor: 'Sent to Vendor',
-    accepted: 'Sent to Vendor',
+    draft: 'S&S Fulfillment Draft Created',
+    sent_to_vendor: 'Sent to S&S',
+    accepted: 'Sent to S&S',
     in_production: 'In Production',
     shipped: 'Shipped',
     delivered: 'Delivered',
@@ -498,8 +513,8 @@ export default function AdminOrderDetail() {
             )}
             <Button size="sm"
               className="bg-primary-foreground/20 hover:bg-primary-foreground/30 text-primary-foreground gap-1.5 h-7 text-xs"
-              onClick={() => setShowVendorModal(true)}>
-              <Plus className="w-3.5 h-3.5" />{linkedVendorOrders.length > 0 ? 'Create Another Vendor Order' : 'Create Vendor Order'}
+              onClick={openFulfillment}>
+              <Plus className="w-3.5 h-3.5" />{fulfillmentActionLabel}
             </Button>
           </div>
         </div>
@@ -1131,8 +1146,8 @@ export default function AdminOrderDetail() {
                 <div className="text-center py-4">
                   <Truck className="w-8 h-8 text-primary/20 mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground mb-3">No vendor order has been created for this customer order yet.</p>
-                  <Button size="sm" className="gap-2 w-full" onClick={() => setShowVendorModal(true)}>
-                    <Truck className="w-4 h-4" />Create Vendor Order
+                  <Button size="sm" className="gap-2 w-full" onClick={openFulfillment}>
+                    <Truck className="w-4 h-4" />{fulfillmentActionLabel}
                   </Button>
                 </div>
               ) : (
@@ -1199,8 +1214,8 @@ export default function AdminOrderDetail() {
                       </div>
                     );
                   })}
-                  <Button size="sm" variant="outline" className="w-full gap-2" onClick={() => setShowVendorModal(true)}>
-                    <Plus className="w-4 h-4" />Create Another Vendor Order
+                  <Button size="sm" variant="outline" className="w-full gap-2" onClick={openFulfillment}>
+                    <Plus className="w-4 h-4" />{fulfillmentActionLabel}
                   </Button>
                 </div>
               )}
@@ -1232,8 +1247,8 @@ export default function AdminOrderDetail() {
               <Button size="sm" variant="outline" className="w-full gap-2 justify-start" onClick={handleMarkAwaiting}>
                 <Package className="w-4 h-4 text-yellow-600" />Awaiting Fulfillment
               </Button>
-              <Button size="sm" variant="outline" className="w-full gap-2 justify-start" onClick={() => setShowVendorModal(true)}>
-                <Truck className="w-4 h-4 text-primary" />{linkedVendorOrders.length > 0 ? 'Create Another Vendor Order' : 'Create Vendor Order'}
+              <Button size="sm" variant="outline" className="w-full gap-2 justify-start" onClick={openFulfillment}>
+                <Truck className="w-4 h-4 text-primary" />{fulfillmentActionLabel}
               </Button>
               {form.quote_request_id && (
                 <a href={`/AdminQuoteRequestDetail?id=${form.quote_request_id}`}>
@@ -1270,16 +1285,12 @@ export default function AdminOrderDetail() {
           onClose={() => setShowVendorModal(false)}
           onCreated={(vo) => {
             setShowVendorModal(false);
-            setForm(p => ({
-              ...p,
-              vendor_order_id: vo.id,
-              fulfillment_status: 'sent_to_vendor',
-              assigned_vendor_id: vo.vendor_id,
-              assigned_vendor_name: vo.vendor_name,
-              vendor_cost_estimate: vo.blank_garment_cost + vo.print_cost + vo.setup_fee + vo.shipping_cost + vo.other_fees,
-              estimated_profit: vo.estimated_profit,
-              profit_margin_pct: vo.profit_margin_pct,
-            }));
+            if (vo.draft_id) {
+              setForm(p => ({ ...p, vendor_order_id: vo.draft_id, fulfillment_status: 'vendor_order_needed', assigned_vendor_name: 'S&S Activewear' }));
+              qc.invalidateQueries({ queryKey: ['vendor-drafts-for-order', orderId] });
+            } else {
+              setForm(p => ({ ...p, vendor_order_id: vo.id, fulfillment_status: 'vendor_order_needed', assigned_vendor_id: vo.vendor_id, assigned_vendor_name: vo.vendor_name }));
+            }
             qc.invalidateQueries({ queryKey: ['admin-orders'] });
             qc.invalidateQueries({ queryKey: ['order', orderId] });
             qc.invalidateQueries({ queryKey: ['vendor-orders-for-order', orderId] });

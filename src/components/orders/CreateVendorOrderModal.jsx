@@ -13,19 +13,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';
+import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
+import BlankFulfillmentDraftModal from './BlankFulfillmentDraftModal';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const STATUSES = [
-  { value: 'draft', label: 'Draft' },
-  { value: 'sent_to_vendor', label: 'Sent to Vendor' },
-  { value: 'accepted', label: 'Accepted' },
-  { value: 'in_production', label: 'In Production' },
-  { value: 'shipped', label: 'Shipped' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'issue_hold', label: 'Issue / Hold' },
-  { value: 'canceled', label: 'Canceled' },
-];
 
 const VENDOR_TYPE_OPTIONS = [
   { value: 'apparel_blank_supplier', label: 'Apparel Blank Supplier' },
@@ -336,7 +327,14 @@ function CreatePricingInline({ vendorId, vendorName, onCreated, onCancel }) {
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 
-export default function CreateVendorOrderModal({ order, quoteRequest, orderItemProducts = [], onClose, onCreated }) {
+export default function CreateVendorOrderModal(props) {
+  if (isBlankGarmentOrder(props.order, props.quoteRequest)) {
+    return <BlankFulfillmentDraftModal {...props} />;
+  }
+  return <ProductionVendorOrderModal {...props} />;
+}
+
+function ProductionVendorOrderModal({ order, quoteRequest, orderItemProducts = [], onClose, onCreated }) {
   const qc = useQueryClient();
 
   // Load ALL vendors (not filtered by is_active — show all so nothing gets hidden)
@@ -548,7 +546,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
        vendor_name: form.vendor_name,
        customer_order_id: form.customer_order_id,
        quote_request_id: form.quote_request_id,
-       status: form.status,
+       status: 'draft',
        items: form.items,
        artwork_file_url: form.artwork_file_url,
        artwork_link: form.artwork_link,
@@ -584,7 +582,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
       if (order?.id) {
         await base44.entities.Order.update(order.id, {
           vendor_order_id: vo.id,
-          fulfillment_status: 'sent_to_vendor',
+          fulfillment_status: 'vendor_order_needed',
           assigned_vendor_id: form.vendor_id,
           assigned_vendor_name: form.vendor_name,
           vendor_cost_estimate: totalVendorCost,
@@ -592,7 +590,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
           profit_margin_pct: margin,
         });
       }
-      toast.success('Vendor order created!');
+      toast.success('Production vendor draft created. Nothing was sent to a vendor.');
       onCreated(vo);
     } catch (err) {
       toast.error('Failed: ' + err.message);
@@ -613,7 +611,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
           <div className="flex items-center gap-3">
             <Truck className="w-5 h-5" />
             <div>
-              <h2 className="font-extrabold text-lg">Create Vendor Order</h2>
+              <h2 className="font-extrabold text-lg">Create Production / Print Vendor Order</h2>
               <p className="text-primary-foreground/70 text-xs">
                 {order ? `Linked to Customer Order #${order.id.slice(-8).toUpperCase()}` : 'New vendor fulfillment order'}
               </p>
@@ -629,17 +627,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
           <div className="p-6 space-y-8">
 
             {/* ── Status ── */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs text-muted-foreground">Vendor Order Status</Label>
-                <Select value={form.status} onValueChange={setField('status')}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            <p className="text-sm text-muted-foreground">Status: Draft. Creating this record does not send it to a vendor.</p>
 
             {/* ── Step 1: Select Pricing Record ── */}
             <div>
@@ -1118,7 +1106,7 @@ export default function CreateVendorOrderModal({ order, quoteRequest, orderItemP
           </Button>
           <Button type="submit" className="flex-1 bg-primary gap-2 font-semibold" disabled={saving} onClick={handleSubmit}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-            Create Vendor Order
+            Create Production Draft
           </Button>
         </div>
       </div>
