@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Mail, Eye, CheckCircle, MessageSquare, Archive, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
+import { isActiveInboxItem, isArchivedInboxItem, isQaTestInboxItem } from '@/lib/inboxFilters';
 
 const STATUS_MAP = {
   new:      { label: 'New',      color: 'bg-blue-100 text-blue-700' },
@@ -17,6 +18,7 @@ const STATUS_MAP = {
 export default function AdminContactMessages() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
+  const [view, setView] = useState('active');
 
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['contact_messages'],
@@ -30,8 +32,9 @@ export default function AdminContactMessages() {
 
   const setStatus = (id, status) => {
     updateStatus.mutate({ id, status });
-    if (selected?.id === id) setSelected(s => ({ ...s, status }));
+    if (selected?.id === id) setSelected(null);
   };
+  const visibleMessages = messages.filter(view === 'active' ? isActiveInboxItem : isArchivedInboxItem);
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,20 +54,28 @@ export default function AdminContactMessages() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-8">
+        <div className="flex gap-2 mb-6" aria-label="Contact message view">
+          <Button variant={view === 'active' ? 'default' : 'outline'} onClick={() => { setView('active'); setSelected(null); }}>
+            Active Messages ({messages.filter(isActiveInboxItem).length})
+          </Button>
+          <Button variant={view === 'archived' ? 'default' : 'outline'} onClick={() => { setView('archived'); setSelected(null); }}>
+            <Archive className="w-4 h-4 mr-1.5" />Archived ({messages.filter(isArchivedInboxItem).length})
+          </Button>
+        </div>
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : visibleMessages.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">
             <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p>No contact messages yet.</p>
+            <p>{view === 'active' ? 'No active contact messages.' : 'No archived contact messages.'}</p>
           </div>
         ) : (
           <div className="grid lg:grid-cols-5 gap-6">
             {/* Message List */}
             <div className="lg:col-span-2 space-y-2">
-              {messages.map(msg => (
+              {visibleMessages.map(msg => (
                 <button
                   key={msg.id}
                   onClick={() => setSelected(msg)}
@@ -77,7 +88,8 @@ export default function AdminContactMessages() {
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <p className="font-semibold text-sm truncate">{msg.name}</p>
                     <Badge className={`text-xs shrink-0 ${STATUS_MAP[msg.status]?.color || 'bg-gray-100 text-gray-600'}`}>
-                      {STATUS_MAP[msg.status]?.label || msg.status}
+                      {view === 'archived' && isQaTestInboxItem(msg)
+                        ? 'QA/Test — Archived' : STATUS_MAP[msg.status]?.label || msg.status}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{msg.subject || '(no subject)'}</p>
@@ -90,7 +102,7 @@ export default function AdminContactMessages() {
 
             {/* Detail Panel */}
             <div className="lg:col-span-3">
-              {selected ? (
+              {selected && visibleMessages.some(msg => msg.id === selected.id) ? (
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm space-y-5">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
@@ -119,22 +131,27 @@ export default function AdminContactMessages() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-                    <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'reviewed')}
+                    {view === 'active' && <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'reviewed')}
                       disabled={selected.status === 'reviewed'} className="gap-1.5">
                       <Eye className="w-4 h-4" />Mark Reviewed
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'replied')}
+                    </Button>}
+                    {view === 'active' && <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'replied')}
                       disabled={selected.status === 'replied'} className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50">
                       <CheckCircle className="w-4 h-4" />Mark Replied
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'archived')}
+                    </Button>}
+                    {view === 'active' && <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'archived')}
                       disabled={selected.status === 'archived'} className="gap-1.5 border-gray-300 text-gray-600 hover:bg-gray-50">
                       <Archive className="w-4 h-4" />Archive
-                    </Button>
-                    <a href={`mailto:${selected.email}?subject=Re: ${encodeURIComponent(selected.subject || '')}`}
+                    </Button>}
+                    {view === 'archived' && selected.status === 'archived' && !isQaTestInboxItem(selected) && (
+                      <Button size="sm" variant="outline" onClick={() => setStatus(selected.id, 'reviewed')}>
+                        Restore to Inbox
+                      </Button>
+                    )}
+                    {view === 'active' && <a href={`mailto:${selected.email}?subject=Re: ${encodeURIComponent(selected.subject || '')}`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-primary/30 text-primary text-sm font-medium hover:bg-primary/5 transition-colors">
                       <Mail className="w-4 h-4" />Reply via Email
-                    </a>
+                    </a>}
                   </div>
                 </div>
               ) : (

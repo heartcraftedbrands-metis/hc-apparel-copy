@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Eye, Search, Loader2, MessageSquare } from 'lucide-react';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
+import { isActiveInboxItem, isArchivedInboxItem } from '@/lib/inboxFilters';
 
 export const STATUSES = [
   { value: 'new', label: 'New', color: 'bg-blue-100 text-blue-700' },
@@ -18,6 +19,7 @@ export const STATUSES = [
   { value: 'declined', label: 'Declined', color: 'bg-red-100 text-red-700' },
   { value: 'completed', label: 'Completed', color: 'bg-teal-100 text-teal-700' },
   { value: 'converted_to_order', label: 'Converted to Order', color: 'bg-primary/10 text-primary' },
+  { value: 'archived', label: 'Archived', color: 'bg-gray-100 text-gray-600' },
 ];
 export const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.value, s]));
 
@@ -65,7 +67,9 @@ export default function AdminQuoteRequests() {
     .filter(r => {
       const matchSearch = !search || [r.full_name, r.email, r.business_name, r.phone]
         .some(v => v?.toLowerCase().includes(search.toLowerCase()));
-      const matchStatus = statusFilter === 'all' || r.status === statusFilter;
+      const matchStatus = statusFilter === 'all'
+        ? isActiveInboxItem(r)
+        : statusFilter === 'archived' ? isArchivedInboxItem(r) : r.status === statusFilter && isActiveInboxItem(r);
       const matchProduct = productFilter === 'all' || r.product_type === productFilter;
       const matchContact = contactFilter === 'all' || r.preferred_contact === contactFilter;
       return matchSearch && matchStatus && matchProduct && matchContact;
@@ -82,7 +86,7 @@ export default function AdminQuoteRequests() {
       return new Date(b.created_date) - new Date(a.created_date); // newest
     });
 
-  const newCount = requests.filter(r => r.status === 'new').length;
+  const newCount = requests.filter(r => isActiveInboxItem(r) && r.status === 'new').length;
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
+import { isActiveInboxItem, isActiveInboxOrder } from '@/lib/inboxFilters';
 
 function money(v) {
   if (v == null) return '$0';
@@ -80,13 +81,14 @@ export default function AdminDashboard() {
     },
   });
 
-  const newMessages  = messages.filter(m => m.status === 'new').length;
-  const newQuotes    = quotes.filter(q => q.status === 'new').length;
-  const awaitingPay  = orders.filter(o => {
+  const newMessages  = messages.filter(m => isActiveInboxItem(m) && m.status === 'new').length;
+  const newQuotes    = quotes.filter(q => isActiveInboxItem(q) && q.status === 'new').length;
+  const inboxOrders = orders.filter(isActiveInboxOrder);
+  const awaitingPay  = inboxOrders.filter(o => {
     const ps = o.payment_status;
     return ['awaiting_payment','unpaid','pending','pay_later'].includes(ps) || (!ps && (o.total_amount || 0) > (o.amount_paid || 0));
   }).length;
-  const awaitingFulf = orders.filter(o =>
+  const awaitingFulf = inboxOrders.filter(o =>
     ['paid','partially_paid'].includes(o.payment_status) &&
     ['not_started','vendor_order_needed','ordered_from_vendor','in_transit_to_me','ready_to_ship','awaiting_fulfillment'].includes(o.fulfillment_status || 'not_started')
   ).length;

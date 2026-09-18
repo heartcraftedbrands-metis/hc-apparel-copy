@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import { format } from 'date-fns';
+import { isActiveInboxItem, isArchivedInboxItem, isActiveInboxOrder, isQaTestInboxItem } from '@/lib/inboxFilters';
 
 // Simple in-page toast
 function useToast() {
@@ -42,6 +43,7 @@ const QUOTE_STATUS_MAP = {
   declined:           { label: 'Declined',            color: 'bg-red-100 text-red-700' },
   completed:          { label: 'Completed',           color: 'bg-teal-100 text-teal-700' },
   converted_to_order: { label: 'Converted to Order',  color: 'bg-primary/10 text-primary' },
+  archived:           { label: 'Archived',            color: 'bg-gray-100 text-gray-500' },
 };
 
 const PAY_STATUS_MAP = {
@@ -119,6 +121,7 @@ export default function AdminInbox() {
   const { toast, show: showToast } = useToast();
   const [activeTab, setActiveTab]       = useState('messages');
   const [selectedMsg, setSelectedMsg]   = useState(null);
+  const [selectedArchived, setSelectedArchived] = useState(null);
   const [selectedQ, setSelectedQ]       = useState(null);
   const [activeTemplate, setActiveTemplate] = useState(null);
   const [templateVars, setTemplateVars] = useState({});
@@ -152,8 +155,19 @@ export default function AdminInbox() {
 
   // Apply local patches on top of DB data for instant UI
   const orders = rawOrders
-    .filter((order) => !order.is_sample)
+    .filter(isActiveInboxOrder)
     .map(o => orderPatches[o.id] ? { ...o, ...orderPatches[o.id] } : o);
+  const activeMessages = messages.filter(isActiveInboxItem);
+  const archivedMessages = messages.filter(isArchivedInboxItem);
+  const activeQuotes = quotes.filter(isActiveInboxItem);
+  const archivedQuotes = quotes.filter(isArchivedInboxItem);
+  const archivedItems = [
+    ...archivedMessages.map(item => ({ kind: 'message', item })),
+    ...archivedQuotes.map(item => ({ kind: 'quote', item })),
+  ].sort((a, b) => new Date(b.item.created_date) - new Date(a.item.created_date));
+  const archivedSelection = archivedItems.find(({ kind, item }) =>
+    kind === selectedArchived?.kind && item.id === selectedArchived?.id
+  );
 
   // ── Mutations ───────────────────────────────────────────────
   const updateMsg = useMutation({
@@ -169,12 +183,14 @@ export default function AdminInbox() {
   // ── Helpers ─────────────────────────────────────────────────
   const setMsgStatus = (id, status) => {
     updateMsg.mutate({ id, status });
-    if (selectedMsg?.id === id) setSelectedMsg(m => ({ ...m, status }));
+    if (selectedMsg?.id === id) setSelectedMsg(status === 'archived' ? null : m => ({ ...m, status }));
+    if (selectedArchived?.kind === 'message' && selectedArchived.id === id) setSelectedArchived(null);
   };
 
   const setQuoteStatus = (id, status) => {
     updateQuote.mutate({ id, status });
-    if (selectedQ?.id === id) setSelectedQ(q => ({ ...q, status }));
+    if (selectedQ?.id === id) setSelectedQ(status === 'archived' ? null : q => ({ ...q, status }));
+    if (selectedArchived?.kind === 'quote' && selectedArchived.id === id) setSelectedArchived(null);
   };
 
   // Patch an order locally + persist to DB
@@ -381,6 +397,9 @@ export default function AdminInbox() {
   // ── Tab switching: reset selection, auto-select first ────────
   const switchTab = (tab) => {
     setActiveTab(tab);
+    setSelectedMsg(null);
+    setSelectedQ(null);
+    setSelectedArchived(null);
     setSelectedOrder(null);
     setPaymentNote('');
     setTrackingNum('');
@@ -393,8 +412,8 @@ export default function AdminInbox() {
   };
 
   // ── Counts ───────────────────────────────────────────────────
-  const newMsgCount        = messages.filter(m => m.status === 'new').length;
-  const newQuoteCount      = quotes.filter(q => q.status === 'new').length;
+  const newMsgCount        = activeMessages.filter(m => m.status === 'new').length;
+  const newQuoteCount      = activeQuotes.filter(q => q.status === 'new').length;
   const awaitingPayCount   = awaitingPaymentOrders.length;
   const awaitingFulfCount  = awaitingFulfillmentOrders.length;
 
@@ -453,15 +472,18 @@ export default function AdminInbox() {
           <TabBtn active={activeTab === 'fulfillment'} onClick={() => switchTab('fulfillment')} badge={awaitingFulfCount}>
             <Truck className="w-4 h-4" />Awaiting Fulfillment
           </TabBtn>
+          <TabBtn active={activeTab === 'archived'} onClick={() => switchTab('archived')} badge={archivedItems.length}>
+            <Archive className="w-4 h-4" />Archived
+          </TabBtn>
         </div>
 
         {/* ── CONTACT MESSAGES TAB ─────────────────────────────── */}
         {activeTab === 'messages' && (
           <div className="grid lg:grid-cols-5 gap-6">
             <div className="lg:col-span-2 space-y-2">
-              {loadingMsgs ? <Spinner /> : messages.length === 0 ? (
-                <Empty>No contact messages yet.</Empty>
-              ) : messages.map(msg => (
+              {loadingMsgs ? <Spinner /> : activeMessages.length === 0 ? (
+                <Empty>No active contact messages.</Empty>
+              ) : activeMessages.map(msg => (
                 <button key={msg.id} onClick={() => setSelectedMsg(msg)} className={cardCls(msg.id, selectedMsg)}>
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <p className="font-semibold text-sm truncate">{msg.name}</p>
@@ -476,7 +498,7 @@ export default function AdminInbox() {
               ))}
             </div>
             <div className="lg:col-span-3">
-              {selectedMsg ? (
+              {selectedMsg && isActiveInboxItem(selectedMsg) ? (
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm space-y-5">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
@@ -523,9 +545,9 @@ export default function AdminInbox() {
         {activeTab === 'quotes' && (
           <div className="grid lg:grid-cols-5 gap-6">
             <div className="lg:col-span-2 space-y-2">
-              {loadingQuotes ? <Spinner /> : quotes.length === 0 ? (
-                <Empty>No quote requests yet.</Empty>
-              ) : quotes.map(q => {
+              {loadingQuotes ? <Spinner /> : activeQuotes.length === 0 ? (
+                <Empty>No active quote requests.</Empty>
+              ) : activeQuotes.map(q => {
                 const s = QUOTE_STATUS_MAP[q.status] || QUOTE_STATUS_MAP['new'];
                 return (
                   <button key={q.id} onClick={() => setSelectedQ(q)} className={cardCls(q.id, selectedQ)}>
@@ -667,6 +689,76 @@ export default function AdminInbox() {
                   </div>
                 </div>
               ) : <EmptyPanel icon={<MessageSquare className="w-8 h-8 opacity-20" />}>Select a quote request to view details</EmptyPanel>}
+            </div>
+          </div>
+        )}
+
+        {/* ── ARCHIVED MESSAGES & QUOTES ───────────────────────── */}
+        {activeTab === 'archived' && (
+          <div className="grid lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2 space-y-2">
+              {loadingMsgs || loadingQuotes ? <Spinner /> : archivedItems.length === 0 ? (
+                <Empty>No archived messages or quote requests.</Empty>
+              ) : archivedItems.map(({ kind, item }) => (
+                <button key={`${kind}-${item.id}`}
+                  onClick={() => setSelectedArchived({ kind, id: item.id })}
+                  className={cardCls(`${kind}-${item.id}`, selectedArchived && { id: `${selectedArchived.kind}-${selectedArchived.id}` })}>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p className="font-semibold text-sm truncate">{kind === 'message' ? item.name : item.full_name}</p>
+                    <Badge className="text-xs shrink-0 bg-gray-100 text-gray-600">
+                      {isQaTestInboxItem(item)
+                        ? 'QA/Test — Archived' : 'Archived'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{kind === 'message' ? 'Contact Message' : 'Quote Request'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{item.email}</p>
+                  <p className="text-xs text-muted-foreground truncate">{kind === 'message' ? item.subject || '(no subject)' : PRODUCT_LABELS[item.product_type] || item.product_type || 'Quote request'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{fmt(item.created_date)}</p>
+                </button>
+              ))}
+            </div>
+            <div className="lg:col-span-3">
+              {archivedSelection ? (
+                <div className="bg-white border border-border rounded-2xl p-6 shadow-sm space-y-5">
+                  <div>
+                    <h2 className="text-lg font-bold">{archivedSelection.kind === 'message' ? archivedSelection.item.name : archivedSelection.item.full_name}</h2>
+                    <p className="text-sm text-muted-foreground">{archivedSelection.item.email}</p>
+                  </div>
+                  {archivedSelection.kind === 'message' ? (
+                    <>
+                      <Field label="Subject" value={archivedSelection.item.subject || '(no subject)'} />
+                      <div><SectionLabel>Message</SectionLabel>
+                        <p className="text-sm whitespace-pre-wrap bg-muted/30 rounded-xl p-4 leading-relaxed">{archivedSelection.item.message}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Field label="Project Type" value={PRODUCT_LABELS[archivedSelection.item.product_type] || archivedSelection.item.product_type} />
+                      <Field label="Quantity" value={archivedSelection.item.quantity} />
+                      <Field label="Project Notes" value={archivedSelection.item.project_notes} />
+                      <Link to={`/AdminQuoteRequestDetail?id=${archivedSelection.item.id}`}>
+                        <Button size="sm" variant="outline">View full quote details</Button>
+                      </Link>
+                    </>
+                  )}
+                  <p className="text-xs text-muted-foreground">Submitted: {fmt(archivedSelection.item.created_date, true)}</p>
+                  {archivedSelection.item.status === 'archived' && !isQaTestInboxItem(archivedSelection.item) && (
+                    <div className="pt-2 border-t border-border">
+                      <Button size="sm" variant="outline" disabled={updateMsg.isPending || updateQuote.isPending}
+                        onClick={() => archivedSelection.kind === 'message'
+                          ? setMsgStatus(archivedSelection.item.id, 'reviewed')
+                          : setQuoteStatus(archivedSelection.item.id, 'reviewing')}>
+                        Restore to Inbox
+                      </Button>
+                    </div>
+                  )}
+                  {isQaTestInboxItem(archivedSelection.item) && (
+                    <p className="text-xs text-amber-700">QA/Test records stay in the archive and are not restored to the live inbox.</p>
+                  )}
+                </div>
+              ) : <EmptyPanel icon={<Archive className="w-8 h-8 opacity-20" />}>
+                Select an archived item to view details
+              </EmptyPanel>}
             </div>
           </div>
         )}
