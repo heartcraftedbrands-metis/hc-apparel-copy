@@ -450,6 +450,8 @@ export default function AdminProducts() {
                 && product.is_sample;
               const awaitsAdminApproval = vis === 'draft'
                 && product.draft_qa_status === 'ready_for_admin_approval';
+              const awaitsPrivateQA = vis === 'draft'
+                && product.draft_qa_status === 'ready_for_private_qa';
               return (
                 <div key={product.id} className={`bg-white rounded-2xl border overflow-hidden shadow-sm hover:shadow-md transition-shadow ${isArchived ? 'opacity-70' : ''}`}>
                   <div className="aspect-square bg-muted overflow-hidden relative">
@@ -482,6 +484,14 @@ export default function AdminProducts() {
                         Ready for Admin Approval · Not published
                       </p>
                     )}
+                    {awaitsPrivateQA && (
+                      <p className="mb-2 rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-900">
+                        Ready for Private QA · Not published
+                      </p>
+                    )}
+                    {vis === 'draft' && product.brand === 'DRI DUCK' && product.internal_notes && (
+                      <p className="mb-2 text-xs text-muted-foreground">{product.internal_notes}</p>
+                    )}
                     <p className="text-xs text-muted-foreground mb-3">
                       {product.product_subtype ? product.product_subtype.replace(/_/g, ' ') : 'Physical'} · {product.category?.replace(/_/g, ' ') || 'Other'}
                     </p>
@@ -490,7 +500,7 @@ export default function AdminProducts() {
                         <Pencil className="w-3 h-3" /> Edit
                       </Button>
                       {/* Quick visibility toggle */}
-                      {isPrivateSSTest || awaitsAdminApproval ? (
+                      {isPrivateSSTest || awaitsAdminApproval || awaitsPrivateQA ? (
                         <Button
                           size="sm"
                           variant="outline"
