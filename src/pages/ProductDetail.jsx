@@ -293,6 +293,7 @@ export default function ProductDetail() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [qaCartItem, setQaCartItem] = useState(null);
   const { addToCart } = useCart();
 
   useEffect(() => {
@@ -382,6 +383,13 @@ export default function ProductDetail() {
       product_type: product.product_type,
       stock: selectedInventory ?? product.stock,
     };
+    if (canPreviewDraft) {
+      // Draft QA must never write to the customer cart, fire cart analytics,
+      // or offer a path into checkout.
+      setQaCartItem(cartItem);
+      toast.success('Added to private QA preview only. Customer cart is unchanged.');
+      return;
+    }
     addToCart(cartItem);
     toast.success(`${publicName} added to cart!`);
     // Open cart drawer by dispatching a custom event the layout listens to
@@ -701,10 +709,12 @@ export default function ProductDetail() {
             {/* Ordering Note */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4">
               <p className="text-sm font-semibold text-primary mb-1">
-                {blankFirst ? 'Blank Apparel Ordering' : 'Custom Garment Ordering'}
+                {canPreviewDraft ? 'Private Draft QA' : blankFirst ? 'Blank Apparel Ordering' : 'Custom Garment Ordering'}
               </p>
               <p className="text-sm text-foreground">
-                {blankFirst
+                {canPreviewDraft
+                  ? 'Preview the image, variant, SKU, and price here. The QA cart preview cannot create an order or start checkout.'
+                  : blankFirst
                   ? 'Buy this garment blank, or choose optional custom printing before checkout. Orders of 50 or more require Bulk Quote 50+.'
                   : 'Customize and add 1–49 garments to cart. Orders of 50 or more require Bulk Quote 50+.'}
               </p>
@@ -727,15 +737,27 @@ export default function ProductDetail() {
                 />
               )}
               {canPreviewDraft && (
-                <Button
-                  size="lg"
-                  type="button"
-                  disabled={!canAddToCart}
-                  onClick={handleAddToCart}
-                  className="w-full text-base font-bold gap-2"
-                >
-                  <ShoppingCart className="w-5 h-5" /> {buttonLabel}
-                </Button>
+                <>
+                  <Button
+                    size="lg"
+                    type="button"
+                    disabled={!canAddToCart}
+                    onClick={handleAddToCart}
+                    className="w-full text-base font-bold gap-2"
+                  >
+                    <ShoppingCart className="w-5 h-5" /> Test Private QA Cart — {buttonLabel}
+                  </Button>
+                  {qaCartItem && (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
+                      <p className="font-bold">Private QA cart preview — not an order</p>
+                      <p className="mt-1">{qaCartItem.name}</p>
+                      <p>Style: {qaCartItem.style_number} · SKU: {qaCartItem.sku}</p>
+                      <p>Color: {qaCartItem.selectedColor} · Size: {qaCartItem.selectedSize}</p>
+                      <p>Quantity: {qaCartItem.quantity} · Price: ${Number(qaCartItem.price).toFixed(2)}</p>
+                      <p className="mt-2 text-xs">Nothing was added to the customer cart. Checkout is unavailable from this preview.</p>
+                    </div>
+                  )}
+                </>
               )}
               <Link to="/Contact" className="block">
                 <Button size="lg" variant="outline" className="w-full gap-2">
