@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, FileText, Printer } from 'lucide-react';
+import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
 
 const text = (value) => {
   if (Array.isArray(value)) return value.filter(Boolean).join(', ');
@@ -20,11 +21,12 @@ export default function ProductionPacket({ order = {}, vendorDraft = null, vendo
   const artwork = order.artwork_file_url || order.artwork_link || items.find((item) => item.artwork_link)?.artwork_link;
   const shippingAddress = order.shipping_address || vendorDraft?.shipping_address || {};
   const packetId = `production-packet-${order.id || vendorDraft?.id || vendorOrder?.id || 'preview'}`;
+  const blankOrder = isBlankGarmentOrder(order);
   const missing = [];
   if (!order.customer_name && !vendorDraft?.customer_name) missing.push('customer');
   if (!addressText(shippingAddress)) missing.push('shipping address');
   if (!items.length) missing.push('product line items');
-  if (!artwork) missing.push('artwork link');
+  if (!blankOrder && !artwork) missing.push('artwork link');
 
   const printPacket = () => {
     document.body.classList.add('printing-production-packet');
@@ -110,4 +112,3 @@ export default function ProductionPacket({ order = {}, vendorDraft = null, vendo
     </section>
   );
 }
-

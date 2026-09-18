@@ -25,6 +25,7 @@ import LiveSSSubmissionPanel from '@/components/orders/LiveSSSubmissionPanel';
 import ZeroTouchPrepPanel from '@/components/orders/ZeroTouchPrepPanel';
 import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
+import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
 
 const emptyItem = () => ({
   product_name: '',
@@ -331,7 +332,7 @@ export default function AdminVendorOrderDraft() {
           </div>
         </section>
 
-        <ZeroTouchPrepPanel
+        {!isBlankGarmentOrder(customerOrder) && <ZeroTouchPrepPanel
           draft={form}
           customerOrder={customerOrder}
           onUpdated={async (saved) => {
@@ -339,7 +340,7 @@ export default function AdminVendorOrderDraft() {
             await refetchDraft();
             refresh();
           }}
-        />
+        />}
 
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <h2 className="font-bold">Safe order controls</h2>
