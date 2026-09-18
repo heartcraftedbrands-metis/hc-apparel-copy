@@ -42,13 +42,9 @@ Deno.serve(async (request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getSupabasePublishableKey();
     const serviceCredential = getSupabaseServiceCredential();
-    // The legacy service-role JWT is still present on this project and works with
-    // PostgREST. Prefer it here rather than the newer default secret key, whose
-    // payment_settings request failed on the live checkout invocation.
-    const legacyServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
-    const serviceRoleKey = legacyServiceRoleKey || serviceCredential.key;
+    const serviceRoleKey = serviceCredential.key;
     console.info('Supabase service credential configuration', {
-      selected: legacyServiceRoleKey ? 'SUPABASE_SERVICE_ROLE_KEY' : serviceCredential.source,
+      selected: serviceCredential.source,
       present: serviceCredential.present,
     });
     if (!supabaseUrl || !publishableKey || !serviceRoleKey) {

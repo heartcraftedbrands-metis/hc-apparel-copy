@@ -17,8 +17,10 @@ assert.match(PAYMENT_UNAVAILABLE, /refresh and try again/);
 
 const edge = readFileSync(new URL('../supabase/functions/createStripeCheckoutSession/index.ts', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../supabase/migrations/202609180001_checkout_start_issues.sql', import.meta.url), 'utf8');
+const grant = readFileSync(new URL('../supabase/migrations/202609180002_checkout_payment_settings_service_grant.sql', import.meta.url), 'utf8');
 const checkout = readFileSync(new URL('../src/pages/Checkout.jsx', import.meta.url), 'utf8');
 assert.match(migration, /new\.status := 'checkout_pending'/);
+assert.match(grant, /grant select on table public\.payment_settings to service_role/i);
 assert.match(edge, /status: 'checkout_failed'/);
 assert.match(edge, /stripe_session_id: session\.id/);
 assert.match(edge, /status: 'awaiting_payment'/);
