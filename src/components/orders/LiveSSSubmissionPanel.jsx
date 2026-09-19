@@ -150,6 +150,15 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
             </p>
           </div>
 
+          <div className={`rounded-xl border p-4 text-sm ${status.ss_live_submission_enabled ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+            <p className="font-semibold">
+              S&amp;S live submission backend state: {status.ss_live_submission_enabled ? 'Enabled' : 'Disabled'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Confirmed from the authoritative integration settings stored in Supabase.
+            </p>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Control
               label="S&S live submission"

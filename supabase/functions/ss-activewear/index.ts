@@ -764,11 +764,20 @@ Deno.serve(async (request) => {
       const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id);
 
       if (dryRun) {
+        const { data: transitionCheck, error: transitionError } = await userClient.rpc(
+          'verify_ss_live_transition_guard', { p_draft_id: payload.draft_id },
+        );
+        if (transitionError || transitionCheck?.ready !== true) {
+          return json(request, {
+            error: transitionCheck?.reason || transitionError?.message || 'Backend live-submission transition is blocked',
+            dry_run: true, submitted: false, would_post: false,
+          }, 409);
+        }
         return json(request, {
           dry_run: true, submitted: false, would_post: true,
           endpoint: 'https://api.ssactivewear.com/v2/orders/', method: 'POST',
           checks: { admin: true, payment: true, reviewed: true, ready: true, cost_loaded: true,
-            duplicate_order: false, inventory: true, shipping_address: true },
+            duplicate_order: false, inventory: true, shipping_address: true, backend_transition: true },
           submission_payload: requestBody,
         });
       }
