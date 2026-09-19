@@ -130,8 +130,10 @@ export default function AdminVendorOrderDraft() {
       garment_cost: totals.cost,
       sale_price: totals.sale,
       estimated_profit: totals.margin ?? 0,
-      vendor_shipping_estimate: form.vendor_shipping_estimate === '' ? null : Number(form.vendor_shipping_estimate),
-      vendor_other_fees: form.vendor_other_fees === '' ? null : Number(form.vendor_other_fees),
+      vendor_shipping_estimate: form.vendor_shipping_estimate == null || form.vendor_shipping_estimate === ''
+        ? null : Number(form.vendor_shipping_estimate),
+      vendor_other_fees: form.vendor_other_fees == null || form.vendor_other_fees === ''
+        ? null : Number(form.vendor_other_fees),
       cost_override_reason: form.cost_override_reason || null,
       total_quantity: totals.quantity,
       item_count: form.items.length,
