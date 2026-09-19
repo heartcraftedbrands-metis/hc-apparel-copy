@@ -180,6 +180,11 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
                 Refresh S&amp;S Order Status
               </Button>
             </div>
+            {refreshStatusMutation.error && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                {refreshStatusMutation.error.message}
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
               <Confirmation label="S&S order number" value={draft.ss_order_number || draft.external_vendor_order_number} />
               <Confirmation label="S&S GUID" value={draft.ss_guid} />
