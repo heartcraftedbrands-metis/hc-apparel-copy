@@ -344,6 +344,7 @@ Deno.serve(async (request) => {
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
+    'refresh_vendor_order_status',
     'check_blank_fulfillment_inventory',
     'create_blank_fulfillment_draft',
     'get_admin_status',
@@ -355,6 +356,76 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'refresh_vendor_order_status') {
+    if (!payload.draft_id) return json(request, { error: 'Vendor order draft ID is required' }, 400);
+    if (!accountNumber || !apiKey) return json(request, { error: 'S&S credentials are not configured' }, 503);
+    const { data: draft, error: draftError } = await userClient.from('vendor_order_drafts')
+      .select('id,vendor_order_number,ss_order_number,external_vendor_order_number')
+      .eq('id', payload.draft_id).maybeSingle();
+    if (draftError || !draft) return json(request, { error: 'S&S vendor order draft not found' }, 404);
+
+    const knownIdentifier = textValue(draft.ss_order_number)
+      || textValue(draft.external_vendor_order_number);
+    const poNumber = textValue(draft.vendor_order_number);
+    const identifier = knownIdentifier || (poNumber ? `PO,${poNumber}` : null);
+    if (!identifier) return json(request, { error: 'This draft has no S&S order identifier or PO number' }, 409);
+
+    try {
+      const url = new URL(`https://api.ssactivewear.com/v2/orders/${encodeURIComponent(identifier)}`);
+      url.searchParams.set('mediatype', 'json');
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const safeMessage = response.status === 404
+          ? 'No S&S order was found for this draft PO. No retry was attempted.'
+          : safeSsError(result, 'S&S order status could not be retrieved');
+        return json(request, { error: safeMessage, found: false, submitted: false, upstream_status: response.status }, response.status === 404 ? 404 : 502);
+      }
+      const rows = (Array.isArray(result) ? result : [result])
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'));
+      const match = rows.find((entry) => {
+        if (knownIdentifier) {
+          return [entry.orderNumber, entry.guid].some((value) => String(value || '').trim().toLowerCase() === knownIdentifier.toLowerCase());
+        }
+        return String(entry.poNumber || '').trim().toLowerCase() === String(poNumber).toLowerCase();
+      });
+      const orderNumber = textValue(match?.orderNumber);
+      if (!match || !orderNumber) {
+        return json(request, {
+          error: 'No S&S order was found for this draft PO. No retry was attempted.',
+          found: false,
+          submitted: false,
+        }, 404);
+      }
+      const confirmation = {
+        order_number: orderNumber,
+        guid: textValue(match.guid),
+        po_number: textValue(match.poNumber),
+        warehouse: textValue(match.warehouseAbbr),
+        status: textValue(match.orderStatus),
+        order_date: textValue(match.orderDate),
+        expected_delivery_date: textValue(match.expectedDeliveryDate),
+        tracking_number: textValue(match.trackingNumber),
+      };
+      const { data: saved, error: saveError } = await userClient.rpc('record_ss_order_confirmation', {
+        p_draft_id: payload.draft_id,
+        p_confirmation: confirmation,
+      });
+      if (saveError || !saved) {
+        console.error('Unable to store S&S order confirmation', saveError?.message);
+        return json(request, { error: 'S&S returned an order, but its confirmation could not be stored', found: true, submitted: true }, 500);
+      }
+      return json(request, { found: true, submitted: true, confirmation, draft: saved });
+    } catch (error) {
+      console.error('Read-only S&S order status lookup failed', error instanceof Error ? error.message : 'unknown error');
+      return json(request, { error: 'S&S order status could not be retrieved. No retry was attempted.', found: false, submitted: false }, 502);
+    }
+  }
 
   if (payload.action === 'check_blank_fulfillment_inventory'
     || payload.action === 'create_blank_fulfillment_draft') {

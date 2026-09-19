@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Loader2, LockKeyhole, Send, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, LockKeyhole, RefreshCw, Send, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/api/supabaseClient';
 import { Badge } from '@/components/ui/badge';
@@ -51,6 +51,16 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     onError: (mutationError) => toast.error(mutationError.message),
   });
 
+  const refreshStatusMutation = useMutation({
+    mutationFn: () => invoke('refresh_vendor_order_status', { draft_id: draft.id }),
+    onSuccess: async (result) => {
+      toast.success(`S&S order ${result.confirmation?.order_number || ''} confirmed`);
+      await queryClient.invalidateQueries({ queryKey: ['live-integration-status'] });
+      await onUpdated?.(result);
+    },
+    onError: (mutationError) => toast.error(mutationError.message),
+  });
+
   const updateSS = (checked) => {
     if (checked && !window.confirm(
       'Enable the live S&S submission control? This does not place an order. Every order still requires a separate admin confirmation.',
@@ -77,7 +87,7 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
   };
 
   const alreadySubmitted = draft?.ss_submission_state === 'submitted'
-    || Boolean(String(draft?.ss_order_number || draft?.external_vendor_order_number || '').trim());
+    || Boolean(String(draft?.ss_order_number || draft?.external_vendor_order_number || draft?.ss_guid || '').trim());
   const isReady = Boolean(
     draft
     && !draft.is_sample
@@ -158,6 +168,29 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
 
       {draft && (
         <div className="border-t pt-4 space-y-3">
+          <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-sm">S&amp;S Confirmation</h3>
+                <p className="text-xs text-muted-foreground">Read-only status lookup. This does not submit or retry an order.</p>
+              </div>
+              <Button type="button" size="sm" variant="outline" className="gap-2"
+                disabled={refreshStatusMutation.isPending} onClick={() => refreshStatusMutation.mutate()}>
+                {refreshStatusMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Refresh S&amp;S Order Status
+              </Button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+              <Confirmation label="S&S order number" value={draft.ss_order_number || draft.external_vendor_order_number} />
+              <Confirmation label="S&S GUID" value={draft.ss_guid} />
+              <Confirmation label="Warehouse" value={draft.ss_warehouse} />
+              <Confirmation label="Status" value={draft.ss_order_status} />
+              <Confirmation label="Submitted at" value={formatDate(draft.ss_submitted_at)} />
+              <Confirmation label="Expected delivery" value={formatDate(draft.ss_expected_delivery_date)} />
+              <Confirmation label="Tracking number" value={draft.ss_tracking_number} />
+              <Confirmation label="Last status refresh" value={formatDate(draft.ss_status_refreshed_at)} />
+            </div>
+          </div>
           {alreadySubmitted ? (
             <div className="flex gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
@@ -202,6 +235,16 @@ function Status({ label, ok, disabledLabel = 'Not ready / disabled' }) {
       <p className={`font-semibold ${ok ? 'text-green-700' : 'text-amber-700'}`}>{ok ? 'Ready' : disabledLabel}</p>
     </div>
   );
+}
+
+function Confirmation({ label, value }) {
+  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold break-words">{value || 'Not available'}</p></div>;
+}
+
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function Control({ label, description, checked, disabled, onCheckedChange }) {
