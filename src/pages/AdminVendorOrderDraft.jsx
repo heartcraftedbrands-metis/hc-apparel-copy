@@ -8,6 +8,7 @@ import {
   FlaskConical,
   Loader2,
   Plus,
+  RefreshCw,
   Save,
   ShieldAlert,
   Trash2,
@@ -50,6 +51,8 @@ function validationWarnings(draft) {
   if (items.some((item) => !String(item.size || '').trim())) warnings.push('Missing size');
   if (items.some((item) => !String(item.color || '').trim())) warnings.push('Missing color');
   if (!draft?.shipping_method) warnings.push('Missing shipping method');
+  if (items.some((item) => !(Number(item.garment_cost) > 0))
+    && !String(draft?.cost_override_reason || '').trim()) warnings.push('Vendor cost is missing. Refresh S&S cost before submitting.');
   return [...new Set(warnings)];
 }
 
@@ -85,17 +88,21 @@ export default function AdminVendorOrderDraft() {
   const warnings = useMemo(() => validationWarnings(form), [form]);
   const totals = useMemo(() => {
     const items = form?.items || [];
-    return items.reduce((sum, item) => {
+    const result = items.reduce((sum, item) => {
       const quantity = Number(item.quantity) || 0;
-      const garmentCost = Number(item.garment_cost) || 0;
+      const garmentCost = Number(item.garment_cost);
       const salePrice = Number(item.sale_price) || 0;
+      const costLoaded = garmentCost > 0;
       return {
         quantity: sum.quantity + quantity,
-        cost: sum.cost + garmentCost * quantity,
+        cost: sum.cost + (costLoaded ? garmentCost * quantity : 0),
         sale: sum.sale + salePrice * quantity,
-        profit: sum.profit + (salePrice - garmentCost) * quantity,
+        profit: sum.profit + (costLoaded ? (salePrice - garmentCost) * quantity : 0),
+        costsLoaded: sum.costsLoaded && costLoaded,
       };
-    }, { quantity: 0, cost: 0, sale: 0, profit: 0 });
+    }, { quantity: 0, cost: 0, sale: 0, profit: 0, costsLoaded: items.length > 0 });
+    const fees = Number(form?.vendor_shipping_estimate || 0) + Number(form?.vendor_other_fees || 0);
+    return { ...result, fees, margin: result.costsLoaded ? result.profit - fees : null };
   }, [form]);
 
   const refresh = () => {
@@ -114,14 +121,18 @@ export default function AdminVendorOrderDraft() {
       items: form.items.map((item) => ({
         ...item,
         quantity: Number(item.quantity) || 0,
-        garment_cost: Number(item.garment_cost) || 0,
+        garment_cost: Number(item.garment_cost) > 0 ? Number(item.garment_cost) : 0,
         sale_price: Number(item.sale_price) || 0,
-        estimated_profit: ((Number(item.sale_price) || 0) - (Number(item.garment_cost) || 0))
-          * (Number(item.quantity) || 0),
+        estimated_profit: Number(item.garment_cost) > 0
+          ? ((Number(item.sale_price) || 0) - Number(item.garment_cost)) * (Number(item.quantity) || 0)
+          : null,
       })),
       garment_cost: totals.cost,
       sale_price: totals.sale,
-      estimated_profit: totals.profit,
+      estimated_profit: totals.margin ?? 0,
+      vendor_shipping_estimate: form.vendor_shipping_estimate === '' ? null : Number(form.vendor_shipping_estimate),
+      vendor_other_fees: form.vendor_other_fees === '' ? null : Number(form.vendor_other_fees),
+      cost_override_reason: form.cost_override_reason || null,
       total_quantity: totals.quantity,
       item_count: form.items.length,
       admin_notes: form.admin_notes,
@@ -159,6 +170,24 @@ export default function AdminVendorOrderDraft() {
     onError: (error) => toast.error(error.message),
   });
 
+  const refreshCostMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await base44.functions.invoke('ss-activewear', {
+        action: 'refresh_vendor_order_cost_inventory', draft_id: id,
+      });
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: async (result) => {
+      setForm((current) => ({ ...current, ...result.draft, items: result.items }));
+      setTestResult(null);
+      await refetchDraft();
+      refresh();
+      toast.success('Current S&S cost and inventory loaded. No order was submitted.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const stageMutation = useMutation({
     mutationFn: async (stage) => {
       const { data, error } = await supabase.rpc('advance_ss_vendor_order_stage', {
@@ -188,6 +217,7 @@ export default function AdminVendorOrderDraft() {
       itemIndex === index ? { ...item, [key]: value } : item
     )),
   }));
+  const costReady = totals.costsLoaded || Boolean(String(form.cost_override_reason || '').trim());
 
   if (!id) return <div className="p-8 text-center">No vendor order draft selected.</div>;
   if (isLoading || !form) {
@@ -301,13 +331,15 @@ export default function AdminVendorOrderDraft() {
                 <Field label="Color" value={item.color} onChange={(v) => setItem(index, 'color', v)} />
                 <Field label="Size" value={item.size} onChange={(v) => setItem(index, 'size', v)} />
                 <Field label="Quantity" type="number" value={item.quantity} onChange={(v) => setItem(index, 'quantity', v)} />
-                <Field label="Garment cost" type="number" value={item.garment_cost} onChange={(v) => setItem(index, 'garment_cost', v)} />
-                <Field label="Sale price" type="number" value={item.sale_price} onChange={(v) => setItem(index, 'sale_price', v)} />
+                <div><Label>S&amp;S garment cost</Label><Input disabled value={Number(item.garment_cost) > 0 ? `$${Number(item.garment_cost).toFixed(2)}` : 'Cost not loaded'} /></div>
+                <Field label="Customer paid" type="number" value={item.sale_price} onChange={(v) => setItem(index, 'sale_price', v)} />
                 <div>
-                  <Label>Estimated profit</Label>
+                  <Label>Estimated margin before shipping/fees</Label>
                   <Input
                     disabled
-                    value={`$${(((Number(item.sale_price) || 0) - (Number(item.garment_cost) || 0)) * (Number(item.quantity) || 0)).toFixed(2)}`}
+                    value={Number(item.garment_cost) > 0
+                      ? `$${(((Number(item.sale_price) || 0) - Number(item.garment_cost)) * (Number(item.quantity) || 0)).toFixed(2)}`
+                      : 'Unavailable'}
                   />
                 </div>
               </div>
@@ -315,10 +347,16 @@ export default function AdminVendorOrderDraft() {
           ))}
           <div className="grid sm:grid-cols-4 gap-3 bg-muted/30 rounded-xl p-3 text-sm">
             <Summary label="Units" value={totals.quantity} />
-            <Summary label="Garment cost" value={`$${totals.cost.toFixed(2)}`} />
-            <Summary label="Sale total" value={`$${totals.sale.toFixed(2)}`} />
-            <Summary label="Estimated profit" value={`$${totals.profit.toFixed(2)}`} />
+            <Summary label="S&S garment cost" value={totals.costsLoaded ? `$${totals.cost.toFixed(2)}` : 'Cost not loaded'} />
+            <Summary label="Customer paid" value={`$${totals.sale.toFixed(2)}`} />
+            <Summary label={totals.fees > 0 ? 'Estimated margin' : 'Estimated margin before shipping/fees'} value={totals.margin === null ? 'Unavailable' : `$${totals.margin.toFixed(2)}`} />
           </div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <Field label="S&S shipping estimate (optional)" type="number" value={form.vendor_shipping_estimate ?? ''} onChange={(v) => setField('vendor_shipping_estimate', v)} />
+            <Field label="Other vendor fees (optional)" type="number" value={form.vendor_other_fees ?? ''} onChange={(v) => setField('vendor_other_fees', v)} />
+            <Field label="Missing-cost override reason" value={form.cost_override_reason || ''} onChange={(v) => setField('cost_override_reason', v)} />
+          </div>
+          {!totals.costsLoaded && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Vendor cost is missing. Refresh S&amp;S cost before submitting. Estimated margin is unavailable.</p>}
         </section>
 
         <section className="grid md:grid-cols-2 gap-4">
@@ -353,6 +391,10 @@ export default function AdminVendorOrderDraft() {
               {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FlaskConical className="w-4 h-4 mr-2" />}
               Test S&S payload
             </Button>
+            <Button variant="outline" onClick={() => refreshCostMutation.mutate()} disabled={refreshCostMutation.isPending}>
+              {refreshCostMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              Refresh S&amp;S Cost &amp; Inventory
+            </Button>
             <Button
               variant="outline"
               onClick={() => stageMutation.mutate('vendor_order_reviewed')}
@@ -363,7 +405,7 @@ export default function AdminVendorOrderDraft() {
             <Button
               variant="outline"
               onClick={() => stageMutation.mutate('ready_to_submit_to_ss')}
-              disabled={stageMutation.isPending || !form.validation_passed || warnings.length > 0}
+              disabled={stageMutation.isPending || !form.validation_passed || warnings.length > 0 || !costReady}
             >
               Mark ready to submit
             </Button>

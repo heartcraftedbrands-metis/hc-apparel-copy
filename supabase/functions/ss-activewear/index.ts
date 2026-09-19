@@ -343,6 +343,7 @@ Deno.serve(async (request) => {
     'sync_brand_products',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
+    'refresh_vendor_order_cost_inventory',
     'check_blank_fulfillment_inventory',
     'create_blank_fulfillment_draft',
     'get_admin_status',
@@ -601,6 +602,88 @@ Deno.serve(async (request) => {
       console.error('Live S&S order request failed without logging request data', error instanceof Error ? error.message : 'unknown error');
       const message = await failSubmission('Unable to complete the S&S order request');
       return json(request, { error: message }, 502);
+    }
+  }
+
+  if (payload.action === 'refresh_vendor_order_cost_inventory') {
+    if (!payload.draft_id) return json(request, { error: 'Vendor order draft ID is required' }, 400);
+    if (!accountNumber || !apiKey) return json(request, { error: 'S&S cost connection is not configured' }, 503);
+    const { data: draft, error: draftError } = await userClient.from('vendor_order_drafts')
+      .select('id,items,vendor_shipping_estimate,vendor_other_fees')
+      .eq('id', payload.draft_id).maybeSingle();
+    if (draftError || !draft) return json(request, { error: 'S&S vendor order draft not found' }, 404);
+    const items = Array.isArray(draft.items) ? draft.items as Array<Record<string, unknown>> : [];
+    if (!items.length || items.some((item) => !textValue(item.sku) || Number(item.quantity) <= 0)) {
+      return json(request, { error: 'Every draft line requires an S&S SKU and quantity' }, 400);
+    }
+    try {
+      const skuList = [...new Set(items.map((item) => String(item.sku).trim()))];
+      const url = new URL(`https://api.ssactivewear.com/v2/products/${skuList.map(encodeURIComponent).join(',')}`);
+      url.searchParams.set('fields', 'Sku,StyleID,ColorName,SizeName,Qty,Warehouses,CustomerPrice,SalePrice,SaleExpiration,PiecePrice');
+      url.searchParams.set('mediatype', 'json');
+      const response = await fetch(url, {
+        headers: { Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) return json(request, { error: 'Current S&S cost and inventory could not be loaded' }, 502);
+      const result = await response.json();
+      const rows = Array.isArray(result) ? result as Array<Record<string, unknown>> : [];
+      const checkedAt = new Date().toISOString();
+      const refreshedItems = items.map((item) => {
+        const sku = String(item.sku).trim();
+        const row = rows.find((candidate) => String(candidate.sku ?? candidate.Sku ?? '').trim().toLowerCase() === sku.toLowerCase());
+        const available = row ? inventoryQuantity(row) : 0;
+        const requested = Math.trunc(Number(item.quantity) || 0);
+        const colorMatches = Boolean(row) && String(row?.colorName ?? row?.ColorName ?? '').trim().toLowerCase()
+          === String(item.color || '').trim().toLowerCase();
+        const sizeMatches = Boolean(row) && String(row?.sizeName ?? row?.SizeName ?? '').trim().toLowerCase()
+          === String(item.size || '').trim().toLowerCase();
+        const customerPrice = numberValue(row?.customerPrice ?? row?.CustomerPrice);
+        const salePrice = numberValue(row?.salePrice ?? row?.SalePrice);
+        const saleExpiration = textValue(row?.saleExpiration ?? row?.SaleExpiration);
+        const saleIsCurrent = Boolean(salePrice && salePrice > 0)
+          && (!saleExpiration || new Date(saleExpiration).getTime() >= Date.now());
+        const piecePrice = numberValue(row?.piecePrice ?? row?.PiecePrice);
+        const cost = customerPrice && customerPrice > 0
+          ? customerPrice
+          : saleIsCurrent ? salePrice : piecePrice && piecePrice > 0 ? piecePrice : null;
+        const inventoryValid = Boolean(row) && colorMatches && sizeMatches && requested > 0 && available >= requested;
+        return {
+          ...item,
+          garment_cost: cost,
+          estimated_profit: cost === null ? null : (Number(item.sale_price) - cost) * requested,
+          vendor_cost_status: cost === null ? 'not_loaded' : 'loaded',
+          vendor_cost_source: customerPrice && customerPrice > 0 ? 'S&S customer price' : saleIsCurrent ? 'S&S current sale price' : 'S&S piece price',
+          cost_refreshed_at: checkedAt,
+          inventory_available: available,
+          inventory_valid: inventoryValid,
+          inventory_refreshed_at: checkedAt,
+        };
+      });
+      const failures = refreshedItems.filter((item) => Number(item.garment_cost) <= 0 || !item.inventory_valid);
+      if (failures.length) {
+        return json(request, {
+          error: 'One or more S&S costs or inventory records could not be verified', submitted: false,
+          items: refreshedItems.map((item) => ({ sku: item.sku, cost_loaded: Number(item.garment_cost) > 0,
+            inventory_valid: item.inventory_valid, available_quantity: item.inventory_available })),
+        }, 409);
+      }
+      const inventory = { valid: true, checked_at: checkedAt, items: refreshedItems.map((item) => ({
+        sku: item.sku, requested_quantity: Number(item.quantity), available_quantity: item.inventory_available,
+        in_stock: item.inventory_valid,
+      })) };
+      const { data: updated, error: updateError } = await userClient.rpc('apply_ss_draft_cost_refresh', {
+        p_draft_id: payload.draft_id, p_items: refreshedItems, p_inventory: inventory, p_checked_at: checkedAt,
+      });
+      if (updateError || !updated) {
+        console.error('Unable to save S&S cost refresh', updateError?.message);
+        return json(request, { error: 'S&S cost loaded but could not be saved to the draft' }, 500);
+      }
+      return json(request, { submitted: false, checked_at: checkedAt, inventory_check: inventory,
+        cost_loaded: true, items: refreshedItems, draft: updated });
+    } catch (error) {
+      console.error('Read-only S&S cost refresh failed', error instanceof Error ? error.name : 'unknown');
+      return json(request, { error: 'S&S cost and inventory refresh could not connect. Try again.' }, 502);
     }
   }
 
