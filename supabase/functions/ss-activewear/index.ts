@@ -345,6 +345,7 @@ Deno.serve(async (request) => {
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
     'refresh_vendor_order_status',
+    'preview_vendor_order_submission',
     'check_blank_fulfillment_inventory',
     'create_blank_fulfillment_draft',
     'get_admin_status',
@@ -539,7 +540,7 @@ Deno.serve(async (request) => {
     });
   }
 
-  if (payload.action === 'submit_vendor_order') {
+  if (payload.action === 'submit_vendor_order' || payload.action === 'preview_vendor_order_submission') {
     if (!payload.draft_id) {
       return json(request, { error: 'Vendor order draft ID is required' }, 400);
     }
@@ -547,27 +548,29 @@ Deno.serve(async (request) => {
       return json(request, { error: 'S&S credentials are not configured' }, 503);
     }
 
-    const { data: authorizationResult, error: authorizationError } = await userClient.rpc(
-      'begin_live_ss_submission',
+    const dryRun = payload.action === 'preview_vendor_order_submission';
+    const { data: previewResult, error: previewError } = await userClient.rpc(
+      'preview_live_ss_submission',
       { p_draft_id: payload.draft_id },
     );
-    if (authorizationError || !authorizationResult) {
-      console.warn('Live S&S submission gate rejected the request', authorizationError?.message);
-      return json(request, { error: authorizationError?.message || 'Live S&S submission is not allowed' }, 409);
+    if (previewError || !previewResult) {
+      console.warn('Live S&S submission preflight rejected the request', previewError?.message);
+      return json(request, { error: previewError?.message || 'Live S&S submission is not allowed' }, 409);
     }
 
-    const failSubmission = async (message: string) => {
+    const failSubmission = async (message: string, responseSummary: unknown = null) => {
       const safeMessage = message.slice(0, 1000);
-      const { error } = await userClient.rpc('fail_live_ss_submission', {
+      const { error } = await userClient.rpc('fail_live_ss_submission_v2', {
         p_draft_id: payload.draft_id,
         p_error: safeMessage,
+        p_response_summary: responseSummary,
       });
       if (error) console.error('Unable to record failed S&S submission state', error.message);
       return safeMessage;
     };
 
     try {
-      const vendorPayload = authorizationResult.payload as Record<string, unknown>;
+      const vendorPayload = previewResult.payload as Record<string, unknown>;
       const items = Array.isArray(vendorPayload.items)
         ? vendorPayload.items as Array<Record<string, unknown>>
         : [];
@@ -581,6 +584,40 @@ Deno.serve(async (request) => {
       inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
       inventoryUrl.searchParams.set('mediatype', 'json');
       const authHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
+      const poNumber = textValue(vendorPayload.poNumber) || textValue(previewResult.vendor_order_number);
+      if (poNumber) {
+        const existingUrl = new URL(`https://api.ssactivewear.com/v2/orders/PO,${encodeURIComponent(poNumber)}`);
+        existingUrl.searchParams.set('mediatype', 'json');
+        const existingResponse = await fetch(existingUrl, {
+          method: 'GET', headers: { Authorization: authHeader, Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (existingResponse.ok) {
+          const existingResult = await existingResponse.json().catch(() => []);
+          const existingOrders = (Array.isArray(existingResult) ? existingResult : [existingResult])
+            .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'));
+          const existing = existingOrders.find((entry) => textValue(entry.orderNumber)
+            && String(entry.poNumber || '').trim().toLowerCase() === poNumber.toLowerCase());
+          if (existing) {
+            const confirmation = {
+              order_number: textValue(existing.orderNumber), guid: textValue(existing.guid),
+              po_number: textValue(existing.poNumber), warehouse: textValue(existing.warehouseAbbr),
+              status: textValue(existing.orderStatus), order_date: textValue(existing.orderDate),
+              expected_delivery_date: textValue(existing.expectedDeliveryDate),
+              tracking_number: textValue(existing.trackingNumber), source: 'pre_submit_reconciliation',
+            };
+            if (!dryRun) {
+              const { error: reconcileError } = await userClient.rpc('record_ss_order_confirmation', {
+                p_draft_id: payload.draft_id, p_confirmation: confirmation,
+              });
+              if (reconcileError) return json(request, { error: 'An existing S&S order was found but could not be reconciled', submitted: false }, 500);
+            }
+            return json(request, { submitted: false, duplicate_blocked: true, existing_order: confirmation, dry_run: dryRun });
+          }
+        } else if (existingResponse.status !== 404) {
+          return json(request, { error: 'S&S duplicate-order preflight could not be completed. No order was submitted.' }, 502);
+        }
+      }
       const inventoryResponse = await fetch(inventoryUrl, {
         headers: { 'Authorization': authHeader, 'Accept': 'application/json' },
         signal: AbortSignal.timeout(15000),
@@ -618,6 +655,23 @@ Deno.serve(async (request) => {
 
       const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id);
 
+      if (dryRun) {
+        return json(request, {
+          dry_run: true, submitted: false, would_post: true,
+          endpoint: 'https://api.ssactivewear.com/v2/orders/', method: 'POST',
+          checks: { admin: true, payment: true, reviewed: true, ready: true, cost_loaded: true,
+            duplicate_order: false, inventory: true, shipping_address: true },
+          submission_payload: requestBody,
+        });
+      }
+
+      const { data: authorizationResult, error: authorizationError } = await userClient.rpc(
+        'begin_live_ss_submission', { p_draft_id: payload.draft_id },
+      );
+      if (authorizationError || !authorizationResult) {
+        return json(request, { error: authorizationError?.message || 'Live S&S submission authorization failed' }, 409);
+      }
+
       const orderResponse = await fetch('https://api.ssactivewear.com/v2/orders/', {
         method: 'POST',
         headers: {
@@ -630,7 +684,8 @@ Deno.serve(async (request) => {
       });
       const orderResult = await orderResponse.json().catch(() => null);
       if (!orderResponse.ok) {
-        const message = await failSubmission(safeSsError(orderResult, 'S&S rejected the vendor order'));
+        const safeFailure = { upstream_status: orderResponse.status, error: safeSsError(orderResult, 'S&S rejected the vendor order') };
+        const message = await failSubmission(safeFailure.error, safeFailure);
         return json(request, { error: message, upstream_status: orderResponse.status }, 502);
       }
 
@@ -641,19 +696,19 @@ Deno.serve(async (request) => {
         const message = await failSubmission('S&S accepted the request but did not return an order number; manual review is required');
         return json(request, { error: message }, 502);
       }
-      const responseSummary = orders.map((entry) => ({
-        order_number: textValue(entry.orderNumber),
-        order_status: textValue(entry.orderStatus),
-        warehouse: textValue(entry.warehouseAbbr),
-        guid: textValue(entry.guid),
-      }));
+      const first = orders[0];
+      const confirmation = {
+        order_number: orderNumbers.join(', '), guid: textValue(first.guid),
+        po_number: textValue(first.poNumber) || poNumber, warehouse: textValue(first.warehouseAbbr),
+        status: textValue(first.orderStatus), order_date: textValue(first.orderDate),
+        expected_delivery_date: textValue(first.expectedDeliveryDate),
+        tracking_number: textValue(first.trackingNumber),
+        orders: orders.map((entry) => ({ order_number: textValue(entry.orderNumber), guid: textValue(entry.guid),
+          warehouse: textValue(entry.warehouseAbbr), status: textValue(entry.orderStatus) })),
+      };
       const { data: completedDraft, error: completionError } = await userClient.rpc(
-        'complete_live_ss_submission',
-        {
-          p_draft_id: payload.draft_id,
-          p_order_number: orderNumbers.join(', '),
-          p_response_summary: responseSummary,
-        },
+        'record_ss_order_confirmation',
+        { p_draft_id: payload.draft_id, p_confirmation: confirmation },
       );
       if (completionError || !completedDraft) {
         console.error('S&S returned an order but the local confirmation audit failed', completionError?.message);

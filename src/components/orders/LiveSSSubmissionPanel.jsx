@@ -51,6 +51,10 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     onError: (mutationError) => toast.error(mutationError.message),
   });
 
+  const previewMutation = useMutation({
+    mutationFn: () => invoke('preview_vendor_order_submission', { draft_id: draft.id }),
+  });
+
   const refreshStatusMutation = useMutation({
     mutationFn: () => invoke('refresh_vendor_order_status', { draft_id: draft.id }),
     onSuccess: async (result) => {
@@ -82,7 +86,8 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
   };
 
   const submitLive = () => {
-    if (!window.confirm('This will place a real S&S order. Continue?')) return;
+    const orderNumber = draft.customer_order_number || draft.customer_order_id || 'this customer order';
+    if (!window.confirm(`This will place a real S&S order for customer order ${orderNumber}. Continue?`)) return;
     submitMutation.mutate();
   };
 
@@ -188,6 +193,7 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
               <Confirmation label="S&S order number" value={draft.ss_order_number || draft.external_vendor_order_number} />
               <Confirmation label="S&S GUID" value={draft.ss_guid} />
+              <Confirmation label="PO number" value={draft.ss_po_number || draft.vendor_order_number} />
               <Confirmation label="Warehouse" value={draft.ss_warehouse} />
               <Confirmation label="Status" value={draft.ss_order_status} />
               <Confirmation label="Submitted at" value={formatDate(draft.ss_submitted_at)} />
@@ -208,16 +214,24 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
             </div>
           )}
           {isReady ? (
-            <Button
-              className="gap-2 bg-red-700 text-white hover:bg-red-800"
-              disabled={submitMutation.isPending}
-              onClick={submitLive}
-            >
-              {submitMutation.isPending
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Send className="w-4 h-4" />}
-              Submit Live S&amp;S Order
-            </Button>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="gap-2" disabled={previewMutation.isPending || submitMutation.isPending}
+                  onClick={() => previewMutation.mutate()}>
+                  {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                  Verify Live Submission (No Order)
+                </Button>
+                <Button className="gap-2 bg-red-700 text-white hover:bg-red-800"
+                  disabled={submitMutation.isPending || previewMutation.isPending} onClick={submitLive}>
+                  {submitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Submit Live S&amp;S Order
+                </Button>
+              </div>
+              {previewMutation.data?.would_post && <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">Dry run passed every server-side check and reached the live POST boundary. No order was submitted.</p>}
+              {previewMutation.data?.duplicate_blocked && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">An existing S&amp;S order was found. Live POST is blocked.</p>}
+              {previewMutation.error && <p className="text-sm text-red-700">Dry run blocked: {previewMutation.error.message}</p>}
+              {submitMutation.error && <p className="text-sm text-red-700">Live submission blocked: {submitMutation.error.message}</p>}
+            </div>
           ) : !alreadySubmitted ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <LockKeyhole className="h-3.5 w-3.5" />
