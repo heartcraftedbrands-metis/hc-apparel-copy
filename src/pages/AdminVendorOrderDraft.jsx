@@ -217,7 +217,7 @@ export default function AdminVendorOrderDraft() {
       itemIndex === index ? { ...item, [key]: value } : item
     )),
   }));
-  const costReady = totals.costsLoaded || Boolean(String(form.cost_override_reason || '').trim());
+  const costReady = totals.costsLoaded || Boolean(String(form?.cost_override_reason || '').trim());
 
   if (!id) return <div className="p-8 text-center">No vendor order draft selected.</div>;
   if (isLoading || !form) {
