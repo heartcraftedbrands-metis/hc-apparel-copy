@@ -28,6 +28,12 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     queryKey: ['live-integration-status'],
     queryFn: () => invoke('get_admin_status'),
   });
+  const readinessQuery = useQuery({
+    queryKey: ['ss-submission-readiness', draft?.id],
+    queryFn: () => invoke('get_vendor_order_submission_readiness', { draft_id: draft.id }),
+    enabled: Boolean(draft?.id),
+    refetchOnWindowFocus: false,
+  });
 
   const controlsMutation = useMutation({
     mutationFn: ({ ssEnabled, zeroTouchEnabled }) => invoke('set_live_controls', {
@@ -36,6 +42,7 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     }),
     onSuccess: (result) => {
       queryClient.setQueryData(['live-integration-status'], (current) => ({ ...current, ...result }));
+      queryClient.invalidateQueries({ queryKey: ['ss-submission-readiness', draft?.id] });
       toast.success('Live integration controls updated');
     },
     onError: (mutationError) => toast.error(mutationError.message),
@@ -104,7 +111,8 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     && draft.vendor_status === 'ready_to_order'
     && draft.validation_passed
     && !alreadySubmitted
-    && draft.ss_submission_state !== 'submitting',
+    && draft.ss_submission_state !== 'submitting'
+    && readinessQuery.data?.ready,
   );
 
   return (
@@ -208,9 +216,28 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
               S&amp;S order submitted: {draft.ss_order_number || draft.external_vendor_order_number}
             </div>
           ) : (
-            <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              Live submission requires paid status, admin review, a ready draft, a passed validation, current stock, and the live control enabled.
+            <div className="rounded-xl border p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-sm">Submission Readiness</h3>
+                  <p className="text-xs text-muted-foreground">Every item must be Ready before live submission is enabled.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" className="gap-2"
+                  disabled={readinessQuery.isFetching} onClick={() => readinessQuery.refetch()}>
+                  {readinessQuery.isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Revalidate Draft
+                </Button>
+              </div>
+              {readinessQuery.error && <p className="text-sm text-red-700">Readiness check failed: {readinessQuery.error.message}</p>}
+              <div className="grid gap-2 md:grid-cols-2">
+                {(readinessQuery.data?.gates || []).map((gate) => <ReadinessGate key={gate.key} gate={gate} />)}
+              </div>
+              {readinessQuery.data && !readinessQuery.data.ready && (
+                <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  {readinessQuery.data.gates.filter((gate) => !gate.ready).map((gate) => gate.reason).join(' ')}
+                </div>
+              )}
             </div>
           )}
           {isReady ? (
@@ -258,6 +285,21 @@ function Status({ label, ok, disabledLabel = 'Not ready / disabled' }) {
 
 function Confirmation({ label, value }) {
   return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold break-words">{value || 'Not available'}</p></div>;
+}
+
+function ReadinessGate({ gate }) {
+  return (
+    <div className={`rounded-lg border p-3 text-sm ${gate.ready ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold">{gate.label}</p>
+        <Badge className={gate.ready ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-900'}>
+          {gate.ready ? 'Ready' : 'Blocked'}
+        </Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{gate.reason}</p>
+      {gate.value && <p className="mt-1 text-[11px] text-muted-foreground break-all">Current: {gate.value}</p>}
+    </div>
+  );
 }
 
 function formatDate(value) {

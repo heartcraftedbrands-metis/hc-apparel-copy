@@ -346,6 +346,7 @@ Deno.serve(async (request) => {
     'refresh_vendor_order_cost_inventory',
     'refresh_vendor_order_status',
     'preview_vendor_order_submission',
+    'get_vendor_order_submission_readiness',
     'check_blank_fulfillment_inventory',
     'create_blank_fulfillment_draft',
     'get_admin_status',
@@ -357,6 +358,113 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'get_vendor_order_submission_readiness') {
+    if (!payload.draft_id) return json(request, { error: 'Vendor order draft ID is required' }, 400);
+    const [{ data: draft, error: draftError }, { data: settings, error: settingsError }] = await Promise.all([
+      userClient.from('vendor_order_drafts')
+        .select('id,payment_status,workflow_status,vendor_status,validation_passed,ss_api_connected,items,shipping_address,cost_refreshed_at,cost_override_reason,vendor_order_number,ss_submission_state,ss_order_number,external_vendor_order_number,ss_guid,is_sample')
+        .eq('id', payload.draft_id).maybeSingle(),
+      userClient.from('integration_settings').select('ss_live_submission_enabled').eq('id', true).maybeSingle(),
+    ]);
+    if (draftError || !draft) return json(request, { error: 'S&S vendor order draft not found' }, 404);
+    if (settingsError) return json(request, { error: 'Unable to load S&S live controls' }, 500);
+
+    const items = Array.isArray(draft.items) ? draft.items as Array<Record<string, unknown>> : [];
+    const address = draft.shipping_address as Record<string, unknown> || {};
+    const paymentReady = draft.payment_status === 'paid';
+    const reviewReady = ['vendor_order_reviewed', 'ready_to_submit_to_ss'].includes(draft.workflow_status)
+      || draft.vendor_status === 'ready_to_order';
+    const statusReady = draft.workflow_status === 'ready_to_submit_to_ss' && draft.vendor_status === 'ready_to_order';
+    const payloadReady = draft.validation_passed === true && draft.ss_api_connected === true;
+    const skuReady = items.length > 0 && items.every((item) => Boolean(textValue(item.sku)) && Number(item.quantity) > 0);
+    const shippingReady = Boolean(textValue(address.street ?? address.line1 ?? address.address1)
+      && textValue(address.city) && textValue(address.state) && textValue(address.zip ?? address.postal_code));
+    const costReady = items.length > 0 && (items.every((item) => Number(item.garment_cost) > 0)
+      || Boolean(textValue(draft.cost_override_reason)));
+    const liveReady = settings?.ss_live_submission_enabled === true;
+    const localDuplicate = draft.ss_submission_state === 'submitted'
+      || Boolean(textValue(draft.ss_order_number) || textValue(draft.external_vendor_order_number) || textValue(draft.ss_guid));
+
+    let inventoryReady = false;
+    let inventoryReason = 'Current S&S inventory has not been verified.';
+    let duplicateReady = !localDuplicate;
+    let duplicateReason = localDuplicate ? 'An S&S order number or GUID is already stored for this draft.' : 'No local S&S order confirmation exists.';
+    if (!accountNumber || !apiKey) {
+      inventoryReason = 'S&S credentials are not configured.';
+      duplicateReady = false;
+      duplicateReason = 'S&S duplicate-order lookup could not run because credentials are missing.';
+    } else if (skuReady) {
+      const authHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
+      try {
+        const skuList = [...new Set(items.map((item) => String(item.sku).trim()))];
+        const inventoryUrl = new URL(`https://api.ssactivewear.com/v2/products/${skuList.map(encodeURIComponent).join(',')}`);
+        inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
+        inventoryUrl.searchParams.set('mediatype', 'json');
+        const inventoryResponse = await fetch(inventoryUrl, {
+          method: 'GET', headers: { Authorization: authHeader, Accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+        });
+        if (inventoryResponse.ok) {
+          const result = await inventoryResponse.json();
+          const rows = Array.isArray(result) ? result as Array<Record<string, unknown>> : [];
+          const failed = items.find((item) => {
+            const row = rows.find((candidate) => String(candidate.sku ?? candidate.Sku ?? '').trim().toLowerCase()
+              === String(item.sku).trim().toLowerCase());
+            if (!row) return true;
+            return String(row.colorName ?? row.ColorName ?? '').trim().toLowerCase() !== String(item.color || '').trim().toLowerCase()
+              || String(row.sizeName ?? row.SizeName ?? '').trim().toLowerCase() !== String(item.size || '').trim().toLowerCase()
+              || inventoryQuantity(row) < Number(item.quantity);
+          });
+          inventoryReady = !failed;
+          inventoryReason = failed
+            ? `SKU ${String(failed.sku || '').trim()} is unavailable, mismatched, or lacks requested inventory.`
+            : `All ${items.length} S&S SKU line(s) have current inventory.`;
+        } else inventoryReason = 'Current S&S inventory could not be loaded.';
+
+        if (!localDuplicate && textValue(draft.vendor_order_number)) {
+          const orderUrl = new URL(`https://api.ssactivewear.com/v2/orders/PO,${encodeURIComponent(String(draft.vendor_order_number))}`);
+          orderUrl.searchParams.set('mediatype', 'json');
+          const orderResponse = await fetch(orderUrl, {
+            method: 'GET', headers: { Authorization: authHeader, Accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+          });
+          if (orderResponse.ok) {
+            const result = await orderResponse.json().catch(() => []);
+            const rows = Array.isArray(result) ? result : [result];
+            const existing = rows.find((entry) => entry && typeof entry === 'object'
+              && textValue((entry as Record<string, unknown>).orderNumber)
+              && String((entry as Record<string, unknown>).poNumber || '').trim().toLowerCase()
+                === String(draft.vendor_order_number).trim().toLowerCase());
+            duplicateReady = !existing;
+            duplicateReason = existing ? 'S&S already has an order for this draft PO.' : 'No existing S&S order was found for this PO.';
+          } else if (orderResponse.status === 404) {
+            duplicateReady = true;
+            duplicateReason = 'No existing S&S order was found for this PO.';
+          } else {
+            duplicateReady = false;
+            duplicateReason = 'S&S duplicate-order lookup could not be completed.';
+          }
+        }
+      } catch {
+        inventoryReason = 'Current S&S inventory check could not connect.';
+        duplicateReady = false;
+        duplicateReason = 'S&S duplicate-order lookup could not connect.';
+      }
+    } else inventoryReason = 'A valid S&S SKU and quantity are required before inventory can be checked.';
+
+    const gates = [
+      { key: 'payment', label: 'Payment confirmed', ready: paymentReady, value: draft.payment_status, reason: paymentReady ? 'Payment status is paid.' : `Payment status is ${draft.payment_status || 'missing'}.` },
+      { key: 'review', label: 'Vendor draft reviewed', ready: reviewReady, value: draft.workflow_status, reason: reviewReady ? 'Vendor review is complete.' : 'Mark the vendor draft reviewed.' },
+      { key: 'status', label: 'Draft status', ready: statusReady, value: `${draft.workflow_status} / ${draft.vendor_status}`, reason: statusReady ? 'Draft is ready to submit to S&S.' : 'Draft must be reviewed and marked ready to submit.' },
+      { key: 'payload', label: 'S&S payload validation', ready: payloadReady, value: String(draft.validation_passed), reason: payloadReady ? 'S&S payload validation passed.' : 'Payload validation has not passed. Run Test S&S Payload.' },
+      { key: 'inventory', label: 'Inventory check', ready: inventoryReady, value: draft.cost_refreshed_at, reason: inventoryReason },
+      { key: 'sku', label: 'SKU validation', ready: skuReady, value: items.map((item) => item.sku).filter(Boolean).join(', '), reason: skuReady ? `Validated SKU fields: ${items.map((item) => item.sku).join(', ')}.` : 'Every line requires a valid S&S SKU and quantity.' },
+      { key: 'shipping', label: 'Shipping address', ready: shippingReady, value: shippingReady ? 'complete' : 'incomplete', reason: shippingReady ? 'Shipping street, city, state, and ZIP are present.' : 'Shipping address validation failed.' },
+      { key: 'cost', label: 'Vendor cost', ready: costReady, value: items.map((item) => item.garment_cost).join(', '), reason: costReady ? 'S&S garment cost is loaded.' : 'Vendor cost is missing. Refresh S&S Cost & Inventory.' },
+      { key: 'duplicate', label: 'Duplicate order check', ready: duplicateReady, value: draft.vendor_order_number, reason: duplicateReason },
+      { key: 'live', label: 'S&S live control', ready: liveReady, value: String(settings?.ss_live_submission_enabled), reason: liveReady ? 'S&S live submission control is enabled.' : 'Enable the S&S live submission control.' },
+    ];
+    return json(request, { ready: gates.every((gate) => gate.ready) && !draft.is_sample, gates, checked_at: new Date().toISOString(), submitted: false });
+  }
 
   if (payload.action === 'refresh_vendor_order_status') {
     if (!payload.draft_id) return json(request, { error: 'Vendor order draft ID is required' }, 400);
