@@ -356,6 +356,19 @@ export default function AdminVendorOrderDraft() {
             <Summary label="Customer paid" value={`$${totals.sale.toFixed(2)}`} />
             <Summary label={totals.fees > 0 ? 'Estimated margin' : 'Estimated margin before shipping/fees'} value={totals.margin === null ? 'Unavailable' : `$${totals.margin.toFixed(2)}`} />
           </div>
+          {customerOrder && <div className="rounded-xl border bg-slate-50 p-4">
+            <h3 className="mb-3 text-sm font-bold">Checkout revenue &amp; margin snapshot</h3>
+            <div className="grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-4">
+              <Summary label="Merchandise revenue" value={`$${Number(customerOrder.product_subtotal ?? totals.sale).toFixed(2)}`} />
+              <Summary label="Shipping charged" value={`$${Number(customerOrder.shipping_amount || 0).toFixed(2)}`} />
+              <Summary label="Sales tax (not profit)" value={`$${Number(customerOrder.sales_tax_amount || 0).toFixed(2)}`} />
+              <Summary label="Processing estimate" value={customerOrder.payment_processing_estimate == null ? 'Historical / unavailable' : `$${Number(customerOrder.payment_processing_estimate).toFixed(2)}`} />
+              <Summary label="Estimated vendor shipping" value={customerOrder.estimated_vendor_shipping == null ? 'Shipping cost pending' : `$${Number(customerOrder.estimated_vendor_shipping).toFixed(2)}`} />
+              <Summary label="Actual vendor shipping" value={customerOrder.actual_vendor_shipping == null ? 'Shipping cost pending' : `$${Number(customerOrder.actual_vendor_shipping).toFixed(2)}`} />
+              <Summary label="Shipping variance" value={customerOrder.shipping_variance == null ? 'Pending actual freight' : `$${Number(customerOrder.shipping_variance).toFixed(2)}`} />
+              <Summary label="Estimated net margin" value={customerOrder.estimated_net_margin == null ? 'Historical / unavailable' : `$${Number(customerOrder.estimated_net_margin).toFixed(2)}`} />
+            </div>
+          </div>}
           <div className="grid md:grid-cols-3 gap-3">
             <Field label="S&S shipping estimate (optional)" type="number" value={form.vendor_shipping_estimate ?? ''} onChange={(v) => setField('vendor_shipping_estimate', v)} />
             <Field label="Other vendor fees (optional)" type="number" value={form.vendor_other_fees ?? ''} onChange={(v) => setField('vendor_other_fees', v)} />

@@ -132,7 +132,7 @@ Deno.serve(async (request) => {
     stage = 'order_lookup';
     const { data: order, error: orderError } = await admin
       .from('orders')
-      .select('id,owner_user_id,customer_email,order_items,total_amount,payment_status,checkout_source')
+      .select('id,owner_user_id,customer_email,order_items,total_amount,product_subtotal,shipping_amount,sales_tax_amount,payment_status,checkout_source')
       .eq('id', orderId.trim())
       .maybeSingle();
     if (orderError) {
@@ -168,26 +168,36 @@ Deno.serve(async (request) => {
     };
     stage = 'stripe_session';
     let session;
+    const merchandiseLines = items.map((item: Record<string, unknown>) => ({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: String(item.product_name || 'HC Apparel garment'),
+          description: 'HC Apparel storefront order',
+          metadata: { app_name: 'HC Apparel', internal_order_id: order.id },
+        },
+        unit_amount: Math.round(Number(item.price) * 100),
+      },
+      quantity: Number(item.quantity),
+    }));
+    const supplementalLines = [
+      { name: 'Shipping', amount: Number(order.shipping_amount || 0) },
+      { name: 'Sales tax', amount: Number(order.sales_tax_amount || 0) },
+    ].filter((line) => line.amount > 0).map((line) => ({
+      price_data: { currency: 'usd', product_data: { name: line.name }, unit_amount: Math.round(line.amount * 100) },
+      quantity: 1,
+    }));
+    const stripeLineTotal = [...merchandiseLines, ...supplementalLines].reduce((sum, line) => sum + line.price_data.unit_amount * line.quantity, 0);
+    if (stripeLineTotal !== Math.round(Number(order.total_amount) * 100)) {
+      await markStartFailed();
+      return respond({ error: 'Payment checkout could not be started', code: 'ORDER_TOTAL_MISMATCH' }, 409);
+    }
     try { session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
       customer_email: order.customer_email,
       client_reference_id: order.id,
-      line_items: items.map((item: Record<string, unknown>) => ({
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: String(item.product_name || 'HC Apparel garment'),
-            description: 'HC Apparel storefront order',
-            metadata: {
-              app_name: 'HC Apparel',
-              internal_order_id: order.id,
-            },
-          },
-          unit_amount: Math.round(Number(item.price) * 100),
-        },
-        quantity: Number(item.quantity),
-      })),
+      line_items: [...merchandiseLines, ...supplementalLines],
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: stripeOrderMetadata,

@@ -1,0 +1,260 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { getSupabasePublishableKey, getSupabaseServiceCredential } from '../_shared/supabaseCredentials.ts';
+
+const allowedOrigins = ['https://www.ilovehcapparel.net', 'https://ilovehcapparel.net', 'http://localhost:5173'];
+const cors = (origin: string) => ({
+  'Access-Control-Allow-Origin': allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
+  'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Vary': 'Origin',
+  'Cache-Control': 'no-store',
+});
+const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const safeNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+
+type Settings = Record<string, unknown>;
+type Item = Record<string, unknown>;
+type Product = Record<string, unknown>;
+
+let uspsToken: { value: string; expiresAt: number } | null = null;
+
+async function getUspsToken() {
+  if (uspsToken && Date.now() < uspsToken.expiresAt - 60_000) return uspsToken.value;
+  const clientId = Deno.env.get('USPS_CLIENT_ID');
+  const clientSecret = Deno.env.get('USPS_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('USPS credentials are not configured.');
+  const response = await fetch('https://apis.usps.com/oauth2/v3/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) throw new Error('USPS authentication is temporarily unavailable.');
+  uspsToken = { value: data.access_token, expiresAt: Date.now() + safeNumber(data.expires_in || 28_800) * 1000 };
+  return uspsToken.value;
+}
+
+const variantFor = (product: Product, item: Item) => {
+  const variants = Array.isArray(product.size_prices) ? product.size_prices as Item[] : [];
+  const color = String(item.color || '').trim().toLowerCase();
+  const size = String(item.size || '').trim().toLowerCase();
+  return variants.find((variant) => {
+    const label = String(variant.size || '').trim().toLowerCase();
+    return label === `${color} / ${size}` || (
+      String(variant.color || '').trim().toLowerCase() === color
+      && String(variant.size || '').trim().toLowerCase() === size
+    );
+  });
+};
+
+async function uspsRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+  const token = await getUspsToken();
+  const pounds = Math.max(0, Math.floor(ounces / 16));
+  const residualOunces = Math.max(0.1, ounces - pounds * 16);
+  const request = {
+    originZIPCode: String(settings.origin_zip || '').replace(/\D/g, '').slice(0, 5),
+    destinationZIPCode: destinationZip.replace(/\D/g, '').slice(0, 5),
+    weight: pounds,
+    length: dimensions.length,
+    width: dimensions.width,
+    height: dimensions.height,
+    mailClass: 'ALL',
+    processingCategory: 'MACHINABLE',
+    destinationEntryFacilityType: 'NONE',
+    rateIndicator: 'DR',
+    priceType: 'RETAIL',
+  };
+  const response = await fetch('https://apis.usps.com/prices/v3/base-rates/search', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`USPS rate request failed (${response.status}).`);
+  const candidates = Array.isArray(data) ? data : (data.rates || data.rateOptions || data.prices || []);
+  return candidates.flatMap((entry: Item) => Array.isArray(entry.rates) ? entry.rates : [entry]).map((rate: Item) => {
+    const name = String(rate.mailClass || rate.serviceName || rate.description || rate.productName || '');
+    return {
+      id: String(rate.mailClass || rate.productId || name).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      service: name,
+      amount: money(safeNumber(rate.totalBasePrice || rate.totalPrice || rate.price || rate.rate)),
+      delivery: rate.deliveryTime || rate.serviceStandard || null,
+    };
+  }).filter((rate: { service: string; amount: number }) => rate.amount > 0 && (
+    (/ground advantage/i.test(rate.service) && settings.usps_ground_advantage_enabled !== false)
+    || (/priority mail(?! express)/i.test(rate.service) && settings.usps_priority_mail_enabled !== false)
+  ));
+}
+
+async function calculate(admin: ReturnType<typeof createClient>, payload: Record<string, unknown>, settings: Settings) {
+  const items = Array.isArray(payload.items) ? payload.items as Item[] : [];
+  if (!items.length) throw new Error('Your cart is empty.');
+  const ids = [...new Set(items.map((item) => String(item.product_id || '')).filter(Boolean))];
+  const { data: products, error } = await admin.from('products').select('id,name,price,sale_price,size_prices,vendor_cost,blank_garment_cost,print_cost_estimate,fulfillment_source,shipping_weight_oz,package_length_in,package_width_in,package_height_in,visibility,is_active').in('id', ids);
+  if (error) throw new Error('Products could not be validated.');
+  const byId = new Map((products || []).map((product: Product) => [String(product.id), product]));
+  let merchandise = 0;
+  let vendorCost = 0;
+  let printCost = 0;
+  const legs = { ss_activewear: [] as Item[], hc_apparel: [] as Item[] };
+  for (const item of items) {
+    const product = byId.get(String(item.product_id || ''));
+    if (!product || product.visibility !== 'public' || product.is_active !== true) throw new Error('A checkout product is unavailable.');
+    const quantity = Math.floor(safeNumber(item.quantity));
+    if (quantity < 1) throw new Error('Cart quantity is invalid.');
+    const variant = variantFor(product, item);
+    const price = safeNumber(variant?.price || product.sale_price || product.price);
+    const cost = safeNumber(variant?.vendor_cost || variant?.cost || product.vendor_cost || product.blank_garment_cost);
+    if (price <= 0) throw new Error('A product price is unavailable.');
+    if (cost <= 0) throw new Error('A product vendor cost is unavailable. Please contact support@ilovehcapparel.net.');
+    if (item.is_customized === true && safeNumber(product.print_cost_estimate) <= 0) {
+      throw new Error('Custom printing pricing requires review before checkout. Please request a print quote.');
+    }
+    merchandise += price * quantity;
+    vendorCost += cost * quantity;
+    printCost += item.is_customized === true ? safeNumber(product.print_cost_estimate) * quantity : 0;
+    const source = product.fulfillment_source === 'hc_apparel' ? 'hc_apparel' : 'ss_activewear';
+    legs[source].push({ ...item, quantity, product, price, cost });
+  }
+  merchandise = money(merchandise);
+  vendorCost = money(vendorCost);
+  printCost = money(printCost);
+  const components: Item[] = [];
+  const services: Item[] = [];
+  const warnings: string[] = [];
+  let estimatedVendorShipping = 0;
+  let uspsQuotedShipping = 0;
+
+  if (legs.ss_activewear.length) {
+    if (settings.ss_shipping_enabled === false) throw new Error('S&S shipping is not enabled. Please contact support@ilovehcapparel.net.');
+    const quantity = legs.ss_activewear.reduce((sum, item) => sum + safeNumber(item.quantity), 0);
+    const subtotal = money(legs.ss_activewear.reduce((sum, item) => sum + safeNumber(item.price) * safeNumber(item.quantity), 0));
+    const threshold = safeNumber(settings.ss_free_freight_threshold);
+    let base: number | null = null;
+    let rule = '';
+    if (threshold > 0 && subtotal >= threshold) { base = 0; rule = 'Configured S&S free-freight threshold'; }
+    else if (quantity <= 2) { base = settings.ss_tier_1_2 == null ? null : safeNumber(settings.ss_tier_1_2); rule = 'S&S fallback: 1–2 garments'; }
+    else if (quantity <= 5) { base = settings.ss_tier_3_5 == null ? null : safeNumber(settings.ss_tier_3_5); rule = 'S&S fallback: 3–5 garments'; }
+    else if (quantity <= 12) { base = settings.ss_tier_6_12 == null ? null : safeNumber(settings.ss_tier_6_12); rule = 'S&S fallback: 6–12 garments'; }
+    else { base = settings.ss_tier_13_plus == null ? null : safeNumber(settings.ss_tier_13_plus); rule = 'S&S fallback: 13+ garments'; }
+    if (base == null) throw new Error(`Shipping could not be calculated. The ${rule} rate has not been configured.`);
+    const charge = money(base + safeNumber(settings.ss_shipping_buffer));
+    estimatedVendorShipping += base;
+    components.push({ source: 'ss_activewear', quantity, subtotal, customer_charge: charge, estimated_vendor_shipping: base, rule, exact_quote: false });
+  }
+
+  if (legs.hc_apparel.length) {
+    const subtotal = money(legs.hc_apparel.reduce((sum, item) => sum + safeNumber(item.price) * safeNumber(item.quantity), 0));
+    let ounces = 0;
+    let usedDefaultWeight = false;
+    for (const item of legs.hc_apparel) {
+      const product = item.product as Product;
+      let unitWeight = safeNumber(product.shipping_weight_oz);
+      if (unitWeight <= 0) { unitWeight = safeNumber(settings.default_product_weight_oz); usedDefaultWeight = true; }
+      if (unitWeight <= 0) throw new Error('Shipping could not be calculated because a product weight is missing.');
+      ounces += unitWeight * safeNumber(item.quantity);
+    }
+    if (usedDefaultWeight) warnings.push('Using default shipping weight');
+    const dimensions = {
+      length: safeNumber(settings.default_package_length_in),
+      width: safeNumber(settings.default_package_width_in),
+      height: safeNumber(settings.default_package_height_in),
+    };
+    if (!dimensions.length || !dimensions.width || !dimensions.height) throw new Error('HC Apparel package dimensions are not configured.');
+    const destinationZip = String((payload.shipping_address as Item)?.zip || (payload.shipping_address as Item)?.postal_code || '');
+    if (!/^\d{5}(-\d{4})?$/.test(destinationZip)) throw new Error('Enter a valid destination ZIP code.');
+    let rates: Item[] = [];
+    let fallback = false;
+    if (settings.hc_free_shipping_enabled === true && safeNumber(settings.hc_free_shipping_threshold) > 0 && subtotal >= safeNumber(settings.hc_free_shipping_threshold)) {
+      rates = [{ id: 'hc-free-shipping', service: 'HC Apparel free shipping', amount: 0, delivery: null }];
+    } else if (settings.usps_enabled === true) {
+      try { rates = await uspsRates(settings, destinationZip, ounces, dimensions); }
+      catch (error) { console.warn('USPS quote unavailable', { name: error instanceof Error ? error.name : 'Unknown' }); }
+    }
+    if (!rates.length && settings.hc_fallback_enabled === true && settings.hc_fallback_rate != null) {
+      fallback = true;
+      rates = [{ id: 'hc-fallback', service: 'Standard shipping', amount: safeNumber(settings.hc_fallback_rate), delivery: null }];
+      warnings.push('Live USPS rates are temporarily unavailable. A fallback shipping rate has been applied.');
+    }
+    if (!rates.length) throw new Error('Shipping could not be calculated. Please try again or contact support@ilovehcapparel.net.');
+    rates = rates.map((rate) => ({ ...rate, amount: money(safeNumber(rate.amount) + safeNumber(settings.hc_handling_amount)) }));
+    services.push(...rates);
+    const selectedId = String(payload.shipping_service_id || '');
+    const selected = rates.find((rate) => rate.id === selectedId) || (rates.length === 1 ? rates[0] : null);
+    if (selected) {
+      uspsQuotedShipping += fallback ? 0 : safeNumber(selected.amount) - safeNumber(settings.hc_handling_amount);
+      components.push({ source: 'hc_apparel', customer_charge: selected.amount, carrier: fallback ? 'Fallback' : 'USPS', service: selected.service, package_weight_oz: ounces, dimensions, quote_timestamp: new Date().toISOString() });
+    }
+  }
+
+  const needsSelection = legs.hc_apparel.length > 0 && services.length > 1 && !components.some((component) => component.source === 'hc_apparel');
+  const shipping = money(components.reduce((sum, component) => sum + safeNumber(component.customer_charge), 0));
+  const tax = settings.sales_tax_enabled === true ? money((merchandise + shipping) * safeNumber(settings.sales_tax_rate_percent) / 100) : 0;
+  const total = money(merchandise + shipping + tax);
+  const processing = settings.processing_enabled === false ? 0 : money(total * safeNumber(settings.processing_percent) / 100 + safeNumber(settings.processing_fixed_fee));
+  const beforeShipping = money(merchandise - vendorCost - printCost - processing);
+  const estimatedMargin = money(beforeShipping + shipping - estimatedVendorShipping - uspsQuotedShipping);
+  const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * items.reduce((sum, item) => sum + safeNumber(item.quantity), 0));
+  if (estimatedMargin < requiredMargin) throw new Error('This cart requires a pricing review before checkout. Please contact support@ilovehcapparel.net.');
+  return { merchandise, shipping, tax, total, processing, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
+}
+
+Deno.serve(async (request) => {
+  const origin = request.headers.get('Origin') || '';
+  const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(origin), 'Content-Type': 'application/json' } });
+  if (request.method === 'OPTIONS') return respond({ ok: true });
+  if (request.method !== 'POST') return respond({ error: 'Method not allowed' }, 405);
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const publishableKey = getSupabasePublishableKey();
+    const serviceKey = getSupabaseServiceCredential().key;
+    if (!supabaseUrl || !publishableKey || !serviceKey) return respond({ error: 'Checkout is not configured.' }, 503);
+    const authorization = request.headers.get('Authorization') || '';
+    const userClient = createClient(supabaseUrl, publishableKey, { global: { headers: { Authorization: authorization } } });
+    const { data: { user } } = await userClient.auth.getUser();
+    if (!user) return respond({ error: 'Please sign in again to continue checkout.', code: 'AUTH_REQUIRED' }, 401);
+    const body = await request.json();
+    const action = String(body.action || 'quote');
+    const payload = (body.payload || body) as Record<string, unknown>;
+    if (String(payload.customer_email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return respond({ error: 'Checkout email must match the signed-in account.' }, 403);
+    const admin = createClient(supabaseUrl, serviceKey);
+    const { data: settings, error: settingsError } = await admin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+    if (settingsError || !settings) return respond({ error: 'Shipping settings are unavailable.' }, 503);
+    const quote = await calculate(admin, payload, settings);
+    if (action === 'quote') return respond({ quote, credentials: { usps_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')) } });
+    if (action !== 'create_order') return respond({ error: 'Unsupported checkout action.' }, 400);
+    if (quote.needsSelection) return respond({ error: 'Select a shipping service before continuing.' }, 400);
+    const rpcPayload = { ...payload, shipping_method: quote.components.map((component: Item) => component.service || component.rule).filter(Boolean).join(' + ') };
+    const { data: created, error: createError } = await userClient.rpc('create_small_order_checkout', { payload: rpcPayload });
+    if (createError || !created?.order_id) return respond({ error: createError?.message || 'Order could not be created.' }, 400);
+    const service = quote.components.find((component: Item) => component.source === 'hc_apparel');
+    const { error: updateError } = await admin.from('orders').update({
+      product_subtotal: quote.merchandise,
+      shipping_amount: quote.shipping,
+      sales_tax_amount: quote.tax,
+      total_amount: quote.total,
+      balance_due: quote.total,
+      vendor_garment_cost: quote.vendorCost,
+      estimated_vendor_shipping: quote.estimatedVendorShipping,
+      usps_quoted_shipping: quote.uspsQuotedShipping,
+      payment_processing_estimate: quote.processing,
+      printing_cost_estimate: quote.printCost,
+      net_margin_before_shipping: quote.beforeShipping,
+      estimated_net_margin: quote.estimatedMargin,
+      shipping_components: quote.components,
+      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax_rate_percent: settings.sales_tax_rate_percent, processing_percent: settings.processing_percent, processing_fixed_fee: settings.processing_fixed_fee },
+      shipping_carrier: service?.carrier || (quote.components.length === 1 ? 'S&S fallback' : 'Mixed'),
+      shipping_service: service?.service || null,
+      shipping_quote_at: new Date().toISOString(),
+      shipping_package: service ? { weight_oz: service.package_weight_oz, dimensions: service.dimensions } : null,
+    }).eq('id', created.order_id).eq('owner_user_id', user.id);
+    if (updateError) {
+      await admin.from('orders').update({ status: 'checkout_failed', payment_status: 'checkout_failed', checkout_failure_reason: 'Shipping total could not be attached to checkout' }).eq('id', created.order_id);
+      return respond({ error: 'Payment checkout could not be started. Please refresh and try again.' }, 500);
+    }
+    return respond({ ...created, quote });
+  } catch (error) {
+    console.error('Checkout pricing failure', { name: error instanceof Error ? error.name : 'Unknown' });
+    return respond({ error: error instanceof Error ? error.message : 'Shipping could not be calculated.' }, 400);
+  }
+});

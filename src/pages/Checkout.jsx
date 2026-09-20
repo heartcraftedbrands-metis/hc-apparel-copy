@@ -76,9 +76,12 @@ export default function Checkout() {
   const [errors, setErrors] = useState([]);
   const [prepareError, setPrepareError] = useState('');
   const [createdOrder, setCreatedOrder] = useState(null);
+  const [quote, setQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [shippingServiceId, setShippingServiceId] = useState('');
 
   const cartErrors = useMemo(() => validateCheckoutCart(cart), [cart]);
-  const total = useMemo(
+  const merchandiseTotal = useMemo(
     () => cart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0),
     [cart],
   );
@@ -106,6 +109,30 @@ export default function Checkout() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const billingAddress = form.billing_same_as_shipping ? { ...form.shipping_address } : form.billing_address;
+    const customer = { ...form, billing_address: billingAddress };
+    const validationErrors = [...cartErrors, ...validateCheckoutCustomer(customer)];
+    if (loading || validationErrors.length) { setQuote(null); return undefined; }
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setQuoteLoading(true);
+      try {
+        const payload = buildSmallOrderCheckoutPayload(cart, customer);
+        const response = await base44.functions.invoke('checkout-pricing', { action: 'quote', payload: { ...payload, shipping_service_id: shippingServiceId } });
+        if (active) {
+          setQuote(response.data?.quote || null);
+          setPrepareError('');
+          const services = response.data?.quote?.services || [];
+          if (!shippingServiceId && services.length === 1) setShippingServiceId(services[0].id);
+        }
+      } catch (error) {
+        if (active) { setQuote(null); setPrepareError(error?.cause?.context?.error || error?.message || 'Shipping could not be calculated. Please try again or contact support@ilovehcapparel.net.'); }
+      } finally { if (active) setQuoteLoading(false); }
+    }, 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [cart, cartErrors, form, loading, shippingServiceId]);
+
   const setField = (key) => (event) => {
     setForm(current => ({ ...current, [key]: event.target.value }));
     setErrors([]);
@@ -128,7 +155,11 @@ export default function Checkout() {
     }
 
     setSubmitting(true);
-    const payload = buildSmallOrderCheckoutPayload(cart, customer);
+    if (!quote || quote.needsSelection) {
+      setErrors(['Select a shipping service before continuing.']);
+      return;
+    }
+    const payload = { ...buildSmallOrderCheckoutPayload(cart, customer), shipping_service_id: shippingServiceId };
     const payloadKey = JSON.stringify(payload);
     let orderId = createdOrder?.payloadKey === payloadKey ? createdOrder.orderId : null;
     try {
@@ -136,7 +167,7 @@ export default function Checkout() {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
         if (!session) throw Object.assign(new Error('Authentication required'), { status: 401 });
-        const { data } = await base44.functions.invoke('createSmallOrderCheckout', payload);
+        const { data } = await base44.functions.invoke('checkout-pricing', { action: 'create_order', payload });
         orderId = data?.order_id;
         if (!orderId) throw new Error('Checkout did not return an order number.');
         setCreatedOrder({ orderId, payloadKey });
@@ -207,8 +238,13 @@ export default function Checkout() {
                     <Input value={form.customer_phone} onChange={setField('customer_phone')} autoComplete="tel" />
                   </div>
                   <div>
-                    <Label>Shipping method</Label>
-                    <Input value="Standard shipping" readOnly className="bg-muted" />
+                    <Label>Shipping service</Label>
+                    {(quote?.services || []).length > 1 ? (
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={shippingServiceId} onChange={(event) => setShippingServiceId(event.target.value)}>
+                        <option value="">Choose a service</option>
+                        {quote.services.map(service => <option key={service.id} value={service.id}>{service.service} — ${Number(service.amount).toFixed(2)}</option>)}
+                      </select>
+                    ) : <Input value={quoteLoading ? 'Calculating shipping…' : (quote?.components || []).map(component => component.service || component.rule).join(' + ') || 'Enter address for rates'} readOnly className="bg-muted" />}
                   </div>
                 </div>
 
@@ -304,8 +340,12 @@ export default function Checkout() {
                     </div>
                   </div>
                 ))}
-                <div className="flex justify-between border-t pt-4 text-lg font-bold">
-                  <span>Order total</span><span>${total.toFixed(2)}</span>
+                <div className="space-y-2 border-t pt-4 text-sm">
+                  <div className="flex justify-between"><span>Product subtotal</span><span>${Number(quote?.merchandise ?? merchandiseTotal).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Shipping</span><span>{quote ? `$${Number(quote.shipping).toFixed(2)}` : 'Calculated before payment'}</span></div>
+                  <div className="flex justify-between"><span>Sales tax</span><span>{quote ? `$${Number(quote.tax).toFixed(2)}` : 'Calculated before payment'}</span></div>
+                  <div className="flex justify-between border-t pt-2 text-lg font-bold"><span>Order total</span><span>${Number(quote?.total ?? merchandiseTotal).toFixed(2)}</span></div>
+                  {(quote?.warnings || []).map(warning => <p key={warning} className="text-xs text-amber-700">{warning}</p>)}
                 </div>
               </CardContent>
             </Card>
@@ -321,7 +361,7 @@ export default function Checkout() {
               </div>
             )}
 
-            <Button type="submit" size="lg" className="w-full" disabled={submitting || cartErrors.length > 0 || Boolean(prepareError)}>
+            <Button type="submit" size="lg" className="w-full" disabled={submitting || quoteLoading || !quote || quote.needsSelection || cartErrors.length > 0 || Boolean(prepareError)}>
               <PackageCheck className="mr-2 h-4 w-4" />
               {submitting ? 'Preparing order…' : 'Create Order & Continue to Payment'}
             </Button>

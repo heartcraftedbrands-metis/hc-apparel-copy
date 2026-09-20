@@ -124,7 +124,7 @@ assert.deepEqual(
   'paid blank-apparel draft does not warn about optional artwork',
 );
 
-const [migration, checkout, adapter, confirmation, cartContext, checkoutCompletion, adminOrder, createPayment, verifyPayment] = await Promise.all([
+const [migration, checkout, adapter, confirmation, cartContext, checkoutCompletion, adminOrder, createPayment, verifyPayment, checkoutPricing] = await Promise.all([
   readFile(new URL('../supabase/migrations/202607280010_blank_first_storefront_fix.sql', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/Checkout.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/api/base44Client.js', import.meta.url), 'utf8'),
@@ -134,6 +134,7 @@ const [migration, checkout, adapter, confirmation, cartContext, checkoutCompleti
   readFile(new URL('../src/pages/AdminOrderDetail.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/createStripeCheckoutSession/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/verifyStripePayment/index.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../supabase/functions/checkout-pricing/index.ts', import.meta.url), 'utf8'),
 ]);
 
 assert.match(migration, /create or replace function public\.small_order_required_data_errors/);
@@ -150,10 +151,17 @@ assert.doesNotMatch(migration, /\b(insert into|update|delete from)\s+public\.pro
 
 assert.match(checkout, /validateCheckoutCart/);
 assert.match(checkout, /Create Order & Continue to Payment/);
-assert.match(checkout, /createSmallOrderCheckout/);
+assert.match(checkout, /checkout-pricing/);
+assert.match(checkout, /Product subtotal/);
+assert.match(checkout, /Sales tax/);
 assert.match(checkout, /markCheckoutPending\(window\.localStorage, orderId\)/);
 assert.doesNotMatch(checkout, /clearCart\(/);
-assert.match(adapter, /createSmallOrderCheckout: \['create_small_order_checkout'/);
+assert.doesNotMatch(adapter, /createSmallOrderCheckout: \['create_small_order_checkout'/);
+assert.match(checkoutPricing, /rpc\('create_small_order_checkout'/);
+assert.match(checkoutPricing, /ss_free_freight_threshold/);
+assert.match(checkoutPricing, /prices\/v3\/base-rates\/search/);
+assert.match(checkoutPricing, /USPS_CLIENT_ID/);
+assert.match(checkoutPricing, /estimated_net_margin/);
 assert.match(adapter, /createVendorDraftFromPaidOrder/);
 assert.match(confirmation, /notification drafts are prepared/);
 assert.match(confirmation, /isBlankOnlyOrder/);
@@ -176,7 +184,7 @@ assert.doesNotMatch(
   confirmation,
   /Your physical items will move into preparation after payment confirmation and artwork review/,
 );
-assert.match(adminOrder, /Create Vendor Draft/);
+assert.match(adminOrder, /Create S&S Fulfillment Draft/);
 assert.match(createPayment, /checkout_source !== 'customized_small_order'/);
 assert.match(createPayment, /order\.payment_status === 'paid'/);
 assert.match(createPayment, /Order is already paid/);

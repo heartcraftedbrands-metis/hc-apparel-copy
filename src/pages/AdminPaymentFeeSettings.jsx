@@ -1,208 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, DollarSign } from "lucide-react";
-import { Link } from "react-router-dom";
-import { toast } from "sonner";
+import React, { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Truck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
+import { base44 } from '@/api/base44Client';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+
+const initial = { id:'default', minimum_margin_per_item:3, processing_enabled:true, processing_percent:3.5, processing_fixed_fee:.5, sales_tax_enabled:false, sales_tax_rate_percent:0, ss_shipping_enabled:true, ss_free_freight_threshold:200, ss_tier_1_2:'', ss_tier_3_5:'', ss_tier_6_12:'', ss_tier_13_plus:'', ss_shipping_buffer:0, usps_enabled:false, usps_ground_advantage_enabled:true, usps_priority_mail_enabled:true, origin_name:'', origin_street:'', origin_city:'', origin_state:'', origin_zip:'', default_product_weight_oz:'', default_package_length_in:'', default_package_width_in:'', default_package_height_in:'', hc_fallback_enabled:false, hc_fallback_rate:'', hc_free_shipping_enabled:false, hc_free_shipping_threshold:'', hc_handling_amount:0 };
+const numbers = new Set(['minimum_margin_per_item','processing_percent','processing_fixed_fee','sales_tax_rate_percent','ss_free_freight_threshold','ss_tier_1_2','ss_tier_3_5','ss_tier_6_12','ss_tier_13_plus','ss_shipping_buffer','default_product_weight_oz','default_package_length_in','default_package_width_in','default_package_height_in','hc_fallback_rate','hc_free_shipping_threshold','hc_handling_amount']);
+function Field({ label, name, form, setForm, note }) { return <label className="block text-sm font-medium">{label}<Input className="mt-1" type={numbers.has(name)?'number':'text'} step={numbers.has(name)?'0.01':undefined} min={numbers.has(name)?'0':undefined} value={form[name]??''} onChange={e=>setForm(v=>({...v,[name]:e.target.value}))}/>{note&&<span className="mt-1 block text-xs font-normal text-muted-foreground">{note}</span>}</label>; }
+function Toggle({ label, name, form, setForm }) { return <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(form[name])} onChange={e=>setForm(v=>({...v,[name]:e.target.checked}))}/>{label}</label>; }
 
 export default function AdminPaymentFeeSettings() {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    stripe_fee_buffer_percent: 3.5,
-    stripe_fixed_fee_buffer: 0.50,
-    paypal_fee_buffer_percent: 4.0,
-    paypal_fixed_fee_buffer: 0.50,
-    additional_profit_buffer_percent: 0,
-    price_rounding_mode: 'nearest_99'
-  });
-
-  const { data: settings = [], isLoading } = useQuery({
-    queryKey: ['payment-fee-settings'],
-    queryFn: () => base44.entities.PaymentFeeSettings.list()
-  });
-
-  const settingsRecord = settings[0] || null;
-
-  useEffect(() => {
-    if (settingsRecord) {
-      setForm(settingsRecord);
-    }
-  }, [settingsRecord]);
-
-  const upsert = useMutation({
-    mutationFn: async (data) => {
-      if (settingsRecord) {
-        return base44.entities.PaymentFeeSettings.update(settingsRecord.id, data);
-      } else {
-        return base44.entities.PaymentFeeSettings.create(data);
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payment-fee-settings'] });
-      toast.success('Payment fee settings saved!');
-    },
-  });
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    upsert.mutate(form);
-  };
-
-  const updateForm = (key, value) => {
-    setForm(prev => ({ ...prev, [key]: value }));
-  };
-
-  return (
-    <div className="min-h-screen bg-muted/30">
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground py-6 px-4">
-        <div className="container mx-auto">
-          <div className="flex items-center gap-2 mb-2">
-            <Link to="/AdminDashboard">
-              <Button size="sm" variant="ghost" className="text-primary-foreground/80 hover:text-primary-foreground gap-1.5 -ml-3">
-                <ArrowLeft className="w-4 h-4" />Admin Dashboard
-              </Button>
-            </Link>
-          </div>
-          <div className="flex items-center gap-3 mt-2">
-            <DollarSign className="w-6 h-6 text-accent" />
-            <h1 className="text-2xl font-extrabold">Payment Fee Buffer Settings</h1>
-          </div>
-          <p className="text-primary-foreground/70 text-sm mt-1">
-            Configure payment processing fee buffers. These are embedded into advertised product prices.
-          </p>
-        </div>
-      </div>
-
-      <div className="container mx-auto px-4 py-8 max-w-3xl">
-        {isLoading ? (
-          <div className="animate-pulse h-40 bg-white rounded-xl" />
-        ) : (
-          <form onSubmit={handleSave} className="space-y-6">
-            {/* Stripe Settings */}
-            <Card className="p-6 border shadow-sm">
-              <h2 className="text-lg font-bold mb-4">Stripe Fee Buffer</h2>
-              <p className="text-sm text-muted-foreground mb-4">These percentages and fixed amounts are added to product cost to cover Stripe processing fees.</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium block mb-2">Stripe Fee Buffer Percent (%)</label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={form.stripe_fee_buffer_percent}
-                    onChange={(e) => updateForm('stripe_fee_buffer_percent', parseFloat(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Default: 3.5% (covers ~2.2% card + 0.5% platform fees)</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium block mb-2">Stripe Fixed Fee Buffer ($)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.stripe_fixed_fee_buffer}
-                    onChange={(e) => updateForm('stripe_fixed_fee_buffer', parseFloat(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Default: $0.50 (covers fixed per-transaction cost)</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* PayPal Settings */}
-            <Card className="p-6 border shadow-sm">
-              <h2 className="text-lg font-bold mb-4">PayPal Fee Buffer</h2>
-              <p className="text-sm text-muted-foreground mb-4">These percentages and fixed amounts are added to product cost to cover PayPal processing fees.</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium block mb-2">PayPal Fee Buffer Percent (%)</label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={form.paypal_fee_buffer_percent}
-                    onChange={(e) => updateForm('paypal_fee_buffer_percent', parseFloat(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Default: 4.0% (covers ~2.2% card + 1.5% platform fees)</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium block mb-2">PayPal Fixed Fee Buffer ($)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.paypal_fixed_fee_buffer}
-                    onChange={(e) => updateForm('paypal_fixed_fee_buffer', parseFloat(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Default: $0.50 (covers fixed per-transaction cost)</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Additional Profit Buffer */}
-            <Card className="p-6 border shadow-sm">
-              <h2 className="text-lg font-bold mb-4">Additional Profit Buffer</h2>
-              <p className="text-sm text-muted-foreground mb-4">Extra margin above payment fees to increase profit on all products.</p>
-              <div>
-                <label className="text-sm font-medium block mb-2">Additional Profit Buffer Percent (%)</label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={form.additional_profit_buffer_percent}
-                  onChange={(e) => updateForm('additional_profit_buffer_percent', parseFloat(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground mt-1">Default: 0% (no extra markup). Set to 5 for 5% additional profit.</p>
-              </div>
-            </Card>
-
-            {/* Price Rounding */}
-            <Card className="p-6 border shadow-sm">
-              <h2 className="text-lg font-bold mb-4">Price Rounding</h2>
-              <p className="text-sm text-muted-foreground mb-4">How to round final advertised prices after fee calculation.</p>
-              <div>
-                <label className="text-sm font-medium block mb-2">Round Final Price To *</label>
-                <Select value={form.price_rounding_mode} onValueChange={(val) => updateForm('price_rounding_mode', val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Rounding</SelectItem>
-                    <SelectItem value="nearest_99">Nearest $X.99 (recommended)</SelectItem>
-                    <SelectItem value="nearest_49">Nearest $X.49</SelectItem>
-                    <SelectItem value="whole_dollar">Whole Dollar</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </Card>
-
-            {/* Info Box */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-              <p className="font-semibold mb-2">How this works:</p>
-              <ul className="list-disc list-inside space-y-1 text-xs">
-                <li>Final Customer Price = Blank Cost + Markup + (Stripe Fee % × Cost) + Stripe Fixed Fee + (Profit % × Cost)</li>
-                <li>No processing fees are shown to customers—they're built into the advertised price.</li>
-                <li>Admin can see the fee breakdown in product detail pages.</li>
-                <li>Changes here apply to new prices and recalculated orders.</li>
-              </ul>
-            </div>
-
-            {/* Save Button */}
-            <div className="flex gap-3">
-              <Button type="submit" disabled={upsert.isPending} className="gap-2">
-                {upsert.isPending ? 'Saving...' : 'Save Fee Settings'}
-              </Button>
-              <Link to="/AdminDashboard">
-                <Button type="button" variant="outline">Cancel</Button>
-              </Link>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
+  const queryClient=useQueryClient(); const [form,setForm]=useState(initial);
+  const {data=[],isLoading}=useQuery({queryKey:['checkout-financial-settings'],queryFn:()=>base44.entities.CheckoutFinancialSettings.list()}); const record=data[0];
+  useEffect(()=>{if(record)setForm({...initial,...record});},[record]);
+  const save=useMutation({mutationFn:async()=>{const payload=Object.fromEntries(Object.entries(form).filter(([k])=>!['id','updated_at','updated_by'].includes(k)).map(([k,v])=>[k,numbers.has(k)?(v===''?null:Number(v)):v])); return record?base44.entities.CheckoutFinancialSettings.update(record.id,payload):base44.entities.CheckoutFinancialSettings.create({id:'default',...payload});},onSuccess:()=>{queryClient.invalidateQueries({queryKey:['checkout-financial-settings']});toast.success('Pricing and shipping settings saved.');},onError:e=>toast.error(e.message)});
+  return <div className="min-h-screen bg-muted/30"><header className="bg-primary px-4 py-6 text-primary-foreground"><div className="container mx-auto max-w-5xl"><Link to="/AdminDashboard"><Button size="sm" variant="ghost" className="-ml-3 text-primary-foreground"><ArrowLeft className="mr-1 h-4 w-4"/>Admin Dashboard</Button></Link><h1 className="mt-2 flex items-center gap-2 text-2xl font-extrabold"><Truck className="text-accent"/>Pricing & Shipping Settings</h1><p className="mt-1 text-sm text-primary-foreground/70">Server-side checkout rules. Carrier and vendor credentials are never shown here.</p></div></header>
+    <main className="container mx-auto max-w-5xl space-y-6 px-4 py-8">{isLoading?<div>Loading settings…</div>:<form className="space-y-6" onSubmit={e=>{e.preventDefault();save.mutate();}}>
+      <Card className="space-y-4 p-6"><h2 className="text-lg font-bold">Pricing rules & payment processing</h2><div className="grid gap-4 md:grid-cols-3"><Field label="Minimum margin per item ($)" name="minimum_margin_per_item" form={form} setForm={setForm}/><Field label="Processing percentage (%)" name="processing_percent" form={form} setForm={setForm}/><Field label="Fixed transaction amount ($)" name="processing_fixed_fee" form={form} setForm={setForm}/></div><Toggle label="Use processing estimate for internal margin protection" name="processing_enabled" form={form} setForm={setForm}/><p className="text-xs text-muted-foreground">Processing cost stays internal and is never shown as a customer surcharge.</p></Card>
+      <Card className="space-y-4 p-6"><h2 className="text-lg font-bold">S&S Shipping</h2><p className="text-sm text-muted-foreground">Fallback customer charges, not exact S&S freight quotes. Blank tiers block checkout instead of silently charging $0.</p><Toggle label="S&S fallback shipping enabled" name="ss_shipping_enabled" form={form} setForm={setForm}/><div className="grid gap-4 md:grid-cols-3"><Field label="Free freight threshold ($)" name="ss_free_freight_threshold" form={form} setForm={setForm}/><Field label="1–2 garments ($)" name="ss_tier_1_2" form={form} setForm={setForm}/><Field label="3–5 garments ($)" name="ss_tier_3_5" form={form} setForm={setForm}/><Field label="6–12 garments ($)" name="ss_tier_6_12" form={form} setForm={setForm}/><Field label="13+ garments ($)" name="ss_tier_13_plus" form={form} setForm={setForm}/><Field label="Shipping buffer ($)" name="ss_shipping_buffer" form={form} setForm={setForm}/></div></Card>
+      <Card className="space-y-4 p-6"><h2 className="text-lg font-bold">HC Apparel Shipping — USPS</h2><div className="grid gap-3 sm:grid-cols-2"><Toggle label="Live USPS rates enabled" name="usps_enabled" form={form} setForm={setForm}/><Toggle label="USPS Ground Advantage" name="usps_ground_advantage_enabled" form={form} setForm={setForm}/><Toggle label="USPS Priority Mail" name="usps_priority_mail_enabled" form={form} setForm={setForm}/><Toggle label="Fallback rate enabled" name="hc_fallback_enabled" form={form} setForm={setForm}/><Toggle label="Optional free shipping enabled" name="hc_free_shipping_enabled" form={form} setForm={setForm}/></div><div className="grid gap-4 md:grid-cols-3"><Field label="Origin name" name="origin_name" form={form} setForm={setForm}/><Field label="Origin street" name="origin_street" form={form} setForm={setForm}/><Field label="Origin city" name="origin_city" form={form} setForm={setForm}/><Field label="Origin state" name="origin_state" form={form} setForm={setForm}/><Field label="Origin ZIP" name="origin_zip" form={form} setForm={setForm}/><Field label="Default product weight (oz)" name="default_product_weight_oz" form={form} setForm={setForm} note="Missing product weights use this value and record a warning."/><Field label="Package length (in)" name="default_package_length_in" form={form} setForm={setForm}/><Field label="Package width (in)" name="default_package_width_in" form={form} setForm={setForm}/><Field label="Package height (in)" name="default_package_height_in" form={form} setForm={setForm}/><Field label="Fallback rate ($)" name="hc_fallback_rate" form={form} setForm={setForm}/><Field label="Free shipping threshold ($)" name="hc_free_shipping_threshold" form={form} setForm={setForm}/><Field label="Handling amount ($)" name="hc_handling_amount" form={form} setForm={setForm}/></div><p className="text-xs text-muted-foreground">Server secrets: USPS_CLIENT_ID and USPS_CLIENT_SECRET. OAuth tokens never reach the browser.</p></Card>
+      <Card className="space-y-4 p-6"><h2 className="text-lg font-bold">Sales tax</h2><Toggle label="Configured tax calculation enabled" name="sales_tax_enabled" form={form} setForm={setForm}/><Field label="Configured tax rate (%)" name="sales_tax_rate_percent" form={form} setForm={setForm}/><p className="text-xs text-muted-foreground">Tax is stored separately and never counted as profit.</p></Card>
+      <Button type="submit" disabled={save.isPending}>{save.isPending?'Saving…':'Save pricing & shipping settings'}</Button>
+    </form>}</main></div>;
 }
