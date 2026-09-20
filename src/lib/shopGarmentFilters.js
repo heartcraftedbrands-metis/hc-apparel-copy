@@ -14,7 +14,10 @@ export const CATEGORY_FILTERS = [
   { value: 'womens', label: "Women's" },
   { value: 'kids', label: 'Youth / Kids' },
   { value: 'sportswear', label: 'Sports / Activewear' },
+  { value: 'business_apparel', label: 'Business Apparel' },
+  { value: 'quarter_zips', label: 'Quarter-Zips' },
   { value: 'polos', label: 'Polos' },
+  { value: 'mens', label: "Men's" },
   { value: 'custom_printed', label: 'Custom Printed' },
   { value: 'print_support', label: 'Print Support' },
 ];
@@ -332,6 +335,11 @@ export function getStorefrontCategoryLabel(product) {
 export function matchesCategory(product, categoryValue) {
   if (!categoryValue || categoryValue === 'all') return true;
   if (categoryValue === 'womens') return isWomensSpecific(product);
+  if (categoryValue === 'mens') return !isWomensSpecific(product)
+    && (hasExplicitStorefrontCategoryTag(product, 'mens') || normalized(getProductBrand(product)) === 'champion');
+  if (categoryValue === 'business_apparel' || categoryValue === 'quarter_zips') {
+    return hasExplicitStorefrontCategoryTag(product, categoryValue);
+  }
   const normalizedCategory = getStorefrontCategory(product);
   if (categoryValue === 't_shirts') {
     return normalizedCategory === 't_shirts' || normalizedCategory === 'long_sleeve';

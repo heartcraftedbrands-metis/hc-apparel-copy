@@ -155,6 +155,29 @@ function isColdWeatherStyle(style: Record<string, unknown> & { canonicalBrand: s
     .test(text);
 }
 
+function championMerchScore(style: Record<string, unknown> & { canonicalBrand: string }) {
+  const text = [style.styleName, style.title, style.baseCategory, style.partNumber]
+    .map((value) => String(value || '').toLowerCase()).join(' ');
+  let score = 0;
+  if (/(performance|moisture|athletic|training|warm.?up|track|sport)/.test(text)) score += 12;
+  if (/(polo|quarter.?zip|1\/4.?zip|full.?zip|jacket|vest)/.test(text)) score += 12;
+  if (/(jogger|pant|short)/.test(text)) score += 10;
+  if (/(hood|hoodie|crewneck|sweatshirt|fleece)/.test(text)) score += 8;
+  if (/(women|ladies)/.test(text)) score += 5;
+  if (/(tee|t-shirt|t shirt)/.test(text)) score += 3;
+  if (/(crop|fashion|tie.?dye|moto)/.test(text)) score -= 8;
+  if (!imageUrl(style.styleImage)) score -= 100;
+  return score;
+}
+
+function championMerchGroup(style: Record<string, unknown> & { canonicalBrand: string }) {
+  const text = [style.styleName, style.title, style.baseCategory]
+    .map((value) => String(value || '').toLowerCase()).join(' ');
+  if (/(polo|quarter.?zip|1\/4.?zip|jacket|vest|full.?zip)/.test(text)) return 'business_apparel';
+  if (/(performance|athletic|training|warm.?up|track|jogger|pant|short|sport)/.test(text)) return 'sports_teamwear';
+  return 'premium_basics';
+}
+
 function corsHeaders(request: Request) {
   const origin = request.headers.get('origin') || '';
   return {
@@ -1473,7 +1496,7 @@ Deno.serve(async (request) => {
       .select('import_session_id')
       .eq('row_status', 'pending')
       .eq('brand', brand)
-      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
+      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors|champion)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
       .order('created_date', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -1673,6 +1696,27 @@ Deno.serve(async (request) => {
         };
       });
 
+      const styleSummaries = [...new Set(rows.map((row) => row.style_id))].map((styleId) => {
+        const variants = rows.filter((row) => row.style_id === styleId);
+        const costs = variants.map((row) => Number(row.customer_price || row.piece_price))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const realMaps = variants.map((row) => Number(row.map_price))
+          .filter((value) => Number.isFinite(value) && value > 0.01);
+        return {
+          style_id: styleId,
+          part_number: variants[0]?.part_number,
+          style_name: variants[0]?.style_name,
+          sku_variants: variants.length,
+          stocked_variants: variants.filter((row) => Number(row.inventory_qty) > 0).length,
+          inventory: variants.reduce((total, row) => total + Math.max(0, Number(row.inventory_qty) || 0), 0),
+          minimum_vendor_cost: costs.length ? Math.min(...costs) : null,
+          maximum_map: realMaps.length ? Math.max(...realMaps) : null,
+          colors: new Set(variants.map((row) => row.color_name).filter(Boolean)).size,
+          sizes: new Set(variants.map((row) => row.size_name).filter(Boolean)).size,
+          image_available: variants.some((row) => Boolean(row.color_on_model_front_image || row.color_front_image)),
+        };
+      });
+
       for (let index = 0; index < rows.length; index += 200) {
         const { error: insertError } = await userClient
           .from('ss_sku_staging')
@@ -1714,6 +1758,7 @@ Deno.serve(async (request) => {
         rate_limit_remaining: rateLimitRemaining,
         completed_at: completedAt,
         storefront_changed: false,
+        style_summaries: styleSummaries,
       });
     } catch (error) {
       console.error('S&S brand SKU sync failed', error);
@@ -1788,8 +1833,8 @@ Deno.serve(async (request) => {
       if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles' || payload.action === 'stage_brand_styles') {
         const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
         const selectedBrand = payload.action === 'stage_brand_styles' ? canonicalApprovedBrand(payload.brand) : null;
-        if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK'].includes(selectedBrand || '')) {
-          return json(request, { error: 'Only Comfort Colors or DRI DUCK can be staged with this action' }, 400);
+        if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK', 'Champion'].includes(selectedBrand || '')) {
+          return json(request, { error: 'Only approved private-import brands can be staged with this action' }, 400);
         }
         const brandStyles = selectedBrand ? styles.filter(style => style.canonicalBrand === selectedBrand) : [];
         // These are the five existing private draft style names. S&S partNumber
@@ -1799,10 +1844,42 @@ Deno.serve(async (request) => {
         const focusedDriDuck = selectedBrand === 'DRI DUCK'
           ? brandStyles.filter(style => driDuckDraftStyles.has(String(style.styleName || '').trim()))
           : [];
+        let championStyles: typeof brandStyles = [];
+        if (selectedBrand === 'Champion') {
+          const { data: existingChampion, error: existingChampionError } = await userClient
+            .from('products').select('style_number,supplier_sku').eq('brand', 'Champion');
+          if (existingChampionError) {
+            console.error('Unable to read existing Champion styles', existingChampionError.message);
+            return json(request, { error: 'Unable to compare Champion styles with the existing catalog' }, 500);
+          }
+          const existingIdentifiers = new Set((existingChampion || [])
+            .flatMap((product) => [product.style_number, product.supplier_sku])
+            .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+          const eligible = brandStyles
+            .filter((style) => ![style.styleName, style.partNumber]
+              .some((value) => existingIdentifiers.has(String(value || '').trim().toLowerCase())))
+            .filter((style) => championMerchScore(style) > 0)
+            .sort((a, b) => championMerchScore(b) - championMerchScore(a));
+          const groups = ['sports_teamwear', 'business_apparel', 'premium_basics'];
+          while (championStyles.length < 20) {
+            let added = false;
+            for (const group of groups) {
+              const next = eligible.find((style) => championMerchGroup(style) === group && !championStyles.includes(style));
+              if (next) {
+                championStyles.push(next);
+                added = true;
+                if (championStyles.length === 20) break;
+              }
+            }
+            if (!added) break;
+          }
+        }
         const selectedStyles = selectedBrand === 'DRI DUCK'
           ? focusedDriDuck
           : selectedBrand === 'Comfort Colors'
             ? brandStyles.filter(style => ['00108', '00208', '00808', '00908', '10008', '70108'].includes(String(style.partNumber)))
+            : selectedBrand === 'Champion'
+              ? championStyles
             : coldWeatherOnly ? styles.filter(isColdWeatherStyle) : styles;
         if (selectedStyles.length === 0) {
           return json(request, { error: selectedBrand ? `No S&S styles were available for ${selectedBrand}` : 'No eligible S&S styles were available' }, 409);
@@ -1854,6 +1931,15 @@ Deno.serve(async (request) => {
             .filter(({ styles: count }) => count > 0),
           rate_limit_remaining: response.headers.get('x-rate-limit-remaining'),
           staged_at: new Date().toISOString(),
+          selected_styles: selectedStyles.map((style) => ({
+            style_id: style.styleID,
+            part_number: style.partNumber,
+            style_name: style.styleName,
+            title: style.title,
+            category: style.baseCategory,
+            merchandising_group: selectedBrand === 'Champion' ? championMerchGroup(style) : null,
+            image_url: imageUrl(style.styleImage),
+          })),
         });
       }
 
