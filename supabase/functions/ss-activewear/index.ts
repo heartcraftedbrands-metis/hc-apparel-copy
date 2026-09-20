@@ -237,7 +237,52 @@ function inventoryQuantity(product: Record<string, unknown>) {
   return Math.max(0, Number(product.qty ?? product.Qty) || 0);
 }
 
-function buildSsOrderRequest(vendorPayload: Record<string, unknown>, draftId: string) {
+type SafePaymentProfile = {
+  profile_id: number;
+  profile_type: string;
+  label: string;
+};
+
+function flattenSsRecords(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.flatMap((entry) => flattenSsRecords(entry));
+  return value && typeof value === 'object' ? [value as Record<string, unknown>] : [];
+}
+
+function safePaymentProfile(record: Record<string, unknown>): SafePaymentProfile | null {
+  const profileId = integerValue(record.profileID ?? record.ProfileID ?? record.profileId);
+  if (!profileId || profileId <= 0) return null;
+  const rawType = textValue(record.profileType ?? record.ProfileType) || 'Payment method';
+  const rawName = textValue(record.name ?? record.Name) || '';
+  const lastFour = rawName.match(/(\d{4})(?!.*\d)/)?.[1];
+  const profileType = /bank/i.test(rawType) ? 'Bank account' : /card/i.test(rawType) ? 'Credit card' : rawType;
+  return {
+    profile_id: profileId,
+    profile_type: profileType,
+    label: lastFour ? `${profileType} ending in ${lastFour}` : `${profileType} · PaymentProfile ${profileId}`,
+  };
+}
+
+async function loadSsPaymentProfiles(authHeader: string, email: string) {
+  const url = new URL('https://api.ssactivewear.com/v2/paymentprofiles/');
+  url.searchParams.set('email', email);
+  url.searchParams.set('mediatype', 'json');
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: authHeader, Accept: 'application/json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(safeSsError(result, `S&S payment profiles could not be loaded (HTTP ${response.status})`));
+  }
+  return flattenSsRecords(result).map(safePaymentProfile).filter(Boolean) as SafePaymentProfile[];
+}
+
+function buildSsOrderRequest(
+  vendorPayload: Record<string, unknown>,
+  draftId: string,
+  paymentProfile: { email: string; profileID: number },
+) {
   const shipping = (vendorPayload.shipping_address || {}) as Record<string, unknown>;
   const items = Array.isArray(vendorPayload.items)
     ? vendorPayload.items as Array<Record<string, unknown>>
@@ -258,6 +303,7 @@ function buildSsOrderRequest(vendorPayload: Record<string, unknown>, draftId: st
     emailConfirmation: '',
     testOrder: false,
     autoselectWarehouse: true,
+    paymentProfile,
     lines: items.map((item) => ({
       identifier: String(item.sku || '').trim(),
       qty: Math.trunc(Number(item.quantity)),
@@ -274,6 +320,12 @@ function validateSsOrderRequest(requestBody: ReturnType<typeof buildSsOrderReque
   if (!/^\d{5}$/.test(address.zip)) errors.push({ field: 'shippingAddress.zip', message: 'S&S requires a five-digit ZIP code' });
   if (!supportedShippingMethods.has(requestBody.shippingMethod)) errors.push({ field: 'shippingMethod', message: 'Unsupported S&S shipping method' });
   if (!requestBody.poNumber) errors.push({ field: 'poNumber', message: 'Purchase order number is required' });
+  if (!requestBody.paymentProfile.email || !/^\S+@\S+\.\S+$/.test(requestBody.paymentProfile.email)) {
+    errors.push({ field: 'paymentProfile.email', message: 'The S&S payment-profile email is required' });
+  }
+  if (!Number.isInteger(requestBody.paymentProfile.profileID) || requestBody.paymentProfile.profileID <= 0) {
+    errors.push({ field: 'paymentProfile.profileID', message: 'A valid S&S PaymentProfile ID is required' });
+  }
   if (!requestBody.lines.length) errors.push({ field: 'lines', message: 'At least one order line is required' });
   requestBody.lines.forEach((line, index) => {
     if (!line.identifier) errors.push({ field: `lines[${index}].identifier`, message: 'S&S SKU identifier is required' });
@@ -317,6 +369,8 @@ Deno.serve(async (request) => {
     order_id?: string;
     ss_live_submission_enabled?: boolean;
     zerotouch_live_submission_enabled?: boolean;
+    payment_profile_email?: string;
+    payment_profile_id?: number;
   };
   try {
     payload = await request.json();
@@ -378,6 +432,8 @@ Deno.serve(async (request) => {
     'check_blank_fulfillment_inventory',
     'create_blank_fulfillment_draft',
     'get_admin_status',
+    'list_payment_profiles',
+    'set_default_payment_profile',
     'set_live_controls',
     'submit_vendor_order',
   ].includes(payload.action || '')) {
@@ -387,13 +443,61 @@ Deno.serve(async (request) => {
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
 
+  if (payload.action === 'list_payment_profiles' || payload.action === 'set_default_payment_profile') {
+    if (!accountNumber || !apiKey) return json(request, { error: 'S&S credentials are not configured' }, 503);
+    const email = String(payload.payment_profile_email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return json(request, { error: 'Enter the email used for the saved payment method in your S&S account' }, 400);
+    }
+    try {
+      const profiles = await loadSsPaymentProfiles(`Basic ${btoa(`${accountNumber}:${apiKey}`)}`, email);
+      if (payload.action === 'set_default_payment_profile') {
+        const profileId = integerValue(payload.payment_profile_id);
+        const selected = profiles.find((profile) => profile.profile_id === profileId);
+        if (!selected) {
+          return json(request, {
+            error: profiles.length
+              ? 'The selected S&S PaymentProfile is no longer available'
+              : 'Add or activate a payment method in your S&S Activewear account before submitting orders.',
+          }, 409);
+        }
+        const { error: updateError } = await userClient.from('integration_settings').update({
+          ss_default_payment_profile_id: selected.profile_id,
+          ss_payment_profile_email: email,
+          ss_payment_profile_verified_at: new Date().toISOString(),
+          updated_by: actorUserId,
+        }).eq('id', true);
+        if (updateError) {
+          console.error('Unable to save S&S PaymentProfile selection', updateError.message);
+          return json(request, { error: 'Unable to save the default S&S PaymentProfile' }, 500);
+        }
+        return json(request, { profiles, selected_profile_id: selected.profile_id, selected_profile: selected, configured: true });
+      }
+      const { data: settings } = await userClient.from('integration_settings')
+        .select('ss_default_payment_profile_id,ss_payment_profile_email').eq('id', true).maybeSingle();
+      return json(request, {
+        profiles,
+        selected_profile_id: settings?.ss_payment_profile_email === email
+          ? settings?.ss_default_payment_profile_id
+          : null,
+        configured: Boolean(settings?.ss_default_payment_profile_id && settings?.ss_payment_profile_email === email),
+        message: profiles.length
+          ? `${profiles.length} S&S payment profile${profiles.length === 1 ? '' : 's'} found.`
+          : 'Add or activate a payment method in your S&S Activewear account before submitting orders.',
+      });
+    } catch (error) {
+      console.error('Read-only S&S PaymentProfile lookup failed', error instanceof Error ? error.message : 'unknown');
+      return json(request, { error: error instanceof Error ? error.message : 'S&S payment profiles could not be loaded' }, 502);
+    }
+  }
+
   if (payload.action === 'get_vendor_order_submission_readiness') {
     if (!payload.draft_id) return json(request, { error: 'Vendor order draft ID is required' }, 400);
     const [{ data: draft, error: draftError }, { data: settings, error: settingsError }] = await Promise.all([
       userClient.from('vendor_order_drafts')
         .select('id,payment_status,workflow_status,vendor_status,validation_passed,ss_api_connected,items,shipping_address,cost_refreshed_at,cost_override_reason,vendor_order_number,ss_submission_state,ss_order_number,external_vendor_order_number,ss_guid,is_sample')
         .eq('id', payload.draft_id).maybeSingle(),
-      userClient.from('integration_settings').select('ss_live_submission_enabled').eq('id', true).maybeSingle(),
+      userClient.from('integration_settings').select('ss_live_submission_enabled,ss_default_payment_profile_id,ss_payment_profile_email').eq('id', true).maybeSingle(),
     ]);
     if (draftError || !draft) return json(request, { error: 'S&S vendor order draft not found' }, 404);
     if (settingsError) return json(request, { error: 'Unable to load S&S live controls' }, 500);
@@ -418,6 +522,8 @@ Deno.serve(async (request) => {
     let inventoryReason = 'Current S&S inventory has not been verified.';
     let duplicateReady = !localDuplicate;
     let duplicateReason = localDuplicate ? 'An S&S order number or GUID is already stored for this draft.' : 'No local S&S order confirmation exists.';
+    let paymentProfileReady = false;
+    let paymentProfileReason = 'No S&S PaymentProfile is selected.';
     if (!accountNumber || !apiKey) {
       inventoryReason = 'S&S credentials are not configured.';
       duplicateReady = false;
@@ -425,6 +531,17 @@ Deno.serve(async (request) => {
     } else if (skuReady) {
       const authHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
       try {
+        const profileId = integerValue(settings?.ss_default_payment_profile_id);
+        const profileEmail = textValue(settings?.ss_payment_profile_email);
+        if (profileId && profileEmail) {
+          const profiles = await loadSsPaymentProfiles(authHeader, profileEmail);
+          paymentProfileReady = profiles.some((profile) => profile.profile_id === profileId);
+          paymentProfileReason = paymentProfileReady
+            ? `S&S PaymentProfile ${profileId} is available.`
+            : profiles.length
+              ? 'The selected S&S PaymentProfile is no longer available.'
+              : 'Add or activate a payment method in your S&S Activewear account before submitting orders.';
+        }
         const skuList = [...new Set(items.map((item) => String(item.sku).trim()))];
         const inventoryUrl = new URL(`https://api.ssactivewear.com/v2/products/${skuList.map(encodeURIComponent).join(',')}`);
         inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
@@ -476,6 +593,7 @@ Deno.serve(async (request) => {
         inventoryReason = 'Current S&S inventory check could not connect.';
         duplicateReady = false;
         duplicateReason = 'S&S duplicate-order lookup could not connect.';
+        paymentProfileReason = 'S&S PaymentProfile availability could not be verified.';
       }
     } else inventoryReason = 'A valid S&S SKU and quantity are required before inventory can be checked.';
 
@@ -489,6 +607,7 @@ Deno.serve(async (request) => {
       { key: 'shipping', label: 'Shipping address', ready: shippingReady, value: shippingReady ? 'complete' : 'incomplete', reason: shippingReady ? 'Shipping street, city, state, and ZIP are present.' : 'Shipping address validation failed.' },
       { key: 'cost', label: 'Vendor cost', ready: costReady, value: items.map((item) => item.garment_cost).join(', '), reason: costReady ? 'S&S garment cost is loaded.' : 'Vendor cost is missing. Refresh S&S Cost & Inventory.' },
       { key: 'duplicate', label: 'Duplicate order check', ready: duplicateReady, value: draft.vendor_order_number, reason: duplicateReason },
+      { key: 'payment_profile', label: 'S&S Payment Profile', ready: paymentProfileReady, value: settings?.ss_default_payment_profile_id ? `Profile ${settings.ss_default_payment_profile_id}` : null, reason: paymentProfileReason },
       { key: 'live', label: 'S&S live control', ready: liveReady, value: String(settings?.ss_live_submission_enabled), reason: liveReady ? 'S&S live submission control is enabled.' : 'Enable the S&S live submission control.' },
     ];
     return json(request, { ready: gates.every((gate) => gate.ready) && !draft.is_sample, gates, checked_at: new Date().toISOString(), submitted: false });
@@ -637,7 +756,7 @@ Deno.serve(async (request) => {
   if (payload.action === 'get_admin_status') {
     const { data: settings, error: settingsError } = await userClient
       .from('integration_settings')
-      .select('ss_live_submission_enabled,zerotouch_live_submission_enabled,ss_api_connected,last_ss_connection_at,last_ss_connection_message,last_ss_submission_at,last_ss_submission_status,last_ss_submission_draft_id,last_ss_submission_order_number,last_ss_submission_error')
+      .select('ss_live_submission_enabled,zerotouch_live_submission_enabled,ss_api_connected,last_ss_connection_at,last_ss_connection_message,last_ss_submission_at,last_ss_submission_status,last_ss_submission_draft_id,last_ss_submission_order_number,last_ss_submission_error,ss_default_payment_profile_id,ss_payment_profile_email,ss_payment_profile_verified_at')
       .eq('id', true)
       .maybeSingle();
     if (settingsError) {
@@ -720,6 +839,22 @@ Deno.serve(async (request) => {
       inventoryUrl.searchParams.set('fields', 'Sku,ColorName,SizeName,Qty,Warehouses');
       inventoryUrl.searchParams.set('mediatype', 'json');
       const authHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
+      const { data: settings, error: settingsError } = await userClient.from('integration_settings')
+        .select('ss_default_payment_profile_id,ss_payment_profile_email').eq('id', true).maybeSingle();
+      if (settingsError) return json(request, { error: 'Unable to load the default S&S PaymentProfile' }, 500);
+      const paymentProfileId = integerValue(settings?.ss_default_payment_profile_id);
+      const paymentProfileEmail = textValue(settings?.ss_payment_profile_email);
+      if (!paymentProfileId || !paymentProfileEmail) {
+        return json(request, { error: 'Select a default S&S PaymentProfile in S&S Vendor Settings before submitting.' }, 409);
+      }
+      const paymentProfiles = await loadSsPaymentProfiles(authHeader, paymentProfileEmail);
+      if (!paymentProfiles.some((profile) => profile.profile_id === paymentProfileId)) {
+        return json(request, {
+          error: paymentProfiles.length
+            ? 'The selected S&S PaymentProfile is no longer available.'
+            : 'Add or activate a payment method in your S&S Activewear account before submitting orders.',
+        }, 409);
+      }
       const poNumber = textValue(vendorPayload.poNumber) || textValue(previewResult.vendor_order_number);
       if (poNumber) {
         const existingUrl = new URL(`https://api.ssactivewear.com/v2/orders/PO,${encodeURIComponent(poNumber)}`);
@@ -789,7 +924,10 @@ Deno.serve(async (request) => {
         }
       }
 
-      const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id);
+      const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id, {
+        email: paymentProfileEmail,
+        profileID: paymentProfileId,
+      });
       const schemaValidation = validateSsOrderRequest(requestBody);
       if (!schemaValidation.valid) {
         return json(request, {
@@ -814,7 +952,7 @@ Deno.serve(async (request) => {
           dry_run: true, submitted: false, would_post: true,
           endpoint: 'https://api.ssactivewear.com/v2/orders/', method: 'POST',
           checks: { admin: true, payment: true, reviewed: true, ready: true, cost_loaded: true,
-            duplicate_order: false, inventory: true, shipping_address: true, backend_transition: true },
+            duplicate_order: false, inventory: true, shipping_address: true, payment_profile: true, backend_transition: true },
           schema_validation: schemaValidation,
           submission_payload: requestBody,
         });

@@ -32,6 +32,13 @@ export default function AdminSSApiSettings() {
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const [contentRefreshResult, setContentRefreshResult] = useState(null);
   const [contentRefreshError, setContentRefreshError] = useState('');
+  const [paymentEmail, setPaymentEmail] = useState('');
+  const [paymentProfiles, setPaymentProfiles] = useState([]);
+  const [selectedPaymentProfile, setSelectedPaymentProfile] = useState('');
+  const [paymentProfilesLoading, setPaymentProfilesLoading] = useState(false);
+  const [paymentProfileSaving, setPaymentProfileSaving] = useState(false);
+  const [paymentProfileMessage, setPaymentProfileMessage] = useState('');
+  const [paymentProfileError, setPaymentProfileError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -44,6 +51,16 @@ export default function AdminSSApiSettings() {
         .maybeSingle();
 
       if (active) setWorkflowStatus(data || null);
+
+      const { data: adminStatus } = await supabase.functions.invoke('ss-activewear', {
+        body: { action: 'get_admin_status' },
+      });
+      if (active && adminStatus) {
+        setPaymentEmail(adminStatus.ss_payment_profile_email || '');
+        setSelectedPaymentProfile(adminStatus.ss_default_payment_profile_id
+          ? String(adminStatus.ss_default_payment_profile_id)
+          : '');
+      }
     };
 
     loadWorkflowStatus();
@@ -61,6 +78,44 @@ export default function AdminSSApiSettings() {
       // The generic invocation error is still safe to display.
     }
     return message;
+  };
+
+  const handleLoadPaymentProfiles = async () => {
+    setPaymentProfilesLoading(true);
+    setPaymentProfileError('');
+    setPaymentProfileMessage('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'list_payment_profiles', payment_profile_email: paymentEmail },
+    });
+    if (invokeError) {
+      setPaymentProfileError(await invokeMessage(invokeError, 'S&S payment profiles could not be loaded.'));
+    } else {
+      setPaymentProfiles(data?.profiles || []);
+      setSelectedPaymentProfile(data?.selected_profile_id ? String(data.selected_profile_id) : '');
+      setPaymentProfileMessage(data?.message || 'Payment profiles loaded.');
+    }
+    setPaymentProfilesLoading(false);
+  };
+
+  const handleSavePaymentProfile = async () => {
+    setPaymentProfileSaving(true);
+    setPaymentProfileError('');
+    setPaymentProfileMessage('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: {
+        action: 'set_default_payment_profile',
+        payment_profile_email: paymentEmail,
+        payment_profile_id: Number(selectedPaymentProfile),
+      },
+    });
+    if (invokeError) {
+      setPaymentProfileError(await invokeMessage(invokeError, 'Default S&S PaymentProfile could not be saved.'));
+    } else {
+      setPaymentProfiles(data?.profiles || paymentProfiles);
+      setSelectedPaymentProfile(String(data?.selected_profile_id || selectedPaymentProfile));
+      setPaymentProfileMessage('Default S&S PaymentProfile saved and verified. No order was submitted.');
+    }
+    setPaymentProfileSaving(false);
   };
 
   const handleTestConnection = async () => {
@@ -185,6 +240,64 @@ export default function AdminSSApiSettings() {
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <LiveSSSubmissionPanel />
+
+        <div className="mt-6 bg-white rounded-2xl border shadow-sm p-6 space-y-5">
+          <div>
+            <h2 className="font-bold text-lg">Default S&amp;S Payment Profile</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Load saved payment methods from S&amp;S using the account email, then select the profile used for
+              admin-confirmed live orders. Only the PaymentProfile ID and required email are stored; card and bank
+              credentials never enter HC Apparel or this browser.
+            </p>
+          </div>
+
+          <label className="block space-y-2 text-sm font-medium">
+            S&amp;S payment-profile email
+            <input
+              type="email"
+              value={paymentEmail}
+              onChange={(event) => setPaymentEmail(event.target.value)}
+              placeholder="Email used for the saved payment method"
+              autoComplete="off"
+              className="w-full rounded-lg border bg-background px-3 py-2 font-normal"
+            />
+          </label>
+
+          <Button type="button" variant="outline" className="w-full gap-2"
+            onClick={handleLoadPaymentProfiles} disabled={paymentProfilesLoading || !paymentEmail.trim()}>
+            {paymentProfilesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+            {paymentProfilesLoading ? 'Loading payment profiles...' : 'Load S&S Payment Profiles'}
+          </Button>
+
+          {paymentProfiles.length > 0 && (
+            <div className="space-y-3">
+              <label className="block space-y-2 text-sm font-medium">
+                Default S&amp;S Payment Profile
+                <select
+                  value={selectedPaymentProfile}
+                  onChange={(event) => setSelectedPaymentProfile(event.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 font-normal"
+                >
+                  <option value="">Choose a payment profile</option>
+                  {paymentProfiles.map((profile) => (
+                    <option key={profile.profile_id} value={profile.profile_id}>
+                      {profile.label} — PaymentProfile ID {profile.profile_id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="button" className="w-full" onClick={handleSavePaymentProfile}
+                disabled={paymentProfileSaving || !selectedPaymentProfile}>
+                {paymentProfileSaving ? 'Saving verified profile...' : 'Save Default S&S Payment Profile'}
+              </Button>
+            </div>
+          )}
+
+          {paymentProfileError && <Alert variant="destructive"><AlertDescription>{paymentProfileError}</AlertDescription></Alert>}
+          {paymentProfileMessage && (
+            <Alert><CheckCircle2 className="w-4 h-4" /><AlertDescription>{paymentProfileMessage}</AlertDescription></Alert>
+          )}
+        </div>
 
         {workflowStatus?.product_loading_paused && (
           <div className="my-6 flex gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5">
