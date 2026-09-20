@@ -11,18 +11,20 @@ const cors = (origin: string) => ({
 });
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const safeNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-const priceNumber = (value: unknown): number => {
+const optionalPriceNumber = (value: unknown): number | null => {
+  if (value == null || value === '') return null;
   if (typeof value === 'string') {
     const parsed = Number(value.replace(/[^0-9.-]/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
+    return Number.isFinite(parsed) ? parsed : null;
   }
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    return priceNumber(record.value ?? record.amount ?? record.price ?? record.total);
+    return optionalPriceNumber(record.value ?? record.amount ?? record.price ?? record.total);
   }
-  return 0;
+  return null;
 };
+const positivePrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null && value > 0) ?? null;
 
 type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
@@ -82,6 +84,48 @@ const variantFor = (product: Product, item: Item) => {
 
 type UspsRateDiagnostics = { requests: Array<Record<string, unknown>> };
 
+const sanitizeUspsValue = (value: unknown, depth = 0): unknown => {
+  if (depth > 6) return '[truncated]';
+  if (Array.isArray(value)) return value.slice(0, 30).map((entry) => sanitizeUspsValue(entry, depth + 1));
+  if (!value || typeof value !== 'object') return typeof value === 'string' ? value.slice(0, 500) : value;
+  const blocked = /token|authorization|credential|secret|client|^account$|account(number|id)|crid|^mid$/i;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !blocked.test(key))
+    .slice(0, 60)
+    .map(([key, entry]) => [key, sanitizeUspsValue(entry, depth + 1)]));
+};
+
+const uspsOptionSummaries = (value: unknown) => {
+  const summaries: Array<Record<string, unknown>> = [];
+  const visit = (entry: unknown, inherited: Record<string, unknown> = {}, depth = 0) => {
+    if (depth > 6 || entry == null) return;
+    if (Array.isArray(entry)) return entry.forEach((item) => visit(item, inherited, depth + 1));
+    if (typeof entry !== 'object') return;
+    const record = entry as Record<string, unknown>;
+    const context = {
+      mailClass: record.mailClass ?? inherited.mailClass ?? null,
+      description: record.description ?? record.serviceName ?? record.productName ?? inherited.description ?? null,
+      SKU: record.SKU ?? record.sku ?? inherited.SKU ?? null,
+      priceType: record.priceType ?? inherited.priceType ?? null,
+      zone: record.zone ?? inherited.zone ?? null,
+      warnings: record.warnings ?? inherited.warnings ?? [],
+    };
+    const hasRateFields = ['price', 'totalBasePrice', 'totalPrice', 'fees'].some((key) => key in record);
+    if (hasRateFields) summaries.push({
+      ...context,
+      price: optionalPriceNumber(record.price),
+      totalBasePrice: optionalPriceNumber(record.totalBasePrice),
+      totalPrice: optionalPriceNumber(record.totalPrice),
+      fees: sanitizeUspsValue(record.fees ?? []),
+    });
+    for (const key of ['rates', 'rateOptions', 'prices', 'shippingOptions', 'options']) {
+      if (key in record) visit(record[key], context, depth + 1);
+    }
+  };
+  visit(value);
+  return summaries;
+};
+
 async function uspsRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>, diagnostics?: UspsRateDiagnostics) {
   const token = await getUspsToken();
   const pounds = Math.max(0.01, ounces / 16);
@@ -116,11 +160,13 @@ async function uspsRates(settings: Settings, destinationZip: string, ounces: num
       top_level_keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 20) : [],
       rate_count: Array.isArray(data?.rates) ? data.rates.length : null,
       rate_option_count: Array.isArray(data?.rateOptions) ? data.rateOptions.length : null,
-      total_base_price_present: safeNumber(data?.totalBasePrice) > 0,
+      total_price: optionalPriceNumber(data?.totalPrice),
+      total_base_price: optionalPriceNumber(data?.totalBasePrice),
       total_base_price_type: typeof data?.totalBasePrice,
-      total_base_price_value: priceNumber(data?.totalBasePrice),
       first_rate_keys: Array.isArray(data?.rates) && data.rates[0] && typeof data.rates[0] === 'object' ? Object.keys(data.rates[0]).slice(0, 20) : [],
-      first_rate_price_value: Array.isArray(data?.rates) ? priceNumber(data.rates[0]?.price) : 0,
+      first_rate_price: Array.isArray(data?.rates) ? optionalPriceNumber(data.rates[0]?.price) : null,
+      options: uspsOptionSummaries(data),
+      sanitized_response: sanitizeUspsValue(data),
     });
     if (!response.ok) {
       console.warn('USPS Domestic Pricing rejected a rate request', { status: response.status, mail_class: mailClass });
@@ -145,12 +191,12 @@ async function uspsRates(settings: Settings, destinationZip: string, ounces: num
       id: String(rate.mailClass || rate.productId || name).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       service: name,
       amount: money([
-        rate.responseTotalBasePrice,
-        rate.totalBasePrice,
         rate.totalPrice,
+        rate.totalBasePrice,
         rate.price,
+        rate.responseTotalBasePrice,
         rate.rate,
-      ].map(priceNumber).find((value) => value > 0) || 0),
+      ].map(optionalPriceNumber).find((value) => value != null && value > 0) ?? Number.NaN),
       delivery: rate.deliveryTime || rate.serviceStandard || null,
     };
   }).filter((rate: { service: string; amount: number }) => rate.amount > 0);
@@ -337,19 +383,47 @@ Deno.serve(async (request) => {
       const diagnostics: UspsRateDiagnostics = { requests: [] };
       const token = await getUspsToken();
       const rates = await uspsRates({ origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true }, destinationZip, ounces, { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor }, diagnostics);
+      const shippingOptionsRequest = {
+        originZIPCode: originZip,
+        destinationZIPCode: destinationZip,
+        weight: Math.max(0.01, ounces / 16),
+        length: length * dimensionFactor,
+        width: width * dimensionFactor,
+        height: height * dimensionFactor,
+        processingCategory: 'MACHINABLE',
+        destinationEntryFacilityType: 'NONE',
+        rateIndicator: 'SP',
+        priceType: 'RETAIL',
+        mailingDate: new Date().toISOString().slice(0, 10),
+      };
+      const shippingOptionsResponse = await fetch('https://apis.usps.com/shipments/v3/options/search', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(shippingOptionsRequest),
+      });
+      const shippingOptionsData = await shippingOptionsResponse.json().catch(() => ({}));
       const services = diagnostics.requests.map((request) => ({
         mail_class: request.mail_class,
         label: request.mail_class === 'USPS_GROUND_ADVANTAGE' ? 'USPS Ground Advantage' : 'USPS Priority Mail',
         http_status: request.status,
-        raw_price: safeNumber(request.total_base_price_value) || safeNumber(request.first_rate_price_value),
+        raw_price: positivePrice(request.total_price, request.total_base_price, request.first_rate_price),
       }));
-      const zeroRateWarning = services.length > 0 && services.every((service) => service.raw_price <= 0);
+      const zeroRateWarning = services.length > 0 && services.every((service) => service.raw_price === 0);
       const fallbackAmount = safeNumber(payload.fallback_amount);
       return respond({
         oauth: { ok: Boolean(token) },
         http_ok: services.length > 0 && services.every((service) => service.http_status === 200),
         rates,
         services,
+        diagnostics: {
+          domestic_prices: diagnostics.requests,
+          shipping_options: {
+            endpoint: 'https://apis.usps.com/shipments/v3/options/search',
+            http_status: shippingOptionsResponse.status,
+            options: uspsOptionSummaries(shippingOptionsData),
+            sanitized_response: sanitizeUspsValue(shippingOptionsData),
+          },
+        },
         fallback: { enabled: payload.fallback_enabled === true, amount: fallbackAmount, would_use: rates.length === 0 && payload.fallback_enabled === true && fallbackAmount > 0 },
         zero_rate_warning: zeroRateWarning,
         creates_order: false,
