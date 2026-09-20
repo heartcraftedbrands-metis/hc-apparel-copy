@@ -50,7 +50,7 @@ const PAYMENT_STATUSES = [
 const FULFILLMENT_STATUSES = [
   { value: 'not_started', label: 'Not Started' },
   { value: 'vendor_order_needed', label: 'S&S Fulfillment Needed' },
-  { value: 'ordered_from_vendor', label: 'Ordered From Vendor' },
+  { value: 'ordered_from_vendor', label: 'Submitted to S&S' },
   { value: 'in_transit_to_me', label: 'In Transit to Me' },
   { value: 'ready_to_ship', label: 'Ready to Ship' },
   { value: 'shipped', label: 'Shipped' },
@@ -1135,17 +1135,17 @@ export default function AdminOrderDetail() {
                   {creatingSafeDraft
                     ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     : <ClipboardList className="mr-2 h-4 w-4" />}
-                  Create Vendor Draft
+                  Create S&amp;S Fulfillment Draft
                 </Button>
               </Section>
             )}
 
-            {/* Linked Vendor Orders (admin only) */}
-            <Section title="Linked Vendor Orders" icon={<Truck className="w-4 h-4" />} adminOnly>
+            {/* Linked S&S fulfillment orders (admin only) */}
+            <Section title="Linked S&S Fulfillment Orders" icon={<Truck className="w-4 h-4" />} adminOnly>
               {linkedVendorOrders.length === 0 ? (
                 <div className="text-center py-4">
                   <Truck className="w-8 h-8 text-primary/20 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground mb-3">No vendor order has been created for this customer order yet.</p>
+                  <p className="text-sm text-muted-foreground mb-3">No S&amp;S fulfillment draft has been created for this customer order yet.</p>
                   <Button size="sm" className="gap-2 w-full" onClick={openFulfillment}>
                     <Truck className="w-4 h-4" />{fulfillmentActionLabel}
                   </Button>
@@ -1167,7 +1167,7 @@ export default function AdminOrderDetail() {
                       <div key={vo.id} className="border rounded-xl p-3 bg-white space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-mono text-muted-foreground">#{vo.id.slice(-6).toUpperCase()}</span>
-                          <Badge className="text-xs bg-green-100 text-green-800">Vendor Order Created</Badge>
+                          <Badge className="text-xs bg-green-100 text-green-800">S&amp;S Fulfillment Draft Created</Badge>
                         </div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                           <div>
@@ -1231,7 +1231,7 @@ export default function AdminOrderDetail() {
                 <Mail className="w-4 h-4 text-green-500" />Payment Received
               </Button>
               <Button size="sm" variant="outline" className="w-full gap-2 justify-start text-xs" onClick={() => setActiveTemplate('ordered_from_vendor')}>
-                <Mail className="w-4 h-4 text-indigo-500" />Ordered From Vendor
+                <Mail className="w-4 h-4 text-indigo-500" />Submitted to S&amp;S
               </Button>
               <Button size="sm" variant="outline" className="w-full gap-2 justify-start text-xs" onClick={() => setActiveTemplate('shipped')}>
                 <Mail className="w-4 h-4 text-purple-500" />Order Shipped

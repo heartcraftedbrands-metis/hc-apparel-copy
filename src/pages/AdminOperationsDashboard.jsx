@@ -22,7 +22,7 @@ const ORDER_STATUSES = [
   { value: 'awaiting_payment', label: 'Pending Payment' },
   { value: 'paid', label: 'Paid' },
   { value: 'in_production', label: 'Processing' },
-  { value: 'awaiting_fulfillment', label: 'Ordered From Vendor' },
+  { value: 'awaiting_fulfillment', label: 'Submitted to S&S' },
   { value: 'shipped', label: 'Shipped' },
   { value: 'completed', label: 'Delivered' },
   { value: 'canceled', label: 'Cancelled' },

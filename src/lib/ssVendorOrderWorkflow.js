@@ -5,10 +5,10 @@ export const SS_VENDOR_ORDER_STAGES = [
   { value: 'payment_link_sent', label: 'Payment Link Sent' },
   { value: 'payment_received', label: 'Payment Received' },
   { value: 'vendor_order_draft_created', label: 'S&S Fulfillment Draft Created' },
-  { value: 'vendor_order_reviewed', label: 'Vendor Order Reviewed' },
+  { value: 'vendor_order_reviewed', label: 'S&S Fulfillment Reviewed' },
   { value: 'ready_to_submit_to_ss', label: 'Ready to Submit to S&S' },
   { value: 'submitted_to_ss', label: 'Submitted to S&S' },
-  { value: 'vendor_order_confirmed', label: 'Vendor Order Confirmed' },
+  { value: 'vendor_order_confirmed', label: 'S&S Order Confirmed' },
   { value: 'tracking_received', label: 'Tracking Received' },
   { value: 'completed', label: 'Completed' },
 ];

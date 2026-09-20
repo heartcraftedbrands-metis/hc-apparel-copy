@@ -149,7 +149,7 @@ function LayoutInner({ children }) {
                         <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
                         <Link to="/AdminPaymentSettings"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
                         <Link to="/AdminSSApiSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />S&amp;S Vendor Settings</DropdownMenuItem></Link>
-                        <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />Vendor Order Drafts</DropdownMenuItem></Link>
+                        <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />S&amp;S Fulfillment Orders</DropdownMenuItem></Link>
                         <Link to="/AdminCustomerNotifications"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Customer Notifications</DropdownMenuItem></Link>
                         <Link to="/AdminOrders"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Orders</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />

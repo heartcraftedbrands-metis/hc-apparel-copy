@@ -21,8 +21,8 @@ import { getVendorDraftWarnings } from '@/lib/smallOrderCheckout';
 
 const STATUS_MAP = {
   draft:               { label: 'Draft',                color: 'bg-gray-100 text-gray-600' },
-  ready_to_order:      { label: 'Ready to Order',       color: 'bg-yellow-100 text-yellow-700' },
-  ordered_from_vendor: { label: 'Ordered From Vendor',  color: 'bg-blue-100 text-blue-700' },
+  ready_to_order:      { label: 'Ready for S&S Review', color: 'bg-yellow-100 text-yellow-700' },
+  ordered_from_vendor: { label: 'Submitted to S&S',     color: 'bg-blue-100 text-blue-700' },
   in_transit_to_me:    { label: 'In Transit to Me',     color: 'bg-purple-100 text-purple-700' },
   partially_received:  { label: 'Partially Received',   color: 'bg-orange-100 text-orange-700' },
   received:            { label: 'Received',             color: 'bg-green-100 text-green-700' },
@@ -435,7 +435,7 @@ export default function AdminVendorOrderDraftDetail() {
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center gap-3 mb-1">
             <Package className="w-6 h-6 text-accent" />
-            <h1 className="text-xl font-extrabold">Vendor Order Draft</h1>
+            <h1 className="text-xl font-extrabold">S&amp;S Fulfillment Order</h1>
             <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
           </div>
           <p className="text-primary-foreground/70 text-sm">
@@ -466,7 +466,7 @@ export default function AdminVendorOrderDraftDetail() {
           </Link>
           <Link to="/AdminVendorOrders">
             <Button size="sm" variant="outline" className="gap-1.5">
-              <ArrowLeft className="w-4 h-4" />Back to Vendor Orders
+              <ArrowLeft className="w-4 h-4" />Back to S&amp;S Fulfillment Orders
             </Button>
           </Link>
           <Link to="/AdminInbox?tab=fulfillment">
@@ -492,7 +492,7 @@ export default function AdminVendorOrderDraftDetail() {
             className="gap-1.5 border-yellow-400 text-yellow-700 hover:bg-yellow-50"
             disabled={draft.vendor_status === 'ready_to_order' || updateDraft.isPending}
             onClick={() => setStatus('ready_to_order')}>
-            <Truck className="w-4 h-4" />Mark Ready to Order
+            <Truck className="w-4 h-4" />Mark Ready for S&amp;S Review
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5 border-amber-400 text-amber-700 hover:bg-amber-50"
             onClick={repairDraftItems} disabled={repairing}>
@@ -637,7 +637,7 @@ export default function AdminVendorOrderDraftDetail() {
           {orderedConfirmation && (
             <div className="flex items-start gap-2 text-sm text-green-800 bg-green-50 border border-green-300 rounded-xl px-4 py-3">
               <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span><strong>Vendor order marked as ordered internally.</strong> No vendor API order was placed. No charges were made. Customer order fulfillment status updated to "Ordered From Vendor".</span>
+              <span><strong>S&amp;S fulfillment marked as submitted internally.</strong> No S&amp;S API order was placed. No charges were made. Customer order fulfillment status updated to "Submitted to S&amp;S".</span>
             </div>
           )}
 
@@ -649,7 +649,7 @@ export default function AdminVendorOrderDraftDetail() {
               className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
               disabled={draft.vendor_status === 'ordered_from_vendor' || updateDraft.isPending}
               onClick={markOrderedFromVendor}>
-              <CheckCircle className="w-4 h-4" />Mark Ordered From Vendor
+              <CheckCircle className="w-4 h-4" />Mark Submitted to S&amp;S
             </Button>
             <Button size="sm" variant="outline"
               className="gap-1.5 border-purple-300 text-purple-700 hover:bg-purple-50"
@@ -798,7 +798,7 @@ export default function AdminVendorOrderDraftDetail() {
         <div className="bg-white border border-border rounded-2xl p-5 space-y-3">
           <h2 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">Generate Customer Message</h2>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setActiveTemplate('ordered_from_vendor')}>
-            <Mail className="w-4 h-4 text-indigo-500" />Generate "Ordered From Vendor" Message
+            <Mail className="w-4 h-4 text-indigo-500" />Generate "Submitted to S&amp;S" Message
           </Button>
           <p className="text-xs text-muted-foreground">Opens a pre-filled message you can copy or email to the customer. Nothing sends automatically.</p>
         </div>
@@ -808,7 +808,7 @@ export default function AdminVendorOrderDraftDetail() {
           <h2 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">Other Status Updates</h2>
           <div className="flex flex-wrap gap-2">
             {[
-              { s: 'ready_to_order',     label: 'Mark Ready to Order',     cls: 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' },
+              { s: 'ready_to_order',     label: 'Mark Ready for S&S Review', cls: 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' },
               { s: 'partially_received', label: 'Mark Partially Received', cls: 'border-orange-300 text-orange-700 hover:bg-orange-50' },
               { s: 'cancelled',          label: 'Cancel Draft',            cls: 'border-red-300 text-red-500 hover:bg-red-50' },
             ].map(({ s, label, cls }) => (

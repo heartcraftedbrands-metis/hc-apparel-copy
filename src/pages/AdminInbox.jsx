@@ -60,7 +60,7 @@ const PAY_STATUS_MAP = {
 const FULFILL_STATUS_MAP = {
   not_started:         { label: 'Not Started',           color: 'bg-gray-100 text-gray-600' },
   vendor_order_needed: { label: 'Awaiting Fulfillment',  color: 'bg-yellow-100 text-yellow-700' },
-  ordered_from_vendor: { label: 'Ordered From Vendor',   color: 'bg-blue-100 text-blue-700' },
+  ordered_from_vendor: { label: 'Submitted to S&S',      color: 'bg-blue-100 text-blue-700' },
   in_transit_to_me:    { label: 'In Transit to Me',      color: 'bg-purple-100 text-purple-700' },
   ready_to_ship:       { label: 'Ready to Ship',         color: 'bg-teal-100 text-teal-700' },
   shipped:             { label: 'Shipped',               color: 'bg-indigo-100 text-indigo-700' },
@@ -418,8 +418,8 @@ export default function AdminInbox() {
       patchOrder(order.id, { fulfillment_status: 'vendor_order_needed' });
       setDraftCreated({ draftId: data.draft_id, orderId: order.id });
       showToast(data.created
-        ? 'Vendor Order Draft created. No vendor order has been placed.'
-        : 'The existing vendor order draft was opened. No vendor order has been placed.');
+        ? 'S&S Fulfillment Draft created. No S&S order has been placed.'
+        : 'The existing S&S fulfillment draft was opened. No S&S order has been placed.');
     } finally {
       setCreatingDraft(false);
     }
@@ -1198,17 +1198,17 @@ function OrderFulfillDetail({ order, onSetFulfillStatus, trackingNum, setTrackin
 
       {/* Create Vendor Order Draft */}
       <div className="pt-2 border-t border-border space-y-3">
-        <SectionLabel>Vendor Order Draft</SectionLabel>
+        <SectionLabel>S&amp;S Fulfillment Draft</SectionLabel>
 
         {draftCreated ? (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2">
             <div className="flex items-center gap-2 text-green-800 font-semibold text-sm">
               <CheckCircle className="w-4 h-4 shrink-0" />
-              Vendor Order Draft created. No vendor order has been placed.
+              S&amp;S Fulfillment Draft created. No S&amp;S order has been placed.
             </div>
             <Link to={`/AdminVendorOrderDraftDetail?id=${draftCreated.draftId}`}>
               <Button size="sm" variant="outline" className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50">
-                <ExternalLink className="w-3.5 h-3.5" />Open Vendor Order Draft
+                <ExternalLink className="w-3.5 h-3.5" />Review S&amp;S Order
               </Button>
             </Link>
           </div>
@@ -1217,7 +1217,7 @@ function OrderFulfillDetail({ order, onSetFulfillStatus, trackingNum, setTrackin
             className="gap-1.5 bg-primary hover:bg-primary/90">
             {creatingDraft
               ? <><Loader2 className="w-4 h-4 animate-spin" />Creating Draft…</>
-              : <><Package className="w-4 h-4" />Create Vendor Order Draft</>
+              : <><Package className="w-4 h-4" />Create S&amp;S Fulfillment Draft</>
             }
           </Button>
         )}
@@ -1231,8 +1231,8 @@ function OrderFulfillDetail({ order, onSetFulfillStatus, trackingNum, setTrackin
         <SectionLabel>Update Fulfillment Status</SectionLabel>
         <div className="flex flex-wrap gap-2">
           {[
-            { s: 'vendor_order_needed', label: 'Awaiting Fulfillment', cls: 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' },
-            { s: 'ordered_from_vendor', label: 'Ordered From Vendor',  cls: 'border-blue-300 text-blue-700 hover:bg-blue-50' },
+            { s: 'vendor_order_needed', label: 'S&S Fulfillment Needed', cls: 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' },
+            { s: 'ordered_from_vendor', label: 'Submitted to S&S',       cls: 'border-blue-300 text-blue-700 hover:bg-blue-50' },
             { s: 'in_transit_to_me',   label: 'In Transit to Me',     cls: 'border-purple-300 text-purple-700 hover:bg-purple-50' },
             { s: 'ready_to_ship',      label: 'Ready to Ship',        cls: 'border-teal-300 text-teal-700 hover:bg-teal-50' },
             { s: 'shipped',            label: 'Mark Shipped',         cls: 'border-indigo-300 text-indigo-700 hover:bg-indigo-50' },

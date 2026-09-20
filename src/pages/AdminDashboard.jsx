@@ -130,8 +130,8 @@ export default function AdminDashboard() {
             <StatCard icon={<MessageSquare className="w-5 h-5" />} label="New Quote Requests"  count={newQuotes}    color="purple" to="/AdminInbox" />
             <StatCard icon={<Clock className="w-5 h-5" />}       label="Awaiting Payment"      count={awaitingPay}  color="orange" to="/AdminInbox" />
             <StatCard icon={<Package className="w-5 h-5" />}     label="Awaiting Fulfillment"  count={awaitingFulf} color="green"  to="/AdminInbox" />
-            <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="Drafts Ready to Order" count={draftsReady} color="yellow" to="/AdminVendorOrders" />
-            <StatCard icon={<Truck className="w-5 h-5" />}       label="Ordered From Vendor"   count={ordered}      color="blue"   to="/AdminVendorOrders" />
+            <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="Ready for S&S Review" count={draftsReady} color="yellow" to="/AdminVendorOrders" />
+            <StatCard icon={<Truck className="w-5 h-5" />}       label="Submitted to S&S"      count={ordered}      color="blue"   to="/AdminVendorOrders" />
           </div>
         </div>
 
@@ -187,8 +187,8 @@ export default function AdminDashboard() {
             />
             <NavCard
               icon={<Truck />}
-              label="Vendor Orders"
-              desc="Vendor order drafts, CSV exports, tracking, and fulfillment"
+              label="S&S Fulfillment Orders"
+              desc="Review paid orders, S&S drafts, tracking, and fulfillment"
               to="/AdminVendorOrders"
               highlight
             />
@@ -243,7 +243,7 @@ export default function AdminDashboard() {
               { to: '/AdminOrders',                label: 'Orders',              icon: <Package /> },
               { to: '/AdminPaymentSettings',       label: 'Payment Settings',    icon: <DollarSign /> },
               { to: '/AdminSSApiSettings',         label: 'S&S Vendor Settings', icon: <Truck /> },
-              { to: '/AdminVendorOrders',          label: 'Vendor Order Drafts', icon: <Archive /> },
+              { to: '/AdminVendorOrders',          label: 'S&S Fulfillment Orders', icon: <Archive /> },
               { to: '/AdminCustomerNotifications', label: 'Customer Notifications', icon: <Mail /> },
               { to: '/AdminDigitalArchive',        label: 'Design Archive',      icon: <Archive /> },
               { to: '/AdminSSCatalog',             label: 'S&S Catalog',         icon: <Archive /> },

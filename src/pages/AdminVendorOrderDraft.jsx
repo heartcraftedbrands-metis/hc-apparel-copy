@@ -145,7 +145,7 @@ export default function AdminVendorOrderDraft() {
       test_validation: null,
     }),
     onSuccess: () => {
-      toast.success('Vendor order draft saved');
+      toast.success('S&S fulfillment draft saved');
       setTestResult(null);
       refresh();
     },
@@ -221,7 +221,7 @@ export default function AdminVendorOrderDraft() {
   }));
   const costReady = totals.costsLoaded || Boolean(String(form?.cost_override_reason || '').trim());
 
-  if (!id) return <div className="p-8 text-center">No vendor order draft selected.</div>;
+  if (!id) return <div className="p-8 text-center">No S&amp;S fulfillment order selected.</div>;
   if (isLoading || !form) {
     return <div className="min-h-screen grid place-items-center"><Loader2 className="animate-spin" /></div>;
   }
@@ -231,12 +231,15 @@ export default function AdminVendorOrderDraft() {
       <header className="bg-primary text-primary-foreground py-6 px-4">
         <div className="max-w-6xl mx-auto">
           <Link to="/AdminVendorOrders" className="inline-flex items-center gap-1 text-xs opacity-75 mb-3">
-            <ArrowLeft className="w-3 h-3" /> Vendor orders
+            <ArrowLeft className="w-3 h-3" /> Back to S&amp;S Fulfillment Orders
           </Link>
           <div className="flex justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-2xl font-extrabold">S&S Vendor Order Draft</h1>
-              <p className="text-sm opacity-75">{form.vendor_order_number}</p>
+              <h1 className="text-2xl font-extrabold">S&amp;S Fulfillment Order</h1>
+              <div className="mt-2 space-y-0.5 text-sm opacity-90">
+                <p><span className="font-semibold">Customer Order:</span> {form.customer_order_number || form.customer_order_id ? `#${String(form.customer_order_number || form.customer_order_id).replace(/^#/, '')}` : 'Not linked'}</p>
+                <p><span className="font-semibold">S&amp;S Fulfillment Draft:</span> {form.vendor_order_number}</p>
+              </div>
             </div>
             <Badge className="bg-white/15 text-white">
               {ssVendorOrderStageLabel(form.workflow_status)}
@@ -297,7 +300,7 @@ export default function AdminVendorOrderDraft() {
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <div className="flex justify-between items-center gap-3">
             <div>
-              <h2 className="font-bold">Vendor order items</h2>
+              <h2 className="font-bold">S&amp;S fulfillment items</h2>
               <p className="text-xs text-muted-foreground">Product, style, SKU, color, size, quantity, and prices are required.</p>
             </div>
             <Button
@@ -402,7 +405,7 @@ export default function AdminVendorOrderDraft() {
               onClick={() => stageMutation.mutate('vendor_order_reviewed')}
               disabled={stageMutation.isPending}
             >
-              Mark vendor order reviewed
+              Mark S&amp;S fulfillment reviewed
             </Button>
             <Button
               variant="outline"

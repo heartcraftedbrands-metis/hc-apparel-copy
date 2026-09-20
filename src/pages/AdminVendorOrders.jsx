@@ -10,8 +10,8 @@ import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
 
 const STATUS_MAP = {
   draft:               { label: 'Draft',                color: 'bg-gray-100 text-gray-600' },
-  ready_to_order:      { label: 'Ready to Order',       color: 'bg-yellow-100 text-yellow-700' },
-  ordered_from_vendor: { label: 'Ordered From Vendor',  color: 'bg-blue-100 text-blue-700' },
+  ready_to_order:      { label: 'Ready for S&S Review', color: 'bg-yellow-100 text-yellow-700' },
+  ordered_from_vendor: { label: 'Submitted to S&S',     color: 'bg-blue-100 text-blue-700' },
   partially_received:  { label: 'Partially Received',   color: 'bg-orange-100 text-orange-700' },
   received:            { label: 'Received',             color: 'bg-green-100 text-green-700' },
   cancelled:           { label: 'Cancelled',            color: 'bg-red-100 text-red-700' },
@@ -54,22 +54,28 @@ export default function AdminVendorOrders() {
     queryFn: () => base44.entities.VendorOrderDraft.list('-created_date', 200),
   });
 
-  const liveDrafts = drafts
+  const uniqueDrafts = Array.from(new Map(drafts.map((draft) => [
+    draft.id || draft.vendor_order_number,
+    draft,
+  ])).values());
+  const liveDrafts = uniqueDrafts
     .filter((draft) => !draft.is_sample)
     .sort((a, b) => Number(b.payment_status === 'paid') - Number(a.payment_status === 'paid'));
-  const qaDrafts = drafts.filter((draft) => draft.is_sample);
+  const qaDrafts = uniqueDrafts.filter((draft) => draft.is_sample);
   const filtered = filter === 'qa'
     ? qaDrafts
     : filter === 'live'
       ? liveDrafts
-      : liveDrafts.filter((draft) => draft.vendor_status === filter);
+      : filter === 'received'
+        ? liveDrafts.filter((draft) => ['partially_received', 'received'].includes(draft.vendor_status))
+        : liveDrafts.filter((draft) => draft.vendor_status === filter);
 
   const FILTERS = [
     { key: 'live',              label: 'Live' },
     { key: 'draft',             label: 'Draft' },
-    { key: 'ready_to_order',    label: 'Ready to Order' },
-    { key: 'ordered_from_vendor', label: 'Ordered' },
-    { key: 'received',          label: 'Received' },
+    { key: 'ready_to_order',    label: 'Ready to Submit' },
+    { key: 'ordered_from_vendor', label: 'Submitted to S&S' },
+    { key: 'received',          label: 'Received / Tracking' },
     { key: 'cancelled',         label: 'Cancelled' },
     { key: 'qa',                label: 'QA/Test' },
   ];
@@ -84,8 +90,8 @@ export default function AdminVendorOrders() {
           <div className="flex items-center gap-3">
             <Truck className="w-7 h-7 text-accent" />
             <div>
-              <h1 className="text-2xl font-extrabold">Vendor Order Drafts</h1>
-              <p className="text-primary-foreground/70 text-sm">Internal draft orders — no real orders are placed automatically</p>
+              <h1 className="text-2xl font-extrabold">S&amp;S Fulfillment Orders</h1>
+              <p className="text-primary-foreground/70 text-sm">Review and process paid orders before sending them to S&amp;S Activewear.</p>
             </div>
           </div>
         </div>
@@ -95,7 +101,7 @@ export default function AdminVendorOrders() {
         <div className="rounded-2xl border-2 border-red-300 bg-red-50 text-red-800 p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
           <div>
-            <p className="font-extrabold">Controlled vendor ordering</p>
+            <p className="font-extrabold">Controlled S&amp;S fulfillment</p>
             <p className="text-sm">Only reviewed, paid, non-QA drafts can reach the separately confirmed live S&amp;S action.</p>
           </div>
         </div>
@@ -115,7 +121,9 @@ export default function AdminVendorOrders() {
                   ? qaDrafts.length
                   : f.key === 'live'
                     ? liveDrafts.length
-                    : liveDrafts.filter(d => d.vendor_status === f.key).length}
+                    : f.key === 'received'
+                      ? liveDrafts.filter(d => ['partially_received', 'received'].includes(d.vendor_status)).length
+                      : liveDrafts.filter(d => d.vendor_status === f.key).length}
               </span>
             </button>
           ))}
@@ -126,8 +134,8 @@ export default function AdminVendorOrders() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground text-sm">
             {filter === 'qa'
-              ? 'No QA/test vendor drafts.'
-              : 'No live vendor order drafts yet. Mark an order paid in the Inbox to create one.'}
+              ? 'No QA/test S&S fulfillment drafts.'
+              : 'No live S&S fulfillment orders yet. Mark an order paid in the Inbox to create one.'}
           </div>
         ) : (
           <div className="space-y-3">
@@ -162,24 +170,28 @@ export default function AdminVendorOrders() {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm font-medium">{draft.customer_name}</p>
-                    <p className="text-xs text-muted-foreground">{draft.customer_order_number} · {fmt(draft.created_date)}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {items.length} item{items.length !== 1 ? 's' : ''} · {totalQty} unit{totalQty !== 1 ? 's' : ''}
-                    </p>
+                    <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 mt-3 text-xs">
+                      <p><span className="text-muted-foreground">Customer</span><br /><span className="font-medium text-foreground">{draft.customer_name || '—'}</span></p>
+                      <p><span className="text-muted-foreground">Customer Order ID</span><br /><span className="font-medium text-foreground">{draft.customer_order_number || '—'}</span></p>
+                      <p><span className="text-muted-foreground">Paid status</span><br /><span className="font-medium text-foreground">{draft.payment_status === 'paid' ? 'Paid' : 'Unpaid'}</span></p>
+                      <p><span className="text-muted-foreground">Date</span><br /><span className="font-medium text-foreground">{fmt(draft.created_date)}</span></p>
+                      <p><span className="text-muted-foreground">Fulfillment status</span><br /><span className="font-medium text-foreground">{s.label}</span></p>
+                      <p><span className="text-muted-foreground">S&amp;S status</span><br /><span className="font-medium text-foreground">{draft.ss_order_status || ssVendorOrderStageLabel(draft.workflow_status)}</span></p>
+                      <p className="sm:col-span-2"><span className="text-muted-foreground">Items</span><br /><span className="font-medium text-foreground">{items.length} item{items.length !== 1 ? 's' : ''} · {totalQty} unit{totalQty !== 1 ? 's' : ''}</span></p>
+                    </div>
                   </div>
 
                   {/* Quick actions */}
                   <div className="flex flex-wrap gap-2 items-center">
                     <Link to={`/AdminVendorOrderDraft?id=${draft.id}`}>
                       <Button size="sm" variant="outline" className="gap-1 text-xs">
-                        View Details <ChevronRight className="w-3.5 h-3.5" />
+                        Review S&amp;S Order <ChevronRight className="w-3.5 h-3.5" />
                       </Button>
                     </Link>
                     <Link to={`/AdminVendorOrderDraft?id=${draft.id}#vendor-info`}>
                       <Button size="sm" variant="outline"
                         className="gap-1 text-xs border-blue-300 text-blue-700 hover:bg-blue-50">
-                        <ClipboardEdit className="w-3.5 h-3.5" />Enter Vendor Info
+                        <ClipboardEdit className="w-3.5 h-3.5" />S&amp;S Order Details
                       </Button>
                     </Link>
                     <Button size="sm" variant="outline"

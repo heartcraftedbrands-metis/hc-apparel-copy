@@ -25,7 +25,7 @@ export default function LaunchReadinessQA() {
     { path: '/AdminOperationsDashboard', name: 'Operations Dashboard' },
     { path: '/AdminOrders', name: 'Admin Orders' },
     { path: '/AdminGarmentCatalog', name: 'Garment Catalog' },
-    { path: '/AdminVendorOrders', name: 'Vendor Order Drafts' },
+    { path: '/AdminVendorOrders', name: 'S&S Fulfillment Orders' },
     { path: '/AdminContactMessages', name: 'Contact Messages' },
     { path: '/AdminMessageTemplates', name: 'Message Templates' },
   ];
