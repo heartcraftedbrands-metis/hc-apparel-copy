@@ -28,6 +28,23 @@ type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
 type Product = Record<string, unknown>;
 
+const settingsBooleanFields = new Set([
+  'processing_enabled', 'sales_tax_enabled', 'ss_shipping_enabled', 'usps_enabled',
+  'usps_ground_advantage_enabled', 'usps_priority_mail_enabled', 'hc_fallback_enabled',
+  'hc_free_shipping_enabled',
+]);
+const settingsNumberFields = new Set([
+  'minimum_margin_per_item', 'processing_percent', 'processing_fixed_fee',
+  'sales_tax_rate_percent', 'ss_free_freight_threshold', 'ss_tier_1_2', 'ss_tier_3_5',
+  'ss_tier_6_12', 'ss_tier_13_plus', 'ss_shipping_buffer', 'default_product_weight_oz',
+  'default_package_length_in', 'default_package_width_in', 'default_package_height_in',
+  'hc_fallback_rate', 'hc_free_shipping_threshold', 'hc_handling_amount',
+]);
+const settingsTextFields = new Set([
+  'origin_street', 'origin_city', 'origin_state', 'origin_zip',
+  'default_product_weight_unit', 'default_package_dimension_unit',
+]);
+
 let uspsToken: { value: string; expiresAt: number } | null = null;
 
 async function getUspsToken() {
@@ -276,6 +293,32 @@ Deno.serve(async (request) => {
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
     const admin = createClient(supabaseUrl, serviceKey);
+    if (action === 'settings_get' || action === 'settings_save') {
+      const { data: isAdmin } = await userClient.rpc('is_admin');
+      if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
+      if (action === 'settings_get') {
+        const { data, error } = await userClient.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+        if (error) {
+          console.error('Checkout settings read failed', { code: error.code });
+          return respond({ error: 'Settings could not be loaded. Please try again.', code: error.code }, 500);
+        }
+        return respond({ settings: data });
+      }
+      const updates: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(payload)) {
+        if (settingsBooleanFields.has(key) && typeof value === 'boolean') updates[key] = value;
+        if (settingsNumberFields.has(key) && value !== '' && value != null && Number.isFinite(Number(value))) updates[key] = Number(value);
+        if (settingsTextFields.has(key) && typeof value === 'string' && value.trim() !== '') updates[key] = value.trim();
+      }
+      if (updates.default_product_weight_unit && !['oz', 'lb'].includes(String(updates.default_product_weight_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
+      if (updates.default_package_dimension_unit && !['in', 'cm'].includes(String(updates.default_package_dimension_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
+      const { data, error } = await userClient.from('checkout_financial_settings').update(updates).eq('id', 'default').select('*').single();
+      if (error) {
+        console.error('Checkout settings save failed', { code: error.code, details: String(error.details || '').slice(0, 160) });
+        return respond({ error: 'Settings could not be saved. Please try again.', code: error.code }, 500);
+      }
+      return respond({ settings: data, saved: true });
+    }
     if (action === 'usps_rate_test') {
       const { data: isAdmin } = await userClient.rpc('is_admin');
       if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
