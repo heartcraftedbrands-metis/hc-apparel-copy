@@ -446,6 +446,7 @@ Deno.serve(async (request) => {
     'stage_brand_styles',
     'stage_cold_weather_styles',
     'sync_brand_products',
+    'get_brand_draft_report',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -465,6 +466,70 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'get_brand_draft_report') {
+    const brand = canonicalApprovedBrand(payload.brand);
+    if (!brand) return json(request, { error: 'Select an approved S&S brand' }, 400);
+    const { data: drafts, error: draftsError } = await userClient
+      .from('products')
+      .select('id,name,brand,style_number,supplier_sku,category,price,stock,image_url,available_sizes,available_colors,size_prices,vendor_data_refreshed_at,storefront_pricing_rule_key,internal_notes')
+      .eq('brand', brand).eq('visibility', 'draft').eq('is_active', false)
+      .order('name');
+    if (draftsError) {
+      console.error('Unable to load private brand drafts', draftsError.message);
+      return json(request, { error: 'Unable to load the private brand draft report' }, 500);
+    }
+    const { count: publicCount, error: countError } = await userClient
+      .from('products').select('id', { count: 'exact', head: true })
+      .eq('visibility', 'public').eq('is_active', true);
+    if (countError) {
+      console.error('Unable to count public products', countError.message);
+      return json(request, { error: 'Unable to verify the public catalog count' }, 500);
+    }
+    const report = (drafts || []).map((draft) => {
+      const variants = Array.isArray(draft.size_prices) ? draft.size_prices : [];
+      const sizes = Array.isArray(draft.available_sizes) ? draft.available_sizes : [];
+      const colors = Array.isArray(draft.available_colors) ? draft.available_colors : [];
+      const blockers = [
+        !draft.image_url ? 'Missing image' : null,
+        !(Number(draft.price) > 0) ? 'Missing public price' : null,
+        !(Number(draft.stock) > 0) ? 'No current inventory' : null,
+        variants.length === 0 ? 'Missing SKU variants' : null,
+        sizes.length === 0 ? 'Missing sizes' : null,
+        colors.length === 0 ? 'Missing colors' : null,
+        !draft.vendor_data_refreshed_at ? 'Missing freshness timestamp' : null,
+      ].filter(Boolean);
+      return {
+        id: draft.id,
+        name: draft.name,
+        style_number: draft.style_number,
+        supplier_sku: draft.supplier_sku,
+        category: draft.category,
+        public_price: draft.price,
+        inventory: draft.stock,
+        sku_variants: variants.length,
+        sizes: sizes.length,
+        colors: colors.length,
+        image_available: Boolean(draft.image_url),
+        pricing_rule: draft.storefront_pricing_rule_key,
+        refreshed_at: draft.vendor_data_refreshed_at,
+        ready_for_private_qa: blockers.length === 0,
+        blockers,
+        internal_status: draft.internal_notes,
+      };
+    });
+    return json(request, {
+      brand,
+      private_drafts: report.length,
+      ready_for_private_qa: report.filter((draft) => draft.ready_for_private_qa).length,
+      blocked: report.filter((draft) => !draft.ready_for_private_qa).length,
+      public_catalog_count: publicCount || 0,
+      products: report,
+      storefront_changed: false,
+      ss_order_submitted: false,
+      zerotouch_submitted: false,
+    });
+  }
 
   if (payload.action === 'list_payment_profiles' || payload.action === 'set_default_payment_profile') {
     if (!accountNumber || !apiKey) return json(request, { error: 'S&S credentials are not configured' }, 503);
@@ -1797,7 +1862,7 @@ Deno.serve(async (request) => {
   try {
     const endpoint = payload.action === 'test_connection'
       ? 'https://api.ssactivewear.com/v2/brands/?mediatype=json'
-      : 'https://api.ssactivewear.com/v2/styles/?fields=StyleID%2CPartNumber%2CBrandName%2CStyleName%2CTitle%2CBaseCategory%2CStyleImage&mediatype=json';
+      : 'https://api.ssactivewear.com/v2/styles/?fields=StyleID%2CPartNumber%2CBrandName%2CStyleName%2CTitle%2CDescription%2CBaseCategory%2CCategories%2CStyleImage&mediatype=json';
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
@@ -1861,14 +1926,16 @@ Deno.serve(async (request) => {
             .filter((style) => championMerchScore(style) > 0)
             .sort((a, b) => championMerchScore(b) - championMerchScore(a));
           const groups = ['sports_teamwear', 'business_apparel', 'premium_basics'];
-          while (championStyles.length < 20) {
+          // Stage a slightly wider private pool so inventory/image/price QA can
+          // select 20 complete drafts without lowering any publication guard.
+          while (championStyles.length < 32) {
             let added = false;
             for (const group of groups) {
               const next = eligible.find((style) => championMerchGroup(style) === group && !championStyles.includes(style));
               if (next) {
                 championStyles.push(next);
                 added = true;
-                if (championStyles.length === 20) break;
+                if (championStyles.length === 32) break;
               }
             }
             if (!added) break;
