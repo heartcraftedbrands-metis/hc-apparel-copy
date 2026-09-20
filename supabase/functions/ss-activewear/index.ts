@@ -206,14 +206,25 @@ function ssShippingMethod(value: unknown) {
   return '1';
 }
 
+function safeSsErrorDetails(value: unknown, fallback: string) {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const errors = (Array.isArray(record.errors) ? record.errors : [])
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => ({
+      field: textValue(entry.field) || 'Unknown field',
+      message: textValue(entry.message) || 'S&S rejected this field',
+    }));
+  const fieldMessage = errors.map((entry) => `${entry.field}: ${entry.message}`).join('; ');
+  return {
+    message: fieldMessage || textValue(record.message) || fallback,
+    response_message: textValue(record.message) || fallback,
+    field_errors: errors,
+    response_code: textValue(record.code),
+  };
+}
+
 function safeSsError(value: unknown, fallback: string) {
-  if (!value || typeof value !== 'object') return fallback;
-  const record = value as Record<string, unknown>;
-  const errors = Array.isArray(record.errors) ? record.errors : [];
-  const messages = errors
-    .map((entry) => entry && typeof entry === 'object' ? textValue((entry as Record<string, unknown>).message) : null)
-    .filter(Boolean);
-  return textValue(record.message) || messages.join('; ') || fallback;
+  return safeSsErrorDetails(value, fallback).message;
 }
 
 function inventoryQuantity(product: Record<string, unknown>) {
@@ -237,8 +248,8 @@ function buildSsOrderRequest(vendorPayload: Record<string, unknown>, draftId: st
       attn: textValue(shipping.name) || '',
       address: textValue(shipping.street) || textValue(shipping.line1) || textValue(shipping.address1),
       city: textValue(shipping.city),
-      state: textValue(shipping.state),
-      zip: textValue(shipping.zip) || textValue(shipping.postal_code),
+      state: String(textValue(shipping.state) || '').toUpperCase(),
+      zip: String(textValue(shipping.zip) || textValue(shipping.postal_code) || '').replace(/\s+/g, ''),
       residential: true,
     },
     shippingMethod: ssShippingMethod(vendorPayload.shipping_method),
@@ -252,6 +263,23 @@ function buildSsOrderRequest(vendorPayload: Record<string, unknown>, draftId: st
       qty: Math.trunc(Number(item.quantity)),
     })),
   };
+}
+
+function validateSsOrderRequest(requestBody: ReturnType<typeof buildSsOrderRequest>) {
+  const errors: Array<{ field: string; message: string }> = [];
+  const address = requestBody.shippingAddress;
+  if (!address.address) errors.push({ field: 'shippingAddress.address', message: 'Street address is required' });
+  if (!address.city) errors.push({ field: 'shippingAddress.city', message: 'City is required' });
+  if (!/^[A-Z]{2}$/.test(address.state)) errors.push({ field: 'shippingAddress.state', message: 'Use a two-letter uppercase state abbreviation' });
+  if (!/^\d{5}$/.test(address.zip)) errors.push({ field: 'shippingAddress.zip', message: 'S&S requires a five-digit ZIP code' });
+  if (!supportedShippingMethods.has(requestBody.shippingMethod)) errors.push({ field: 'shippingMethod', message: 'Unsupported S&S shipping method' });
+  if (!requestBody.poNumber) errors.push({ field: 'poNumber', message: 'Purchase order number is required' });
+  if (!requestBody.lines.length) errors.push({ field: 'lines', message: 'At least one order line is required' });
+  requestBody.lines.forEach((line, index) => {
+    if (!line.identifier) errors.push({ field: `lines[${index}].identifier`, message: 'S&S SKU identifier is required' });
+    if (!Number.isInteger(line.qty) || line.qty <= 0) errors.push({ field: `lines[${index}].qty`, message: 'Quantity must be a positive integer' });
+  });
+  return { valid: errors.length === 0, errors };
 }
 
 Deno.serve(async (request) => {
@@ -762,6 +790,15 @@ Deno.serve(async (request) => {
       }
 
       const requestBody = buildSsOrderRequest(vendorPayload, payload.draft_id);
+      const schemaValidation = validateSsOrderRequest(requestBody);
+      if (!schemaValidation.valid) {
+        return json(request, {
+          error: schemaValidation.errors.map((entry) => `${entry.field}: ${entry.message}`).join('; '),
+          dry_run: dryRun,
+          submitted: false,
+          schema_validation: schemaValidation,
+        }, 409);
+      }
 
       if (dryRun) {
         const { data: transitionCheck, error: transitionError } = await userClient.rpc(
@@ -778,6 +815,7 @@ Deno.serve(async (request) => {
           endpoint: 'https://api.ssactivewear.com/v2/orders/', method: 'POST',
           checks: { admin: true, payment: true, reviewed: true, ready: true, cost_loaded: true,
             duplicate_order: false, inventory: true, shipping_address: true, backend_transition: true },
+          schema_validation: schemaValidation,
           submission_payload: requestBody,
         });
       }
@@ -801,9 +839,27 @@ Deno.serve(async (request) => {
       });
       const orderResult = await orderResponse.json().catch(() => null);
       if (!orderResponse.ok) {
-        const safeFailure = { upstream_status: orderResponse.status, error: safeSsError(orderResult, 'S&S rejected the vendor order') };
+        const errorDetails = safeSsErrorDetails(orderResult, 'S&S rejected the vendor order');
+        const requestId = textValue(orderResponse.headers.get('x-request-id'))
+          || textValue(orderResponse.headers.get('request-id'))
+          || textValue(orderResponse.headers.get('x-correlation-id'));
+        const safeFailure = {
+          upstream_status: orderResponse.status,
+          error: errorDetails.message,
+          response_message: errorDetails.response_message,
+          response_code: errorDetails.response_code,
+          field_errors: errorDetails.field_errors,
+          request_id: requestId,
+          submission_timestamp: new Date().toISOString(),
+          draft_id: payload.draft_id,
+        };
         const message = await failSubmission(safeFailure.error, safeFailure);
-        return json(request, { error: message, upstream_status: orderResponse.status }, 502);
+        return json(request, {
+          error: message,
+          upstream_status: orderResponse.status,
+          field_errors: errorDetails.field_errors,
+          request_id: requestId,
+        }, 502);
       }
 
       const orders = (Array.isArray(orderResult) ? orderResult : [orderResult])

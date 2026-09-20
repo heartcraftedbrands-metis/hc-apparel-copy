@@ -22,6 +22,23 @@ async function invoke(action, body = {}) {
   throw new Error(message);
 }
 
+function submissionErrorDetails(draft, status) {
+  if (draft?.ss_submission_state !== 'failed') return null;
+  const summary = draft.ss_api_response_summary && typeof draft.ss_api_response_summary === 'object'
+    ? draft.ss_api_response_summary
+    : {};
+  const fieldErrors = Array.isArray(summary.field_errors) ? summary.field_errors : [];
+  return {
+    httpStatus: summary.upstream_status || 'Not available',
+    message: summary.response_message || summary.error || draft.ss_submission_error || 'S&S rejected the order request',
+    failingField: fieldErrors.length
+      ? fieldErrors.map(item => `${item.field || 'Unknown field'}: ${item.message || 'Invalid value'}`).join('; ')
+      : 'Not returned by S&S for this attempt',
+    timestamp: summary.submission_timestamp || draft.ss_submission_started_at || status?.last_ss_submission_at,
+    requestId: summary.request_id || 'Not returned by S&S',
+  };
+}
+
 export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
   const queryClient = useQueryClient();
   const { data: status, isLoading, error } = useQuery({
@@ -114,6 +131,7 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
     && draft.ss_submission_state !== 'submitting'
     && readinessQuery.data?.ready,
   );
+  const submissionError = submissionErrorDetails(draft, status);
 
   return (
     <section className="rounded-2xl border bg-white p-5 space-y-5">
@@ -249,6 +267,23 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
               )}
             </div>
           )}
+          {submissionError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950" role="alert">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <h3 className="font-bold">S&amp;S Submission Error</h3>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Confirmation label="HTTP status" value={submissionError.httpStatus} />
+                <Confirmation label="Safe response message" value={submissionError.message} />
+                <Confirmation label="Failing field" value={submissionError.failingField} />
+                <Confirmation label="Submission timestamp" value={formatDate(submissionError.timestamp)} />
+                <Confirmation label="Draft ID" value={draft.vendor_order_number || draft.id} />
+                <Confirmation label="Request ID" value={submissionError.requestId} />
+              </div>
+              <p className="mt-3 text-xs text-red-800">No automatic retry is performed. Resolve the payload issue and run the read-only validation before manually trying again.</p>
+            </div>
+          )}
           {isReady ? (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -274,9 +309,6 @@ export default function LiveSSSubmissionPanel({ draft = null, onUpdated }) {
               Live submit remains hidden until every safety requirement passes.
             </p>
           ) : null}
-          {draft.ss_submission_state === 'failed' && draft.ss_submission_error && (
-            <p className="text-sm text-red-700">Last submission failed: {draft.ss_submission_error}</p>
-          )}
         </div>
       )}
     </section>
