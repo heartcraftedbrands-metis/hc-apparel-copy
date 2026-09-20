@@ -161,6 +161,9 @@ function LayoutInner({ children }) {
                         <Link to="/AdminProductivityDashboard"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />Productivity Dashboard</DropdownMenuItem></Link>
                         <Link to="/AdminCalendarSettings"><DropdownMenuItem><CalendarDays className="w-4 h-4 mr-2" />Calendar Settings</DropdownMenuItem></Link>
                         <Link to="/AdminTeamProductivity"><DropdownMenuItem><User className="w-4 h-4 mr-2" />Team Settings</DropdownMenuItem></Link>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Settings</DropdownMenuLabel>
+                        <Link to="/AdminPaymentFeeSettings"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />Pricing &amp; Shipping Settings</DropdownMenuItem></Link>
                       </>
                     )}
                     <DropdownMenuSeparator />
