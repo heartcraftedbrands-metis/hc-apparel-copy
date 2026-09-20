@@ -499,6 +499,11 @@ export default function AdminProducts() {
                       <Button size="sm" variant="outline" className="flex-1 h-7 text-xs gap-1" onClick={() => handleEdit(product)}>
                         <Pencil className="w-3 h-3" /> Edit
                       </Button>
+                      {vis === 'draft' && (
+                        <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
+                          <Link to={`/ProductDetail?id=${encodeURIComponent(product.id)}&preview=draft`}>Private QA</Link>
+                        </Button>
+                      )}
                       {/* Quick visibility toggle */}
                       {isPrivateSSTest || awaitsAdminApproval || awaitsPrivateQA ? (
                         <Button

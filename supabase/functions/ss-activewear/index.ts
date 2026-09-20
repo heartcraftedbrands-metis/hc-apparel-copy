@@ -494,6 +494,7 @@ Deno.serve(async (request) => {
         !draft.image_url ? 'Missing image' : null,
         !(Number(draft.price) > 0) ? 'Missing public price' : null,
         !(Number(draft.stock) > 0) ? 'No current inventory' : null,
+        brand === 'Champion' && Number(draft.stock) <= 1 ? 'Insufficient launch inventory (1 unit)' : null,
         variants.length === 0 ? 'Missing SKU variants' : null,
         sizes.length === 0 ? 'Missing sizes' : null,
         colors.length === 0 ? 'Missing colors' : null,
