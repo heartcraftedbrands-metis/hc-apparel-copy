@@ -25,6 +25,7 @@ const optionalPriceNumber = (value: unknown): number | null => {
   return null;
 };
 const positivePrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null && value > 0) ?? null;
+const firstPrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null) ?? null;
 
 type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
@@ -48,6 +49,7 @@ const settingsTextFields = new Set([
 ]);
 
 let uspsToken: { value: string; expiresAt: number } | null = null;
+let uspsTokenMetadata: { status: string | null; scope: string[]; apiProducts: string[] } | null = null;
 
 async function getUspsToken() {
   if (uspsToken && Date.now() < uspsToken.expiresAt - 60_000) return uspsToken.value;
@@ -66,6 +68,13 @@ async function getUspsToken() {
     throw new Error(`USPS OAuth failed (${response.status}, ${safeCode})${safeDescription ? `: ${safeDescription}` : '.'}`);
   }
   uspsToken = { value: data.access_token, expiresAt: Date.now() + safeNumber(data.expires_in || 28_800) * 1000 };
+  uspsTokenMetadata = {
+    status: typeof data.status === 'string' ? data.status.slice(0, 80) : null,
+    scope: typeof data.scope === 'string' ? data.scope.split(/\s+/).filter(Boolean).slice(0, 30) : [],
+    apiProducts: Array.isArray(data.api_products)
+      ? data.api_products.map(String).slice(0, 20)
+      : typeof data.api_products === 'string' ? [data.api_products.slice(0, 200)] : [],
+  };
   return uspsToken.value;
 }
 
@@ -85,7 +94,7 @@ const variantFor = (product: Product, item: Item) => {
 type UspsRateDiagnostics = { requests: Array<Record<string, unknown>> };
 
 const sanitizeUspsValue = (value: unknown, depth = 0): unknown => {
-  if (depth > 6) return '[truncated]';
+  if (depth > 10) return '[truncated]';
   if (Array.isArray(value)) return value.slice(0, 30).map((entry) => sanitizeUspsValue(entry, depth + 1));
   if (!value || typeof value !== 'object') return typeof value === 'string' ? value.slice(0, 500) : value;
   const blocked = /token|authorization|credential|secret|client|^account$|account(number|id)|crid|^mid$/i;
@@ -98,7 +107,7 @@ const sanitizeUspsValue = (value: unknown, depth = 0): unknown => {
 const uspsOptionSummaries = (value: unknown) => {
   const summaries: Array<Record<string, unknown>> = [];
   const visit = (entry: unknown, inherited: Record<string, unknown> = {}, depth = 0) => {
-    if (depth > 6 || entry == null) return;
+    if (depth > 10 || entry == null) return;
     if (Array.isArray(entry)) return entry.forEach((item) => visit(item, inherited, depth + 1));
     if (typeof entry !== 'object') return;
     const record = entry as Record<string, unknown>;
@@ -118,7 +127,7 @@ const uspsOptionSummaries = (value: unknown) => {
       totalPrice: optionalPriceNumber(record.totalPrice),
       fees: sanitizeUspsValue(record.fees ?? []),
     });
-    for (const key of ['rates', 'rateOptions', 'prices', 'shippingOptions', 'options']) {
+    for (const key of ['pricingOptions', 'rates', 'rateOptions', 'prices', 'shippingOptions', 'options']) {
       if (key in record) visit(record[key], context, depth + 1);
     }
   };
@@ -126,7 +135,7 @@ const uspsOptionSummaries = (value: unknown) => {
   return summaries;
 };
 
-async function uspsRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>, diagnostics?: UspsRateDiagnostics) {
+async function uspsDomesticRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>, diagnostics?: UspsRateDiagnostics) {
   const token = await getUspsToken();
   const pounds = Math.max(0.01, ounces / 16);
   const baseRequest = {
@@ -202,6 +211,70 @@ async function uspsRates(settings: Settings, destinationZip: string, ounces: num
   }).filter((rate: { service: string; amount: number }) => rate.amount > 0);
   if (!rates.length && failures.length) throw new Error(`USPS Domestic Pricing failed: ${failures.join('; ')}`);
   return rates;
+}
+
+const shippingOptionsPayload = (originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number>) => ({
+  pricingOptions: [{ priceType: 'RETAIL' }],
+  originZIPCode: originZip.replace(/\D/g, '').slice(0, 5),
+  destinationZIPCode: destinationZip.replace(/\D/g, '').slice(0, 5),
+  packageDescription: {
+    weight: Math.max(0.01, ounces / 16),
+    length: dimensions.length,
+    width: dimensions.width,
+    height: dimensions.height,
+    mailClass: 'ALL',
+    extraServices: [],
+    mailingDate: new Date().toISOString().slice(0, 10),
+    packageValue: 0,
+  },
+});
+
+async function fetchUspsShippingOptions(originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+  const token = await getUspsToken();
+  const response = await fetch('https://apis.usps.com/shipments/v3/options/search', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(shippingOptionsPayload(originZip, destinationZip, ounces, dimensions)),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+}
+
+async function uspsShippingOptionRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+  const { response, data } = await fetchUspsShippingOptions(String(settings.origin_zip || ''), destinationZip, ounces, dimensions);
+  if (!response.ok) {
+    const safeCode = String(data?.error?.code || data?.code || 'options_failed').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80);
+    const safeMessage = String(data?.error?.message || data?.message || '').replace(/[\r\n]+/g, ' ').slice(0, 180);
+    throw new Error(`USPS Shipping Options failed (${response.status}, ${safeCode})${safeMessage ? `: ${safeMessage}` : '.'}`);
+  }
+  const wanted = new Set([
+    settings.usps_ground_advantage_enabled !== false ? 'USPS_GROUND_ADVANTAGE' : null,
+    settings.usps_priority_mail_enabled !== false ? 'PRIORITY_MAIL' : null,
+  ].filter(Boolean));
+  const pricingOptions = Array.isArray(data?.pricingOptions) ? data.pricingOptions : [];
+  const shippingOptions = pricingOptions.flatMap((option: Item) => Array.isArray(option.shippingOptions) ? option.shippingOptions : []);
+  return shippingOptions.flatMap((shippingOption: Item) => {
+    const mailClass = String(shippingOption.mailClass || '');
+    if (!wanted.has(mailClass)) return [];
+    const rateOptions = Array.isArray(shippingOption.rateOptions) ? shippingOption.rateOptions as Item[] : [];
+    const singlePiece = rateOptions.filter((option) => (Array.isArray(option.rates) ? option.rates as Item[] : [])
+      .some((rate) => String(rate.rateIndicator || '') === 'SP'));
+    const candidates = singlePiece.length ? singlePiece : rateOptions;
+    return candidates.map((option, index) => {
+      const nestedRates = Array.isArray(option.rates) ? option.rates as Item[] : [];
+      const nestedPrice = nestedRates.map((rate) => optionalPriceNumber(rate.price)).find((price) => price != null && price > 0);
+      const amount = positivePrice(option.totalPrice, option.totalBasePrice, nestedPrice);
+      const rate = nestedRates.find((entry) => optionalPriceNumber(entry.price) != null) || nestedRates[0] || {};
+      const commitment = option.commitment && typeof option.commitment === 'object' ? option.commitment as Item : {};
+      return {
+        id: `usps-${mailClass.toLowerCase().replace(/_/g, '-')}-${String(rate.SKU || index).toLowerCase()}`,
+        service: mailClass === 'USPS_GROUND_ADVANTAGE' ? 'USPS Ground Advantage' : 'USPS Priority Mail',
+        amount: amount == null ? Number.NaN : money(amount),
+        delivery: commitment.name || null,
+        expected_delivery_date: commitment.expectedDeliveryDate || commitment.scheduleDeliveryDate || null,
+      };
+    });
+  }).filter((rate: { amount: number }) => Number.isFinite(rate.amount) && rate.amount > 0);
 }
 
 async function calculate(admin: ReturnType<typeof createClient>, payload: Record<string, unknown>, settings: Settings) {
@@ -290,7 +363,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     if (settings.hc_free_shipping_enabled === true && safeNumber(settings.hc_free_shipping_threshold) > 0 && subtotal >= safeNumber(settings.hc_free_shipping_threshold)) {
       rates = [{ id: 'hc-free-shipping', service: 'HC Apparel free shipping', amount: 0, delivery: null }];
     } else if (settings.usps_enabled === true) {
-      try { rates = await uspsRates(settings, destinationZip, ounces, dimensions); }
+      try { rates = await uspsShippingOptionRates(settings, destinationZip, ounces, dimensions); }
       catch (error) { console.warn('USPS quote unavailable', { name: error instanceof Error ? error.name : 'Unknown' }); }
     }
     if (!rates.length && settings.hc_fallback_enabled === true && settings.hc_fallback_rate != null) {
@@ -382,40 +455,27 @@ Deno.serve(async (request) => {
       const dimensionFactor = payload.dimension_unit === 'cm' ? 1 / 2.54 : 1;
       const diagnostics: UspsRateDiagnostics = { requests: [] };
       const token = await getUspsToken();
-      const rates = await uspsRates({ origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true }, destinationZip, ounces, { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor }, diagnostics);
-      const shippingOptionsRequest = {
-        originZIPCode: originZip,
-        destinationZIPCode: destinationZip,
-        weight: Math.max(0.01, ounces / 16),
-        length: length * dimensionFactor,
-        width: width * dimensionFactor,
-        height: height * dimensionFactor,
-        processingCategory: 'MACHINABLE',
-        destinationEntryFacilityType: 'NONE',
-        rateIndicator: 'SP',
-        priceType: 'RETAIL',
-        mailingDate: new Date().toISOString().slice(0, 10),
-      };
-      const shippingOptionsResponse = await fetch('https://apis.usps.com/shipments/v3/options/search', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(shippingOptionsRequest),
-      });
-      const shippingOptionsData = await shippingOptionsResponse.json().catch(() => ({}));
+      const rateSettings = { origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true };
+      const packageDimensions = { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor };
+      const rates = await uspsDomesticRates(rateSettings, destinationZip, ounces, packageDimensions, diagnostics);
+      const { response: shippingOptionsResponse, data: shippingOptionsData } = await fetchUspsShippingOptions(originZip, destinationZip, ounces, packageDimensions);
+      const shippingOptionRates = shippingOptionsResponse.ok ? await uspsShippingOptionRates(rateSettings, destinationZip, ounces, packageDimensions) : [];
       const services = diagnostics.requests.map((request) => ({
         mail_class: request.mail_class,
         label: request.mail_class === 'USPS_GROUND_ADVANTAGE' ? 'USPS Ground Advantage' : 'USPS Priority Mail',
         http_status: request.status,
-        raw_price: positivePrice(request.total_price, request.total_base_price, request.first_rate_price),
+        raw_price: firstPrice(request.total_price, request.total_base_price, request.first_rate_price),
       }));
       const zeroRateWarning = services.length > 0 && services.every((service) => service.raw_price === 0);
       const fallbackAmount = safeNumber(payload.fallback_amount);
       return respond({
-        oauth: { ok: Boolean(token) },
+        oauth: { ok: Boolean(token), status: uspsTokenMetadata?.status || null, scope: uspsTokenMetadata?.scope || [], api_products: uspsTokenMetadata?.apiProducts || [] },
         http_ok: services.length > 0 && services.every((service) => service.http_status === 200),
         rates,
+        shipping_options_rates: shippingOptionRates,
         services,
         diagnostics: {
+          oauth: { status: uspsTokenMetadata?.status || null, scope: uspsTokenMetadata?.scope || [], api_products: uspsTokenMetadata?.apiProducts || [] },
           domestic_prices: diagnostics.requests,
           shipping_options: {
             endpoint: 'https://apis.usps.com/shipments/v3/options/search',
@@ -437,10 +497,10 @@ Deno.serve(async (request) => {
       const token = await getUspsToken();
       const sampleSettings = { origin_zip: '10018', usps_ground_advantage_enabled: true, usps_priority_mail_enabled: true };
       const diagnostics: UspsRateDiagnostics = { requests: [] };
-      const rates = await uspsRates(sampleSettings, '95823', 16, { length: 10, width: 8, height: 4 }, diagnostics);
+      const rates = await uspsShippingOptionRates(sampleSettings, '95823', 16, { length: 10, width: 8, height: 4 });
       return respond({
         oauth: { ok: Boolean(token), endpoint: 'https://apis.usps.com/oauth2/v3/token' },
-        domestic_pricing: { ok: rates.length > 0, endpoint: 'https://apis.usps.com/prices/v3/base-rates/search' },
+        shipping_options: { ok: rates.length > 0, endpoint: 'https://apis.usps.com/shipments/v3/options/search' },
         sample: { origin_zip: '10018', destination_zip: '95823', weight_oz: 16, dimensions_in: { length: 10, width: 8, height: 4 } },
         rates,
         diagnostics,
