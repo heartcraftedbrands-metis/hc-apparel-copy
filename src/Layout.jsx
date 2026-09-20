@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Tag, Calculator, MessageSquare, Mail, DollarSign, CheckCircle2, Inbox, Sparkles } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -144,44 +145,27 @@ function LayoutInner({ children }) {
                     {user.role === 'admin' && (
                       <>
                         <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Admin</DropdownMenuLabel>
                         <Link to="/AdminDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Admin Dashboard</DropdownMenuItem></Link>
-                        <Link to="/AdminHomepageSpecials"><DropdownMenuItem><Tag className="w-4 h-4 mr-2" />Homepage Specials Manager</DropdownMenuItem></Link>
-                        <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
-                        <Link to="/AdminPaymentSettings"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />Payment Settings</DropdownMenuItem></Link>
-                        <Link to="/AdminSSApiSettings"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />S&amp;S Vendor Settings</DropdownMenuItem></Link>
+                        <Link to="/AdminInbox"><DropdownMenuItem><Inbox className="w-4 h-4 mr-2" />HC Apparel Inbox{inboxBadge > 0 && <span className="ml-auto rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700">{inboxBadge}</span>}</DropdownMenuItem></Link>
+                        <Link to="/AdminOperationsDashboard"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Customer Orders</DropdownMenuItem></Link>
                         <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />S&amp;S Fulfillment Orders</DropdownMenuItem></Link>
-                        <Link to="/AdminCustomerNotifications"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Customer Notifications</DropdownMenuItem></Link>
-                        <Link to="/AdminOrders"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Orders</DropdownMenuItem></Link>
+                        <Link to="/AdminGarmentCatalog"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Garment Catalog</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />
-                        <Link to="/AdminProducts"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />Products</DropdownMenuItem></Link>
-                        <Link to="/AdminDigitalArchive"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Design Archive</DropdownMenuItem></Link>
-                        <Link to="/AdminVendors"><DropdownMenuItem><Tag className="w-4 h-4 mr-2" />Vendors</DropdownMenuItem></Link>
-                        <Link to="/AdminQuotes"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Quotes</DropdownMenuItem></Link>
-                        <Link to="/AdminQuoteRequests"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Quote Requests</DropdownMenuItem></Link>
-                        <Link to="/AdminSSCatalog"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />S&S Catalog</DropdownMenuItem></Link>
-                        <Link to="/AdminSSPricingRules"><DropdownMenuItem><DollarSign className="w-4 h-4 mr-2" />S&S Pricing Rules</DropdownMenuItem></Link>
-                        <Link to="/AdminSSImportAudit"><DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" />S&S Import Audit</DropdownMenuItem></Link>
-                        <Link to="/AdminSSDraftProductTest"><DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" />S&S Draft Test</DropdownMenuItem></Link>
-                        <Link to="/AdminProfitCalc"><DropdownMenuItem><Calculator className="w-4 h-4 mr-2" />Profit Calc</DropdownMenuItem></Link>
-                        <Link to="/AdminQATestReport"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />QA Test Report</DropdownMenuItem></Link>
-                        <Link to="/AdminVendorOrderTest"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Vendor Order Tests</DropdownMenuItem></Link>
-                        <Link to="/AdminContactMessages"><DropdownMenuItem><MessageSquare className="w-4 h-4 mr-2" />Contact Messages</DropdownMenuItem></Link>
-                        <Link to="/AdminOperationsDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Operations Dashboard</DropdownMenuItem></Link>
+                        <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Marketing</DropdownMenuLabel>
+                        <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
+                        <Link to="/AdminEmailMarketingSettings"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Email Marketing</DropdownMenuItem></Link>
+                        <Link to="/AdminMarketingAnalytics"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Marketing Analytics</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />
-                        <Link to="/AdminInbox">
-                          <DropdownMenuItem className="font-semibold">
-                            <Inbox className="w-4 h-4 mr-2 text-primary" />
-                            Inbox
-                            {inboxBadge > 0 && (
-                              <span className="ml-auto bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{inboxBadge}</span>
-                            )}
-                          </DropdownMenuItem>
-                        </Link>
+                        <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Operations</DropdownMenuLabel>
+                        <Link to="/AdminProductivityDashboard"><DropdownMenuItem><Settings className="w-4 h-4 mr-2" />Productivity Dashboard</DropdownMenuItem></Link>
+                        <Link to="/AdminCalendarSettings"><DropdownMenuItem><CalendarDays className="w-4 h-4 mr-2" />Calendar Settings</DropdownMenuItem></Link>
+                        <Link to="/AdminTeamProductivity"><DropdownMenuItem><User className="w-4 h-4 mr-2" />Team Settings</DropdownMenuItem></Link>
                       </>
                     )}
                     <DropdownMenuSeparator />
-                    <Link to="/TrackOrder"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Track Order</DropdownMenuItem></Link>
-                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Account</DropdownMenuLabel>
+                    <Link to="/Profile"><DropdownMenuItem><User className="w-4 h-4 mr-2" />My Account</DropdownMenuItem></Link>
                     <DropdownMenuItem onClick={() => base44.auth.logout()}>
                       <LogOut className="w-4 h-4 mr-2" />Logout
                     </DropdownMenuItem>

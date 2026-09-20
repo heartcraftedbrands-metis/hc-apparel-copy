@@ -1,298 +1,117 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
 import {
-  Inbox, Package, ShoppingBag, Truck, Mail, MessageSquare,
-  Store, FileText, Phone, ChevronRight, BarChart3, Archive,
-  DollarSign, Clock, AlertTriangle, Sparkles, User
+  Archive, BarChart3, CalendarDays, ChevronDown, ChevronRight, Clock,
+  DollarSign, FileText, Inbox, Mail, MessageSquare, Package, Settings,
+  ShoppingBag, Sparkles, Store, Truck, User,
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
 import { isActiveInboxItem, isActiveInboxOrder, isCheckoutIssueOrder } from '@/lib/inboxFilters';
 
-function money(v) {
-  if (v == null) return '$0';
-  return `$${Number(v).toFixed(2)}`;
-}
+const money = value => value == null ? '$0' : `$${Number(value).toFixed(2)}`;
 
 function StatCard({ icon, label, count, color, to }) {
-  const colorMap = {
-    blue:   'border-blue-200 bg-blue-50 text-blue-700',
-    red:    'border-red-200 bg-red-50 text-red-700',
-    orange: 'border-orange-200 bg-orange-50 text-orange-700',
-    green:  'border-green-200 bg-green-50 text-green-700',
-    purple: 'border-purple-200 bg-purple-50 text-purple-700',
+  const colors = {
+    blue: 'border-blue-200 bg-blue-50 text-blue-700', orange: 'border-orange-200 bg-orange-50 text-orange-700',
+    green: 'border-green-200 bg-green-50 text-green-700', purple: 'border-purple-200 bg-purple-50 text-purple-700',
     yellow: 'border-yellow-200 bg-yellow-50 text-yellow-700',
   };
-  const inner = (
-    <div className={`rounded-2xl border p-4 flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer ${colorMap[color]}`}>
-      <div className="opacity-70 shrink-0">{icon}</div>
-      <div>
-        <p className="text-2xl font-extrabold">{count}</p>
-        <p className="text-xs font-medium opacity-80 leading-tight">{label}</p>
-      </div>
-    </div>
-  );
-  return to ? <Link to={to}>{inner}</Link> : inner;
+  return <Link to={to} className={`flex min-w-0 items-center gap-3 rounded-2xl border p-4 transition-opacity hover:opacity-80 ${colors[color]}`}>
+    <span className="shrink-0 opacity-70">{icon}</span><span className="min-w-0"><span className="block text-2xl font-extrabold">{count}</span><span className="block text-xs font-medium leading-tight opacity-80">{label}</span></span>
+  </Link>;
 }
 
-function NavCard({ icon, label, desc, to, highlight }) {
-  return (
-    <Link to={to}
-      className={`rounded-2xl border p-5 flex flex-col gap-3 hover:shadow-md transition-all group ${
-        highlight
-          ? 'border-accent/40 bg-accent/5 hover:border-accent/60'
-          : 'border-border bg-white hover:border-primary/20'
-      }`}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${highlight ? 'bg-accent' : 'bg-primary'}`}>
-        {React.cloneElement(icon, { className: 'w-5 h-5 text-white' })}
-      </div>
-      <div>
-        <p className="font-bold text-sm group-hover:text-primary transition-colors">{label}</p>
-        {desc && <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{desc}</p>}
-      </div>
-      <ChevronRight className="w-4 h-4 text-muted-foreground/40 mt-auto self-end group-hover:text-primary transition-colors" />
-    </Link>
-  );
+function NavCard({ icon, label, desc, to, highlight = false }) {
+  return <Link to={to} className={`group flex min-w-0 flex-col gap-3 rounded-2xl border p-5 transition-all hover:shadow-md ${highlight ? 'border-accent/40 bg-accent/5 hover:border-accent/60' : 'border-border bg-white hover:border-primary/20'}`}>
+    <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${highlight ? 'bg-accent' : 'bg-primary'}`}>{React.cloneElement(icon, { className: 'h-5 w-5 text-white' })}</span>
+    <span className="min-w-0"><span className="block text-sm font-bold group-hover:text-primary">{label}</span><span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{desc}</span></span>
+    <ChevronRight className="mt-auto h-4 w-4 self-end text-muted-foreground/40 group-hover:text-primary" />
+  </Link>;
+}
+
+function ToolLink({ to, icon, label }) {
+  return <Link to={to} className="group flex min-w-0 items-center gap-2.5 rounded-xl border bg-white p-3.5 transition-all hover:border-primary/30 hover:shadow-sm">
+    <span className="shrink-0 text-muted-foreground group-hover:text-primary">{React.cloneElement(icon, { className: 'h-4 w-4' })}</span><span className="text-xs font-semibold leading-tight group-hover:text-primary">{label}</span>
+  </Link>;
+}
+
+function orderStatus(order) {
+  if (isCheckoutIssueOrder(order)) return 'Checkout Failed';
+  if (order.fulfillment_status === 'completed') return 'Completed';
+  if (['shipped', 'in_transit_to_customer'].includes(order.fulfillment_status)) return 'Shipped';
+  if (['ordered_from_vendor', 'submitted_to_ss'].includes(order.fulfillment_status)) return 'Submitted to S&S';
+  if (['paid', 'partially_paid'].includes(order.payment_status)) return ['not_started', 'vendor_order_needed', 'awaiting_fulfillment'].includes(order.fulfillment_status || 'not_started') ? 'Awaiting Fulfillment' : 'Paid';
+  return 'Awaiting Payment';
 }
 
 export default function AdminDashboard() {
-  const { data: messages = [] } = useQuery({
-    queryKey: ['contact_messages'],
-    queryFn: () => base44.entities.ContactMessage.list('-created_date', 100),
-  });
-  const { data: quotes = [] } = useQuery({
-    queryKey: ['quote_requests'],
-    queryFn: () => base44.entities.QuoteRequest.list('-created_date', 100),
-  });
-  const { data: orders = [] } = useQuery({
-    queryKey: ['orders_inbox'],
-    queryFn: async () => {
-      const records = await base44.entities.Order.list('-created_date', 200);
-      return records.filter((order) => !order.is_sample);
-    },
-  });
-  const { data: vendorDrafts = [] } = useQuery({
-    queryKey: ['vendor_order_drafts'],
-    queryFn: async () => {
-      const records = await base44.entities.VendorOrderDraft.list('-created_date', 100);
-      return records.filter((draft) => !draft.is_sample);
-    },
-  });
+  const { data: messages = [] } = useQuery({ queryKey: ['contact_messages'], queryFn: () => base44.entities.ContactMessage.list('-created_date', 100) });
+  const { data: quotes = [] } = useQuery({ queryKey: ['quote_requests'], queryFn: () => base44.entities.QuoteRequest.list('-created_date', 100) });
+  const { data: orders = [] } = useQuery({ queryKey: ['orders_inbox'], queryFn: async () => (await base44.entities.Order.list('-created_date', 200)).filter(order => !order.is_sample) });
+  const { data: vendorDrafts = [] } = useQuery({ queryKey: ['vendor_order_drafts'], queryFn: async () => (await base44.entities.VendorOrderDraft.list('-created_date', 100)).filter(draft => !draft.is_sample) });
 
-  const newMessages  = messages.filter(m => isActiveInboxItem(m) && m.status === 'new').length;
-  const newQuotes    = quotes.filter(q => isActiveInboxItem(q) && q.status === 'new').length;
-  const inboxOrders = orders.filter(isActiveInboxOrder);
-  const awaitingPay  = inboxOrders.filter(o => {
-    if (isCheckoutIssueOrder(o)) return false;
-    const ps = o.payment_status;
-    return ['awaiting_payment','unpaid','pending','pay_later'].includes(ps) || (!ps && (o.total_amount || 0) > (o.amount_paid || 0));
-  }).length;
-  const awaitingFulf = inboxOrders.filter(o =>
-    ['paid','partially_paid'].includes(o.payment_status) &&
-    ['not_started','vendor_order_needed','ordered_from_vendor','in_transit_to_me','ready_to_ship','awaiting_fulfillment'].includes(o.fulfillment_status || 'not_started')
-  ).length;
-  const draftsReady  = vendorDrafts.filter(d => d.vendor_status === 'ready_to_order').length;
-  const ordered      = vendorDrafts.filter(d => d.vendor_status === 'ordered_from_vendor').length;
+  const activeOrders = orders.filter(isActiveInboxOrder);
+  const awaitingPayment = activeOrders.filter(order => !isCheckoutIssueOrder(order) && (['awaiting_payment', 'unpaid', 'pending', 'pay_later'].includes(order.payment_status) || (!order.payment_status && (order.total_amount || 0) > (order.amount_paid || 0)))).length;
+  const awaitingFulfillment = activeOrders.filter(order => ['paid', 'partially_paid'].includes(order.payment_status) && ['not_started', 'vendor_order_needed', 'awaiting_fulfillment'].includes(order.fulfillment_status || 'not_started')).length;
+  const readyToSubmit = vendorDrafts.filter(draft => draft.vendor_status === 'ready_to_order' || draft.fulfillment_stage === 'ready_to_submit_to_ss').length;
+  const inFulfillment = vendorDrafts.filter(draft => ['ordered_from_vendor', 'partially_received', 'received'].includes(draft.vendor_status) || ['submitted_to_ss', 'vendor_order_confirmed', 'tracking_received'].includes(draft.fulfillment_stage)).length;
+  const recentOrders = orders.filter(isActiveInboxOrder).slice(0, 5);
 
-  const totalRevenue = orders.reduce((s, o) => s + (o.total_amount || 0), 0);
-  const totalOrders  = orders.length;
+  const primaryCards = [
+    { to: '/AdminInbox', label: 'HC Apparel Inbox', desc: 'Messages, quote requests, payment issues, and fulfillment alerts.', icon: <Inbox /> },
+    { to: '/AdminOperationsDashboard', label: 'Customer Orders', desc: 'View and manage customer orders.', icon: <Package /> },
+    { to: '/AdminVendorOrders', label: 'S&S Fulfillment Orders', desc: 'Review paid orders, validate S&S details, submit orders, and track fulfillment.', icon: <Truck /> },
+    { to: '/AdminGarmentCatalog', label: 'Garment Catalog', desc: 'Manage products, brands, pricing, visibility, and product QA.', icon: <Archive /> },
+  ];
+  const marketingCards = [
+    { to: '/AdminSocialMediaStudio', label: 'Social Media Studio', desc: 'Create and schedule HC Apparel social content.', icon: <Sparkles /> },
+    { to: '/AdminEmailMarketingSettings', label: 'Email Marketing', desc: 'Manage Brevo settings and subscriber sync.', icon: <Mail /> },
+    { to: '/AdminMarketingAnalytics', label: 'Marketing Analytics', desc: 'Review public marketing events and conversion activity.', icon: <BarChart3 /> },
+    { to: '/AdminHomepageSpecials', label: 'Homepage Specials', desc: 'Approve and manage current homepage picks.', icon: <ShoppingBag /> },
+  ];
+  const productivityCards = [
+    { to: '/AdminProductivityDashboard', label: 'Productivity Dashboard', desc: 'Orders, follow-ups, team tasks, AI scheduling, and calendars.', icon: <Clock /> },
+    { to: '/AdminCalendarSettings', label: 'Calendar Settings', desc: 'Manage the private Google Calendar connection and assignments.', icon: <CalendarDays /> },
+    { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', desc: 'Manage team assignments and internal productivity settings.', icon: <User /> },
+  ];
 
-  return (
-    <div className="min-h-screen bg-muted/30">
-      <PaymentFeesInitializer />
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground py-10 px-4">
-        <div className="container mx-auto max-w-6xl">
-          <h1 className="text-3xl font-extrabold">HC Apparel Admin Dashboard</h1>
-          <p className="text-primary-foreground/70 mt-1">One central place to run the business.</p>
-          <div className="flex gap-6 mt-4 text-sm text-primary-foreground/60">
-            <span>Total Revenue: <strong className="text-primary-foreground">{money(totalRevenue)}</strong></span>
-            <span>Total Orders: <strong className="text-primary-foreground">{totalOrders}</strong></span>
-          </div>
-        </div>
-      </div>
+  return <div className="min-h-screen bg-muted/30">
+    <PaymentFeesInitializer />
+    <header className="bg-primary px-4 py-10 text-primary-foreground"><div className="container mx-auto max-w-6xl">
+      <h1 className="text-3xl font-extrabold">HC Apparel Admin Dashboard</h1><p className="mt-1 text-primary-foreground/70">One central place to run the business.</p>
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-primary-foreground/60"><span>Total Revenue: <strong className="text-primary-foreground">{money(orders.reduce((sum, order) => sum + (order.total_amount || 0), 0))}</strong></span><span>Total Orders: <strong className="text-primary-foreground">{orders.length}</strong></span></div>
+    </div></header>
 
-      <div className="container mx-auto max-w-6xl px-4 py-8 space-y-10">
+    <main className="container mx-auto max-w-6xl space-y-10 px-4 py-8">
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Live Counts</h2><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard icon={<Mail className="h-5 w-5" />} label="New Messages" count={messages.filter(item => isActiveInboxItem(item) && item.status === 'new').length} color="blue" to="/AdminInbox" />
+        <StatCard icon={<MessageSquare className="h-5 w-5" />} label="New Quote Requests" count={quotes.filter(item => isActiveInboxItem(item) && item.status === 'new').length} color="purple" to="/AdminInbox" />
+        <StatCard icon={<Clock className="h-5 w-5" />} label="Awaiting Payment" count={awaitingPayment} color="orange" to="/AdminInbox" />
+        <StatCard icon={<Package className="h-5 w-5" />} label="Awaiting Fulfillment" count={awaitingFulfillment} color="green" to="/AdminInbox" />
+        <StatCard icon={<Truck className="h-5 w-5" />} label="S&S Ready to Submit" count={readyToSubmit} color="yellow" to="/AdminVendorOrders" />
+        <StatCard icon={<Truck className="h-5 w-5" />} label="Submitted to S&S / In Fulfillment" count={inFulfillment} color="blue" to="/AdminVendorOrders" />
+      </div></section>
 
-        <aside className="rounded-xl border bg-white p-4 text-sm space-y-2" aria-label="Customer authentication setup">
-          <h2 className="font-bold">Customer authentication setup</h2>
-          <p>In Supabase Auth → URL Configuration, use Site URL <code>https://www.ilovehcapparel.net</code> and allow redirects <code>https://www.ilovehcapparel.net/**</code> and <code>https://ilovehcapparel.net/**</code>. Confirmation links return to /Login; password recovery links return to /ResetPassword.</p>
-          <p>Confirmation is enabled. Custom SMTP must be configured in Supabase before the HC Apparel confirmation and reset email templates can be edited. Keep credentials server-side; do not paste service-role keys into this site.</p>
-        </aside>
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Live Operations</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{primaryCards.map(card => <NavCard key={card.to} {...card} highlight />)}</div></section>
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Marketing</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{marketingCards.map(card => <NavCard key={card.to} {...card} />)}</div></section>
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Productivity</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{productivityCards.map(card => <NavCard key={card.to} {...card} />)}</div></section>
 
-        {/* Live Summary Counts */}
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Live Counts</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <StatCard icon={<Mail className="w-5 h-5" />}        label="New Messages"          count={newMessages}  color="blue"   to="/AdminContactMessages" />
-            <StatCard icon={<MessageSquare className="w-5 h-5" />} label="New Quote Requests"  count={newQuotes}    color="purple" to="/AdminInbox" />
-            <StatCard icon={<Clock className="w-5 h-5" />}       label="Awaiting Payment"      count={awaitingPay}  color="orange" to="/AdminInbox" />
-            <StatCard icon={<Package className="w-5 h-5" />}     label="Awaiting Fulfillment"  count={awaitingFulf} color="green"  to="/AdminInbox" />
-            <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="Ready for S&S Review" count={draftsReady} color="yellow" to="/AdminVendorOrders" />
-            <StatCard icon={<Truck className="w-5 h-5" />}       label="Submitted to S&S"      count={ordered}      color="blue"   to="/AdminVendorOrders" />
-          </div>
-        </div>
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Business Settings</h2><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <ToolLink to="/AdminPaymentSettings" label="Payment Settings" icon={<DollarSign />} /><ToolLink to="/AdminSSApiSettings" label="S&S Vendor Settings" icon={<Settings />} /><ToolLink to="/AdminBrandPages" label="Brand Pages" icon={<Store />} /><ToolLink to="/AdminSubscribers" label="Subscribers" icon={<Mail />} /><ToolLink to="/AdminMessageTemplates" label="Message Templates" icon={<FileText />} /><ToolLink to="/AdminCustomerNotifications" label="Customer Notifications" icon={<Mail />} />
+      </div><Link to="/RequestQuote" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View Public Bulk Quote Page <ChevronRight className="h-3 w-3" /></Link></section>
 
-        <section className="rounded-2xl border border-primary/20 bg-[#f8f6ef] p-5 sm:p-6" aria-labelledby="google-calendar-heading">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white"><Clock className="h-5 w-5" /></div>
-              <div>
-                <h2 id="google-calendar-heading" className="text-lg font-bold">Google Calendars</h2>
-                <p className="text-sm text-muted-foreground">View King Terik and YHO Operations calendars and upcoming events in one read-only place.</p>
-              </div>
-            </div>
-            <Link to="/AdminGoogleCalendar" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90">
-              View Google Calendars <ChevronRight className="h-4 w-4" />
-            </Link>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 pl-0 text-sm sm:pl-[52px]">
-            <Link className="text-primary underline" to="/AdminProductivityDashboard">AI Schedule Assistant</Link>
-            <Link className="text-primary underline" to="/AdminCalendarSettings">Calendar Settings</Link>
-          </div>
-        </section>
+      <details className="group rounded-2xl border bg-white"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-bold [&::-webkit-details-marker]:hidden"><span>Advanced Tools</span><ChevronDown className="h-5 w-5 transition-transform group-open:rotate-180" /></summary><div className="grid grid-cols-2 gap-3 border-t p-5 sm:grid-cols-3 lg:grid-cols-4">
+        <ToolLink to="/PublicCatalogAudit" label="Catalog Audit" icon={<FileText />} /><ToolLink to="/AdminDigitalArchive" label="Design Archive" icon={<Archive />} /><ToolLink to="/AdminProfitCalc" label="Profit Calculator" icon={<BarChart3 />} /><ToolLink to="/AdminVendorPricing" label="Vendor Pricing" icon={<DollarSign />} /><ToolLink to="/AdminSSCatalog" label="S&S Catalog" icon={<Archive />} /><ToolLink to="/AdminAnalytics" label="Sales Analytics" icon={<BarChart3 />} /><ToolLink to="/AdminVendors" label="Vendor Records" icon={<Truck />} /><ToolLink to="/AdminQATestReport" label="Operations Diagnostics" icon={<Settings />} />
+      </div></details>
 
-        {/* Payment Provider Status */}
-         <div>
-           <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Payment Providers</h2>
-           <StripePaymentStatus />
-         </div>
+      <section className="overflow-hidden rounded-2xl border bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><h2 className="font-bold">Recent Orders</h2><Link to="/AdminOperationsDashboard" className="flex items-center gap-1 text-xs text-primary hover:underline">View All <ChevronRight className="h-3 w-3" /></Link></div><div className="divide-y">
+        {recentOrders.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No live customer orders yet.</p> : recentOrders.map(order => <Link key={order.id} to={`/AdminOrderDetail?order_id=${order.id}`} className="flex min-w-0 items-center justify-between gap-3 px-5 py-3 hover:bg-muted/20"><span className="min-w-0"><span className="block truncate text-sm font-semibold">#{order.id.slice(-6).toUpperCase()} — {order.customer_name || 'Customer'}</span><span className="block truncate text-xs text-muted-foreground">{order.customer_email}</span></span><span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2"><strong className="text-sm">{money(order.total_amount)}</strong><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{orderStatus(order)}</span></span></Link>)}
+      </div></section>
 
-         {/* Primary Workflows */}
-         <div>
-           <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Primary Workflows</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            <NavCard
-              icon={<Inbox />}
-              label="Inbox"
-              desc="Messages, quote requests, awaiting payment, and fulfillment"
-              to="/AdminInbox"
-              highlight
-            />
-            <NavCard
-              icon={<Package />}
-              label="Customer Orders"
-              desc="View and manage customer orders"
-              to="/AdminOperationsDashboard"
-              highlight
-            />
-            <NavCard
-              icon={<Archive />}
-              label="Garment Catalog"
-              desc="Upload garments, manage approved products, build drafts"
-              to="/AdminGarmentCatalog"
-              highlight
-            />
-            <NavCard
-              icon={<Truck />}
-              label="S&S Fulfillment Orders"
-              desc="Review paid orders, S&S drafts, tracking, and fulfillment"
-              to="/AdminVendorOrders"
-              highlight
-            />
-            <NavCard
-              icon={<Mail />}
-              label="Contact Messages"
-              desc="Customer contact form messages"
-              to="/AdminContactMessages"
-            />
-            <NavCard
-              icon={<MessageSquare />}
-              label="Quote Requests"
-              desc="Review and respond to custom print quote requests"
-              to="/AdminQuoteRequests"
-            />
-            <NavCard
-              icon={<Store />}
-              label="Storefront"
-              desc="View live customer garment shop"
-              to="/ShopGarments"
-            />
-            <NavCard
-              icon={<FileText />}
-              label="Bulk Quote 50+ Page"
-              desc="View the public bulk quote request form"
-              to="/RequestQuote"
-            />
-          </div>
-        </div>
-
-        {/* More Admin Tools */}
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">More Tools</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {[
-              { to: '/AdminProducts',              label: 'Products',            icon: <ShoppingBag /> },
-              { to: '/AdminBrandPages', label: 'Admin Brand Pages', icon: <Store /> },
-              { to: '/AdminSocialMediaStudio',     label: 'Social Media Studio', icon: <Sparkles /> },
-              { to: '/AdminEmailMarketingSettings', label: 'Email Marketing Settings', icon: <Mail /> },
-              { to: '/AdminSubscribers',           label: 'Subscribers', icon: <Mail /> },
-              { to: '/AdminMarketingAnalytics',    label: 'Marketing Analytics', icon: <BarChart3 /> },
-              { to: '/AdminHomepageSpecials', label: 'Homepage Specials Manager', icon: <ShoppingBag /> },
-              { to: '/AdminProductivityDashboard', label: 'Productivity Dashboard / AI Schedule Assistant', icon: <Clock /> },
-              { to: '/AdminCalendarSettings', label: 'Calendar Settings', icon: <Clock /> },
-              { to: '/AdminGoogleCalendar', label: 'View Google Calendars', icon: <Clock /> },
-              { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', icon: <User /> },
-              { to: '/AdminVendors',               label: 'Vendors',             icon: <Truck /> },
-              { to: '/AdminVendorPricing',         label: 'Vendor Pricing',      icon: <DollarSign /> },
-              { to: '/AdminQuotes',                label: 'Quotes',              icon: <FileText /> },
-              { to: '/AdminProfitCalc',            label: 'Profit Calc',         icon: <BarChart3 /> },
-              { to: '/AdminAnalytics',             label: 'Analytics',           icon: <BarChart3 /> },
-              { to: '/AdminOrders',                label: 'Orders',              icon: <Package /> },
-              { to: '/AdminPaymentSettings',       label: 'Payment Settings',    icon: <DollarSign /> },
-              { to: '/AdminSSApiSettings',         label: 'S&S Vendor Settings', icon: <Truck /> },
-              { to: '/AdminVendorOrders',          label: 'S&S Fulfillment Orders', icon: <Archive /> },
-              { to: '/AdminCustomerNotifications', label: 'Customer Notifications', icon: <Mail /> },
-              { to: '/AdminDigitalArchive',        label: 'Design Archive',      icon: <Archive /> },
-              { to: '/AdminSSCatalog',             label: 'S&S Catalog',         icon: <Archive /> },
-              { to: '/AdminOperationsDashboard',   label: 'Operations Dashboard',icon: <BarChart3 /> },
-              { to: '/AdminMessageTemplates',       label: 'Message Templates',   icon: <Mail /> },
-              { to: '/PublicCatalogAudit',         label: 'Catalog Audit',       icon: <FileText /> },
-              { to: '/Contact',                    label: 'Contact Page',        icon: <Phone /> },
-            ].map(({ to, label, icon }) => (
-              <Link key={to} to={to}
-                className="bg-white border border-border rounded-xl p-4 flex items-center gap-2.5 hover:border-primary/30 hover:shadow-sm transition-all group">
-                <div className="text-muted-foreground group-hover:text-primary transition-colors shrink-0">
-                  {React.cloneElement(icon, { className: 'w-4 h-4' })}
-                </div>
-                <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors leading-tight">{label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Orders */}
-        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b">
-            <h2 className="font-bold">Recent Orders</h2>
-            <Link to="/AdminOperationsDashboard" className="text-xs text-primary hover:underline flex items-center gap-1">
-              View all <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="divide-y">
-            {orders.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8 text-sm">No orders yet.</p>
-            ) : orders.slice(0, 8).map(o => (
-              <Link key={o.id} to={`/AdminOrderDetail?order_id=${o.id}`}
-                className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-muted/20 transition-colors">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">#{o.id.slice(-6).toUpperCase()} — {o.customer_name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{o.customer_email}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-sm font-bold">{money(o.total_amount)}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    {o.payment_status?.replace(/_/g,' ') || 'unpaid'}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Payment Provider</h2><StripePaymentStatus /></section>
+    </main>
+  </div>;
 }
