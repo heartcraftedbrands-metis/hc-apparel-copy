@@ -70,6 +70,16 @@ const descriptiveNameTitle = (product, brand) => {
   return afterDash ? stripLeadingVendorReference(afterDash, brand) : '';
 };
 
+const cleanStoredNameTitle = (product, brand) => {
+  const raw = cleanWhitespace(product?.name);
+  if (!raw || hasInternalProductCopy(raw)) return '';
+  const title = stripLeadingVendorReference(raw, brand);
+  if (!title || /^[-_./\d\s]+$/.test(title)) return '';
+  return /\b(?:t-?shirt|tee|hoodie|sweatshirt|fleece|jacket|shirt|vest|tank|hat|cap|beanie|bag|long sleeve|crewneck|polo|shorts|pants|joggers|leggings|pullover|quarter-?zip|windbreaker|thermal)\b/i.test(title)
+    ? title
+    : '';
+};
+
 const descriptionTitle = (product, brand) => {
   let value = cleanWhitespace(product?.description);
   if (!value || hasInternalProductCopy(value)) return '';
@@ -131,6 +141,8 @@ export function getPublicProductName(product) {
   if (importedTitle) return withBrand(importedTitle, brand);
   const fromName = descriptiveNameTitle(product, brand);
   if (fromName) return withBrand(fromName, brand);
+  const storedName = cleanStoredNameTitle(product, brand);
+  if (storedName) return withBrand(storedName, brand);
   const references = getProductStyleReferences(product);
   const knownName = Object.entries(KNOWN_STYLE_NAMES).find(([key]) => {
     const separator = key.lastIndexOf(' ');
