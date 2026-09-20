@@ -11,6 +11,18 @@ const cors = (origin: string) => ({
 });
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const safeNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const priceNumber = (value: unknown): number => {
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return priceNumber(record.value ?? record.amount ?? record.price ?? record.total);
+  }
+  return 0;
+};
 
 type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
@@ -20,8 +32,8 @@ let uspsToken: { value: string; expiresAt: number } | null = null;
 
 async function getUspsToken() {
   if (uspsToken && Date.now() < uspsToken.expiresAt - 60_000) return uspsToken.value;
-  const clientId = Deno.env.get('USPS_CLIENT_ID');
-  const clientSecret = Deno.env.get('USPS_CLIENT_SECRET');
+  const clientId = Deno.env.get('USPS_CLIENT_ID')?.trim();
+  const clientSecret = Deno.env.get('USPS_CLIENT_SECRET')?.trim();
   if (!clientId || !clientSecret) throw new Error('USPS credentials are not configured.');
   const response = await fetch('https://apis.usps.com/oauth2/v3/token', {
     method: 'POST',
@@ -29,7 +41,11 @@ async function getUspsToken() {
     body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.access_token) throw new Error('USPS authentication is temporarily unavailable.');
+  if (!response.ok || !data.access_token) {
+    const safeCode = String(data.error || data.code || 'oauth_failed').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80);
+    const safeDescription = String(data.error_description || data.message || '').replace(/[\r\n]+/g, ' ').slice(0, 180);
+    throw new Error(`USPS OAuth failed (${response.status}, ${safeCode})${safeDescription ? `: ${safeDescription}` : '.'}`);
+  }
   uspsToken = { value: data.access_token, expiresAt: Date.now() + safeNumber(data.expires_in || 28_800) * 1000 };
   return uspsToken.value;
 }
@@ -47,43 +63,82 @@ const variantFor = (product: Product, item: Item) => {
   });
 };
 
-async function uspsRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+type UspsRateDiagnostics = { requests: Array<Record<string, unknown>> };
+
+async function uspsRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>, diagnostics?: UspsRateDiagnostics) {
   const token = await getUspsToken();
-  const pounds = Math.max(0, Math.floor(ounces / 16));
-  const residualOunces = Math.max(0.1, ounces - pounds * 16);
-  const request = {
+  const pounds = Math.max(0.01, ounces / 16);
+  const baseRequest = {
     originZIPCode: String(settings.origin_zip || '').replace(/\D/g, '').slice(0, 5),
     destinationZIPCode: destinationZip.replace(/\D/g, '').slice(0, 5),
     weight: pounds,
     length: dimensions.length,
     width: dimensions.width,
     height: dimensions.height,
-    mailClass: 'ALL',
     processingCategory: 'MACHINABLE',
     destinationEntryFacilityType: 'NONE',
-    rateIndicator: 'DR',
+    rateIndicator: 'SP',
     priceType: 'RETAIL',
+    mailingDate: new Date().toISOString().slice(0, 10),
   };
-  const response = await fetch('https://apis.usps.com/prices/v3/base-rates/search', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`USPS rate request failed (${response.status}).`);
-  const candidates = Array.isArray(data) ? data : (data.rates || data.rateOptions || data.prices || []);
-  return candidates.flatMap((entry: Item) => Array.isArray(entry.rates) ? entry.rates : [entry]).map((rate: Item) => {
-    const name = String(rate.mailClass || rate.serviceName || rate.description || rate.productName || '');
+  const mailClasses = [
+    settings.usps_ground_advantage_enabled !== false ? 'USPS_GROUND_ADVANTAGE' : null,
+    settings.usps_priority_mail_enabled !== false ? 'PRIORITY_MAIL' : null,
+  ].filter(Boolean);
+  const failures: string[] = [];
+  const results = await Promise.all(mailClasses.map(async (mailClass) => {
+    const response = await fetch('https://apis.usps.com/prices/v3/base-rates/search', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...baseRequest, mailClass }),
+    });
+    const data = await response.json().catch(() => ({}));
+    diagnostics?.requests.push({
+      mail_class: mailClass,
+      status: response.status,
+      top_level_keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 20) : [],
+      rate_count: Array.isArray(data?.rates) ? data.rates.length : null,
+      rate_option_count: Array.isArray(data?.rateOptions) ? data.rateOptions.length : null,
+      total_base_price_present: safeNumber(data?.totalBasePrice) > 0,
+      total_base_price_type: typeof data?.totalBasePrice,
+      total_base_price_value: priceNumber(data?.totalBasePrice),
+      first_rate_keys: Array.isArray(data?.rates) && data.rates[0] && typeof data.rates[0] === 'object' ? Object.keys(data.rates[0]).slice(0, 20) : [],
+      first_rate_price_value: Array.isArray(data?.rates) ? priceNumber(data.rates[0]?.price) : 0,
+    });
+    if (!response.ok) {
+      console.warn('USPS Domestic Pricing rejected a rate request', { status: response.status, mail_class: mailClass });
+      const safeCode = String(data.error?.code || data.code || data.error || 'rate_failed').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80);
+      const safeMessage = String(data.error?.message || data.message || data.error_description || '').replace(/[\r\n]+/g, ' ').slice(0, 180);
+      failures.push(`${mailClass}: ${response.status} ${safeCode}${safeMessage ? ` — ${safeMessage}` : ''}`);
+      return [];
+    }
+    const candidates = Array.isArray(data) ? data : (data.rates || data.rateOptions || data.prices || []);
+    return candidates.flatMap((entry: Item) => Array.isArray(entry.rates) ? entry.rates : [entry])
+      .map((rate: Item) => ({ ...rate, requestedMailClass: mailClass, responseTotalBasePrice: data.totalBasePrice }));
+  }));
+  const rates = results.flat().map((rate: Item) => {
+    const rawName = String(rate.mailClass || rate.requestedMailClass || rate.serviceName || rate.description || rate.productName || '');
+    const normalizedName = rawName.replace(/[_-]+/g, ' ');
+    const name = /USPS GROUND ADVANTAGE/i.test(normalizedName)
+      ? 'USPS Ground Advantage'
+      : /PRIORITY MAIL/i.test(normalizedName)
+        ? 'USPS Priority Mail'
+        : normalizedName;
     return {
       id: String(rate.mailClass || rate.productId || name).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       service: name,
-      amount: money(safeNumber(rate.totalBasePrice || rate.totalPrice || rate.price || rate.rate)),
+      amount: money([
+        rate.responseTotalBasePrice,
+        rate.totalBasePrice,
+        rate.totalPrice,
+        rate.price,
+        rate.rate,
+      ].map(priceNumber).find((value) => value > 0) || 0),
       delivery: rate.deliveryTime || rate.serviceStandard || null,
     };
-  }).filter((rate: { service: string; amount: number }) => rate.amount > 0 && (
-    (/ground advantage/i.test(rate.service) && settings.usps_ground_advantage_enabled !== false)
-    || (/priority mail(?! express)/i.test(rate.service) && settings.usps_priority_mail_enabled !== false)
-  ));
+  }).filter((rate: { service: string; amount: number }) => rate.amount > 0);
+  if (!rates.length && failures.length) throw new Error(`USPS Domestic Pricing failed: ${failures.join('; ')}`);
+  return rates;
 }
 
 async function calculate(admin: ReturnType<typeof createClient>, payload: Record<string, unknown>, settings: Settings) {
@@ -216,8 +271,26 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
-    if (String(payload.customer_email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return respond({ error: 'Checkout email must match the signed-in account.' }, 403);
     const admin = createClient(supabaseUrl, serviceKey);
+    if (action === 'usps_health') {
+      const { data: isAdmin } = await userClient.rpc('is_admin');
+      if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
+      const token = await getUspsToken();
+      const sampleSettings = { origin_zip: '10018', usps_ground_advantage_enabled: true, usps_priority_mail_enabled: true };
+      const diagnostics: UspsRateDiagnostics = { requests: [] };
+      const rates = await uspsRates(sampleSettings, '95823', 16, { length: 10, width: 8, height: 4 }, diagnostics);
+      return respond({
+        oauth: { ok: Boolean(token), endpoint: 'https://apis.usps.com/oauth2/v3/token' },
+        domestic_pricing: { ok: rates.length > 0, endpoint: 'https://apis.usps.com/prices/v3/base-rates/search' },
+        sample: { origin_zip: '10018', destination_zip: '95823', weight_oz: 16, dimensions_in: { length: 10, width: 8, height: 4 } },
+        rates,
+        diagnostics,
+        creates_order: false,
+        creates_label: false,
+        creates_payment: false,
+      });
+    }
+    if (String(payload.customer_email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return respond({ error: 'Checkout email must match the signed-in account.' }, 403);
     const { data: settings, error: settingsError } = await admin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
     if (settingsError || !settings) return respond({ error: 'Shipping settings are unavailable.' }, 503);
     const quote = await calculate(admin, payload, settings);
