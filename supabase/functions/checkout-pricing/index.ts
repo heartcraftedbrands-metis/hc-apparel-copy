@@ -205,15 +205,19 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     for (const item of legs.hc_apparel) {
       const product = item.product as Product;
       let unitWeight = safeNumber(product.shipping_weight_oz);
-      if (unitWeight <= 0) { unitWeight = safeNumber(settings.default_product_weight_oz); usedDefaultWeight = true; }
+      if (unitWeight <= 0) {
+        unitWeight = safeNumber(settings.default_product_weight_oz) * (settings.default_product_weight_unit === 'lb' ? 16 : 1);
+        usedDefaultWeight = true;
+      }
       if (unitWeight <= 0) throw new Error('Shipping could not be calculated because a product weight is missing.');
       ounces += unitWeight * safeNumber(item.quantity);
     }
     if (usedDefaultWeight) warnings.push('Using default shipping weight');
+    const dimensionFactor = settings.default_package_dimension_unit === 'cm' ? 1 / 2.54 : 1;
     const dimensions = {
-      length: safeNumber(settings.default_package_length_in),
-      width: safeNumber(settings.default_package_width_in),
-      height: safeNumber(settings.default_package_height_in),
+      length: safeNumber(settings.default_package_length_in) * dimensionFactor,
+      width: safeNumber(settings.default_package_width_in) * dimensionFactor,
+      height: safeNumber(settings.default_package_height_in) * dimensionFactor,
     };
     if (!dimensions.length || !dimensions.width || !dimensions.height) throw new Error('HC Apparel package dimensions are not configured.');
     const destinationZip = String((payload.shipping_address as Item)?.zip || (payload.shipping_address as Item)?.postal_code || '');
@@ -272,6 +276,44 @@ Deno.serve(async (request) => {
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
     const admin = createClient(supabaseUrl, serviceKey);
+    if (action === 'usps_rate_test') {
+      const { data: isAdmin } = await userClient.rpc('is_admin');
+      if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
+      const originZip = String(payload.origin_zip || '').replace(/\D/g, '').slice(0, 5);
+      const destinationZip = String(payload.destination_zip || '').replace(/\D/g, '').slice(0, 5);
+      const weight = safeNumber(payload.weight);
+      const length = safeNumber(payload.length);
+      const width = safeNumber(payload.width);
+      const height = safeNumber(payload.height);
+      if (!/^\d{5}$/.test(originZip)) return respond({ error: 'Enter a valid five-digit fulfillment origin ZIP.' }, 400);
+      if (!/^\d{5}$/.test(destinationZip)) return respond({ error: 'Enter a valid five-digit destination ZIP.' }, 400);
+      if (weight <= 0 || length <= 0 || width <= 0 || height <= 0) return respond({ error: 'Enter a positive package weight, length, width, and height.' }, 400);
+      if (payload.ground_enabled !== true && payload.priority_enabled !== true) return respond({ error: 'Enable Ground Advantage or Priority Mail for the test.' }, 400);
+      const ounces = weight * (payload.weight_unit === 'lb' ? 16 : 1);
+      const dimensionFactor = payload.dimension_unit === 'cm' ? 1 / 2.54 : 1;
+      const diagnostics: UspsRateDiagnostics = { requests: [] };
+      const token = await getUspsToken();
+      const rates = await uspsRates({ origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true }, destinationZip, ounces, { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor }, diagnostics);
+      const services = diagnostics.requests.map((request) => ({
+        mail_class: request.mail_class,
+        label: request.mail_class === 'USPS_GROUND_ADVANTAGE' ? 'USPS Ground Advantage' : 'USPS Priority Mail',
+        http_status: request.status,
+        raw_price: safeNumber(request.total_base_price_value) || safeNumber(request.first_rate_price_value),
+      }));
+      const zeroRateWarning = services.length > 0 && services.every((service) => service.raw_price <= 0);
+      const fallbackAmount = safeNumber(payload.fallback_amount);
+      return respond({
+        oauth: { ok: Boolean(token) },
+        http_ok: services.length > 0 && services.every((service) => service.http_status === 200),
+        rates,
+        services,
+        fallback: { enabled: payload.fallback_enabled === true, amount: fallbackAmount, would_use: rates.length === 0 && payload.fallback_enabled === true && fallbackAmount > 0 },
+        zero_rate_warning: zeroRateWarning,
+        creates_order: false,
+        creates_label: false,
+        creates_payment: false,
+      });
+    }
     if (action === 'usps_health') {
       const { data: isAdmin } = await userClient.rpc('is_admin');
       if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
