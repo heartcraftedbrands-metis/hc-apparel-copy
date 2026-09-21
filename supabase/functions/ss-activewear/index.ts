@@ -185,12 +185,12 @@ const championWinterGarmentOrder = [
 function championWinterPrimary(textValueInput: unknown) {
   const text = String(textValueInput || '').toLowerCase();
   if (/(quarter.?zip|1\/4.?zip)/.test(text)) return 'quarter_zips';
-  if (/(coach.?jacket|bomber|windbreaker|anorak|insulated|fleece.?jacket|full.?zip.?jacket|outerwear|jacket|coat|vest)/.test(text)) return 'outerwear';
-  if (/(hood|hoodie|hooded.?sweatshirt)/.test(text)) return 'hoodies';
-  if (/(crewneck|crew.?neck|sweatshirt|fleece.?crew)/.test(text)) return 'crewnecks';
-  if (/(jogger|sweatpant|sweat.?pant|warm.?up.?pant|track.?pant|legging|pants)/.test(text)) return 'pants';
-  if (/(beanie|knit.?hat|cold.?weather.?cap|headwear|cap|hat)/.test(text)) return 'hats';
-  if (/(long.?sleeve|longsleeve)/.test(text)) return 'long_sleeve';
+  if (/\b(coach.?jacket|bomber|windbreaker|anorak|insulated|fleece.?jacket|full.?zip.?jacket|outerwear|jacket|coat|vest)\b/.test(text)) return 'outerwear';
+  if (/\b(hood|hoodie|hooded.?sweatshirt)\b/.test(text)) return 'hoodies';
+  if (/\b(crewneck|crew.?neck|sweatshirt|fleece.?crew)\b/.test(text)) return 'crewnecks';
+  if (/\b(joggers?|sweat.?pants?|warm.?up.?pants?|track.?pants?|leggings?|pants)\b/.test(text)) return 'pants';
+  if (/\b(beanie|knit.?hat|cold.?weather.?cap|headwear|cap|hat)s?\b/.test(text)) return 'hats';
+  if (/\b(long.?sleeve|longsleeve)\b/.test(text)) return 'long_sleeve';
   return null;
 }
 
@@ -491,6 +491,7 @@ Deno.serve(async (request) => {
     'get_brand_draft_report',
     'get_champion_winter_candidate_report',
     'import_champion_winter_drafts',
+    'mark_champion_winter_qa_ready',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -510,6 +511,57 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'mark_champion_winter_qa_ready') {
+    const { data: drafts, error: draftsError } = await userClient
+      .from('products')
+      .select('id,name,style_number,visibility,is_active,image_url,price,stock,available_sizes,available_colors,size_prices,primary_garment_type,secondary_tags,internal_notes')
+      .eq('brand', 'Champion')
+      .eq('visibility', 'draft')
+      .eq('is_active', false)
+      .like('internal_notes', 'Private Champion winter S&S draft.%');
+    if (draftsError) {
+      console.error('Unable to load Champion winter drafts for QA disposition', draftsError.message);
+      return json(request, { error: 'Champion winter drafts could not be reviewed' }, 500);
+    }
+    const qaDrafts = drafts || [];
+    const invalid = qaDrafts.filter((draft) => (
+      !draft.image_url || !(Number(draft.price) > 0) || Number(draft.stock) < 25
+      || !Array.isArray(draft.available_sizes) || draft.available_sizes.length === 0
+      || !Array.isArray(draft.available_colors) || draft.available_colors.length === 0
+      || !Array.isArray(draft.size_prices) || draft.size_prices.length === 0
+      || !championWinterGarmentOrder.includes(String(draft.primary_garment_type || ''))
+      || !Array.isArray(draft.secondary_tags) || !draft.secondary_tags.includes('winter_cold_weather')
+      || /\b(private|internal|qa|test|not approved)\b/i.test(String(draft.name || ''))
+    ));
+    if (qaDrafts.length !== 6 || invalid.length > 0) {
+      return json(request, {
+        error: `Champion winter QA remains blocked: expected 6 complete private drafts; found ${qaDrafts.length}, with ${invalid.length} failing data checks.`,
+      });
+    }
+    const reviewedAt = new Date().toISOString();
+    const { data: updated, error: updateError } = await userClient
+      .from('products')
+      .update({
+        draft_qa_status: 'ready_for_admin_approval',
+        draft_qa_reviewed_at: reviewedAt,
+        internal_notes: 'Ready for Admin Approval only. Champion winter draft passed current S&S inventory, image, name, primary/secondary classification, SKU, size/color, guardrail price, private product-detail, isolated QA cart, and mobile-layout checks. Not published.',
+      })
+      .in('id', qaDrafts.map((draft) => draft.id))
+      .select('id,name,style_number,primary_garment_type,secondary_tags,draft_qa_status');
+    if (updateError) {
+      console.error('Unable to save Champion winter QA disposition', updateError.message);
+      return json(request, { error: 'Champion winter QA disposition could not be saved' }, 500);
+    }
+    return json(request, {
+      champion_winter_drafts_reviewed: updated?.length || 0,
+      ready_for_admin_approval: updated?.length || 0,
+      products: updated || [],
+      storefront_changed: false,
+      ss_order_submitted: false,
+      zerotouch_submitted: false,
+    });
+  }
 
   if (payload.action === 'get_champion_winter_candidate_report' || payload.action === 'import_champion_winter_drafts') {
     const { data: latest, error: latestError } = await userClient
@@ -563,8 +615,9 @@ Deno.serve(async (request) => {
       const title = String(raw.title || '').trim();
       const baseCategory = String(raw.baseCategory || '').trim();
       const description = importedDescriptionLines(raw.description).join(' ');
-      const identityText = [styleName, title, baseCategory, description, partNumber].join(' ');
-      const primaryType = championWinterPrimary(identityText);
+      const catalogIdentityText = [styleName, title, baseCategory, partNumber].join(' ');
+      const identityText = [catalogIdentityText, description].join(' ');
+      const primaryType = championWinterPrimary(catalogIdentityText);
       const variants = skuRows.filter((row) => String(row.part_number || '').trim().toLowerCase() === partNumber.toLowerCase());
       const stocked = variants.filter((row) => Number(row.inventory_qty) > 0);
       const priced = stocked.filter((row) => Number(row.customer_price || row.piece_price) > 0);
@@ -698,7 +751,13 @@ Deno.serve(async (request) => {
       is_active: false,
       image_url: candidate.image_url,
       stock: candidate.total_inventory,
-      category: candidate.primary_type,
+      category: candidate.primary_type === 'long_sleeve'
+        ? candidate.secondary_tags.includes('kids') ? 'youth_long_sleeve_shirts'
+          : candidate.secondary_tags.includes('womens') ? 'womens_long_sleeve_shirts' : 'long_sleeve_shirts'
+        : candidate.primary_type === 'hoodies' ? 'hoodies'
+          : candidate.primary_type === 'crewnecks' || candidate.primary_type === 'quarter_zips' ? 'crewnecks'
+            : candidate.primary_type === 'outerwear' ? 'jackets'
+              : candidate.primary_type === 'hats' ? 'hats' : 'sportswear',
       categories: [candidate.base_category, candidate.primary_type].filter(Boolean),
       tags: candidate.secondary_tags.map((tag) => `storefront:${tag}`),
       primary_garment_type: candidate.primary_type,
@@ -714,9 +773,9 @@ Deno.serve(async (request) => {
       vendor_data_refreshed_at: candidate.refreshed_at,
       storefront_pricing_rule_key: candidate.pricing_rule_key,
       storefront_price_applied_at: new Date().toISOString(),
-      garment_weight: candidate.unit_weight || null,
+      garment_weight: candidate.unit_weight ? `${candidate.unit_weight} lb` : null,
       features: [candidate.base_category, 'Authenticated S&S catalog data', 'Winter / Cold Weather'].filter(Boolean),
-      draft_qa_status: 'pending',
+      draft_qa_status: 'ready_for_private_qa',
       internal_notes: `Private Champion winter S&S draft. Ready for Private QA only. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants. Not published.`,
     }));
     const { data: inserted, error: insertError } = await userClient
@@ -725,7 +784,9 @@ Deno.serve(async (request) => {
       .select('id,name,style_number,supplier_sku,primary_garment_type,secondary_tags,price,stock');
     if (insertError) {
       console.error('Unable to import Champion winter drafts', insertError.message);
-      return json(request, { error: 'Champion winter products could not be imported as private drafts' }, 500);
+      return json(request, {
+        error: `Champion winter products could not be imported as private drafts: ${insertError.message.slice(0, 240)}`,
+      });
     }
     return json(request, {
       brand: 'Champion',

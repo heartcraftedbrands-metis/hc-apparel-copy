@@ -15,6 +15,7 @@ const KNOWN_STYLE_NAMES = {
   'Gildan 5000': 'Heavy Cotton T-Shirt',
   'Gildan 64000': 'Softstyle T-Shirt',
   'Champion T453W': "Women's Heritage Jersey Crop T-Shirt",
+  'Champion P800': 'Unisex Powerblend Open-Bottom Sweatpants with Pockets',
 };
 
 const TYPE_LABELS = {
