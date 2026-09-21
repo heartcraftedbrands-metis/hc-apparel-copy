@@ -176,6 +176,9 @@ assert.equal(getStorefrontCategory({ name: 'Champion Unisex Cotton Gym Shorts' }
 assert.equal(getStorefrontCategory({ name: 'Champion Powerblend Quarter-Zip Pullover' }), 'quarter_zips', 'quarter-zips get their own primary garment group');
 assert.equal(getStorefrontCategory({ name: 'Champion CO200', vendor_specs: { product_title: 'Unisex Performance T-Shirt' }, categories: ['sportswear'] }), 't_shirts', 'customer-facing S&S title metadata overrides a loose Sports category');
 assert.equal(getStorefrontCategory({ name: 'Champion', brand: 'Champion', style_number: '63284', supplier_sku: 'CO200', categories: ['sportswear'] }), 't_shirts', 'legacy Champion CO200 reference normalizes to T-Shirts');
+assert.equal(getStorefrontCategory({ name: 'Oakley', brand: 'Oakley', style_number: '14987', supplier_sku: 'FOS900833' }), 'hats', 'supplier SKU metadata resolves legacy headwear imports');
+assert.equal(getStorefrontCategory({ name: 'Hanes', brand: 'Hanes', style_number: '22000', supplier_sku: 'P170' }), 'hoodies', 'known Hanes hoodie references override style-only names');
+assert.equal(getStorefrontCategory({ name: 'Comfort Colors', brand: 'Comfort Colors', style_number: '08108', supplier_sku: '6014' }), 'long_sleeve', 'known Comfort Colors long-sleeve references normalize correctly');
 assert.equal(getStorefrontCategory({ name: 'Incorrect Imported Tee', primary_garment_type: 'polos' }), 'polos', 'saved admin primary-type overrides take precedence over imported text');
 assert.deepEqual(
   getSecondaryTags({ name: 'Champion Women’s Performance Sport Polo', secondary_tags: ['business_apparel'] }),
