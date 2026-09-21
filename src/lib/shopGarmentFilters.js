@@ -15,6 +15,7 @@ export const CATEGORY_FILTERS = [
   { value: 'tank_tops', label: 'Tank Tops' },
   { value: 'bags', label: 'Bags' },
   { value: 'other', label: 'Other' },
+  { value: 'winter_cold_weather', label: 'Winter / Cold Weather' },
   { value: 'womens', label: "Women's" },
   { value: 'mens', label: "Men's" },
   { value: 'kids', label: 'Youth / Kids' },
@@ -74,6 +75,7 @@ export const PRIMARY_GARMENT_TYPE_OPTIONS = PRIMARY_GARMENT_CATEGORY_ORDER.map(v
 }));
 
 export const SECONDARY_TAG_OPTIONS = [
+  { value: 'winter_cold_weather', label: 'Winter / Cold Weather' },
   { value: 'womens', label: "Women's" },
   { value: 'mens', label: "Men's" },
   { value: 'kids', label: 'Youth / Kids' },
@@ -138,6 +140,10 @@ const STYLE_CATEGORY_RULES = [
   { category: 'hoodies', brand: 'oakley', styles: ['foa402994'] },
   { category: 'hoodies', brand: 'gildan', styles: ['18500', '22060'] },
   { category: 'hoodies', brand: 'champion', styles: ['s700'] },
+  { category: 'outerwear', brand: 'champion', styles: ['co100', 'co125', 'co126'] },
+  { category: 'quarter_zips', brand: 'champion', styles: ['s450'] },
+  { category: 'pants', brand: 'champion', styles: ['p930', 'chp120', 'chp200'] },
+  { category: 'long_sleeve', brand: 'champion', styles: ['chp140'] },
   { category: 't_shirts', brand: 'champion', styles: ['co200', 't425', '63284', '00784'] },
   { category: 'hoodies', brand: 'lane seven', styles: ['ls14001', 'ls14003', '487c9'] },
   { category: 'hoodies', brand: 'independent trading co', styles: ['ss4500', 'ss4500z', 'ind4000', 'ind4000z', 'ind5000p'] },
@@ -361,6 +367,9 @@ function normalizedSecondaryTags(product) {
       youth_kids: 'kids',
       sports_activewear: 'sportswear',
       business: 'business_apparel',
+      winter: 'winter_cold_weather',
+      cold_weather: 'winter_cold_weather',
+      winter_coldweather: 'winter_cold_weather',
     };
     return aliases[key] || key;
   }));
@@ -393,6 +402,7 @@ export function getSecondaryTags(product) {
   const explicit = value => hasExplicitStorefrontCategoryTag(product, value);
 
   if (isWomensSpecific(product) || explicit('womens')) result.add('womens');
+  if (hasAnyTerm(text, ['winter', 'cold weather', 'fleece', 'hoodie', 'hooded sweatshirt', 'sweatshirt', 'jacket', 'outerwear', 'windbreaker', 'anorak', 'bomber', 'beanie']) || explicit('winter_cold_weather')) result.add('winter_cold_weather');
   if (isYouthSpecific(product) || explicit('kids') || normalized(getProductBrand(product)) === 'rabbit skins') result.add('kids');
   if (/(^|[^a-z])men'?s([^a-z]|$)/i.test(text) || hasAnyTerm(text, ['male fit', 'unisex']) || categories.some(value => value.startsWith('mens_')) || explicit('mens')) result.add('mens');
   if (hasAnyTerm(text, ['sport', 'athletic', 'activewear', 'training', 'teamwear', 'performance']) || categories.some(value => value.includes('sportswear')) || explicit('sportswear')) result.add('sportswear');

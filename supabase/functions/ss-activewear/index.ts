@@ -178,6 +178,48 @@ function championMerchGroup(style: Record<string, unknown> & { canonicalBrand: s
   return 'premium_basics';
 }
 
+const championWinterGarmentOrder = [
+  'long_sleeve', 'quarter_zips', 'hoodies', 'crewnecks', 'outerwear', 'pants', 'hats',
+];
+
+function championWinterPrimary(textValueInput: unknown) {
+  const text = String(textValueInput || '').toLowerCase();
+  if (/(quarter.?zip|1\/4.?zip)/.test(text)) return 'quarter_zips';
+  if (/(coach.?jacket|bomber|windbreaker|anorak|insulated|fleece.?jacket|full.?zip.?jacket|outerwear|jacket|coat|vest)/.test(text)) return 'outerwear';
+  if (/(hood|hoodie|hooded.?sweatshirt)/.test(text)) return 'hoodies';
+  if (/(crewneck|crew.?neck|sweatshirt|fleece.?crew)/.test(text)) return 'crewnecks';
+  if (/(jogger|sweatpant|sweat.?pant|warm.?up.?pant|track.?pant|legging|pants)/.test(text)) return 'pants';
+  if (/(beanie|knit.?hat|cold.?weather.?cap|headwear|cap|hat)/.test(text)) return 'hats';
+  if (/(long.?sleeve|longsleeve)/.test(text)) return 'long_sleeve';
+  return null;
+}
+
+function championWinterSecondaryTags(primaryType: string, textValueInput: unknown) {
+  const text = String(textValueInput || '').toLowerCase();
+  const tags = new Set(['winter_cold_weather']);
+  if (/(women|ladies)/.test(text)) tags.add('womens');
+  else if (/(youth|kids|child)/.test(text)) tags.add('kids');
+  else tags.add('mens');
+  if (['hoodies', 'crewnecks', 'pants', 'outerwear'].includes(primaryType) || /(sport|athletic|team|warm.?up)/.test(text)) tags.add('sportswear');
+  if (['quarter_zips', 'outerwear'].includes(primaryType)) tags.add('business_apparel');
+  if (primaryType === 'outerwear' || /(weather|wind|water.?resistant|outdoor)/.test(text)) tags.add('outdoor');
+  if (/(performance|moisture|wicking)/.test(text)) tags.add('performance');
+  return [...tags];
+}
+
+function championWinterRuleKey(primaryType: string) {
+  if (primaryType === 'hoodies') return 'hoodie';
+  if (primaryType === 'crewnecks') return 'crewneck';
+  if (primaryType === 'long_sleeve') return 'premium_tshirt';
+  return 'premium_specialty';
+}
+
+function championCommonSize(value: unknown) {
+  const size = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (size === 'XXL' || size === '2X') return '2XL';
+  return size;
+}
+
 function corsHeaders(request: Request) {
   const origin = request.headers.get('origin') || '';
   return {
@@ -447,6 +489,8 @@ Deno.serve(async (request) => {
     'stage_cold_weather_styles',
     'sync_brand_products',
     'get_brand_draft_report',
+    'get_champion_winter_candidate_report',
+    'import_champion_winter_drafts',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -466,6 +510,234 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'get_champion_winter_candidate_report' || payload.action === 'import_champion_winter_drafts') {
+    const { data: latest, error: latestError } = await userClient
+      .from('ss_import_staging')
+      .select('import_session_id')
+      .eq('brand', 'Champion')
+      .eq('row_status', 'pending')
+      .like('import_session_id', 'ss-brand-champion-%')
+      .order('created_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestError || !latest) {
+      console.error('Unable to locate Champion winter staging', latestError?.message);
+      return json(request, { error: 'Stage and refresh Champion styles before reviewing winter candidates' }, 409);
+    }
+
+    const [stylesResult, skuResult, existingResult, rulesResult] = await Promise.all([
+      userClient.from('ss_import_staging')
+        .select('raw_row_data,style_number,image_url')
+        .eq('import_session_id', latest.import_session_id)
+        .eq('brand', 'Champion')
+        .eq('row_status', 'pending'),
+      userClient.from('ss_sku_staging')
+        .select('part_number,style_name,sku,size_name,size_order,color_name,color_code,color_swatch_image,color_front_image,color_on_model_front_image,unit_weight,inventory_qty,fetched_at,map_price,piece_price,customer_price')
+        .eq('style_session_id', latest.import_session_id)
+        .eq('brand', 'Champion'),
+      userClient.from('products').select('style_number,supplier_sku').eq('brand', 'Champion'),
+      userClient.from('storefront_pricing_rules')
+        .select('rule_key,cost_multiplier,fixed_allowance,minimum_margin_percent,storefront_margin_buffer')
+        .eq('is_active', true),
+    ]);
+    const readError = stylesResult.error || skuResult.error || existingResult.error || rulesResult.error;
+    if (readError) {
+      console.error('Unable to build Champion winter candidate report', readError.message);
+      return json(request, { error: 'Champion winter candidates could not be reviewed' }, 500);
+    }
+
+    const existing = new Set((existingResult.data || []).flatMap((product) => [product.style_number, product.supplier_sku])
+      .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+    const rules = new Map((rulesResult.data || []).map((rule) => [rule.rule_key, rule]));
+    const skuRows = skuResult.data || [];
+    const candidates = (stylesResult.data || []).map((styleRow) => {
+      let raw: Record<string, unknown> = {};
+      try {
+        raw = typeof styleRow.raw_row_data === 'string' ? JSON.parse(styleRow.raw_row_data) : (styleRow.raw_row_data || {});
+      } catch {
+        raw = {};
+      }
+      const partNumber = String(raw.partNumber || styleRow.style_number || '').trim();
+      const styleName = String(raw.styleName || '').trim();
+      const title = String(raw.title || '').trim();
+      const baseCategory = String(raw.baseCategory || '').trim();
+      const description = importedDescriptionLines(raw.description).join(' ');
+      const identityText = [styleName, title, baseCategory, description, partNumber].join(' ');
+      const primaryType = championWinterPrimary(identityText);
+      const variants = skuRows.filter((row) => String(row.part_number || '').trim().toLowerCase() === partNumber.toLowerCase());
+      const stocked = variants.filter((row) => Number(row.inventory_qty) > 0);
+      const priced = stocked.filter((row) => Number(row.customer_price || row.piece_price) > 0);
+      const totalInventory = stocked.reduce((sum, row) => sum + Math.max(0, Number(row.inventory_qty) || 0), 0);
+      const colors = [...new Set(stocked.map((row) => String(row.color_name || '').trim()).filter(Boolean))];
+      const sizes = [...new Set(stocked.map((row) => String(row.size_name || '').trim()).filter(Boolean))];
+      const commonSizes = new Set(sizes.map(championCommonSize).filter((size) => ['S', 'M', 'L', 'XL', '2XL'].includes(size)));
+      const ruleKey = primaryType ? championWinterRuleKey(primaryType) : 'premium_specialty';
+      const rule = rules.get(ruleKey);
+      const calculatedVariants = priced.map((row) => {
+        const vendorCost = Number(row.customer_price || row.piece_price);
+        const realMap = Number(row.map_price) > 0.01 ? Number(row.map_price) : 0;
+        const publicPrice = rule ? Number(Math.max(
+          vendorCost + Number(rule.storefront_margin_buffer || 3),
+          vendorCost * Number(rule.cost_multiplier || 1) + Number(rule.fixed_allowance || 0) + Number(rule.storefront_margin_buffer || 3),
+          vendorCost / (1 - Number(rule.minimum_margin_percent || 0)),
+          realMap,
+        ).toFixed(2)) : 0;
+        return { row, vendorCost, realMap, publicPrice };
+      });
+      const primaryImage = stocked.find((row) => row.color_on_model_front_image)?.color_on_model_front_image
+        || stocked.find((row) => row.color_front_image)?.color_front_image
+        || styleRow.image_url
+        || imageUrl(raw.styleImage);
+      const latestRefresh = stocked.map((row) => new Date(String(row.fetched_at || 0)).getTime())
+        .filter(Number.isFinite).sort((a, b) => b - a)[0] || 0;
+      const blockers = [
+        !primaryType ? 'Not a winter/cold-weather garment type' : null,
+        existing.has(styleName.toLowerCase()) || existing.has(partNumber.toLowerCase()) ? 'Already exists in the Champion catalog' : null,
+        !primaryImage ? 'Missing product image' : null,
+        stocked.length === 0 ? 'No stocked SKU variants' : null,
+        calculatedVariants.length === 0 ? 'No current vendor price' : null,
+        !rule ? `No active ${ruleKey} pricing rule` : null,
+        totalInventory < 25 ? `Low inventory (${totalInventory} units)` : null,
+        colors.length === 0 ? 'No stocked colors' : null,
+        primaryType && primaryType !== 'hats' && commonSizes.size < 3
+          ? `Insufficient common-size coverage (${[...commonSizes].join(', ') || 'none'})`
+          : null,
+        latestRefresh < Date.now() - 24 * 60 * 60 * 1000 ? 'Pricing or inventory is stale' : null,
+        calculatedVariants.some((variant) => !(variant.publicPrice > variant.vendorCost)) ? 'Pricing guardrail failed' : null,
+      ].filter(Boolean) as string[];
+      const displayTitle = title || styleName || partNumber || 'Winter Apparel';
+      const customerName = /^champion\b/i.test(displayTitle) ? displayTitle : `Champion ${displayTitle}`;
+      return {
+        part_number: partNumber,
+        style_name: styleName,
+        customer_name: customerName,
+        base_category: baseCategory,
+        description,
+        primary_type: primaryType,
+        secondary_tags: primaryType ? championWinterSecondaryTags(primaryType, identityText) : [],
+        pricing_rule_key: ruleKey,
+        total_inventory: totalInventory,
+        stocked_variants: stocked.length,
+        stocked_colors: colors.length,
+        stocked_sizes: sizes.length,
+        common_sizes: [...commonSizes],
+        image_url: primaryImage,
+        public_price: calculatedVariants.length ? Math.min(...calculatedVariants.map((variant) => variant.publicPrice)) : null,
+        refreshed_at: latestRefresh ? new Date(latestRefresh).toISOString() : null,
+        blockers,
+        ready_for_private_import: blockers.length === 0,
+        sizes,
+        colors: colors.map((colorName) => {
+          const row = stocked.find((variant) => variant.color_name === colorName);
+          return { name: colorName, color_code: row?.color_code || null, swatch_image: row?.color_swatch_image || null };
+        }),
+        variants: calculatedVariants.map(({ row, vendorCost, publicPrice }) => ({
+          sku: row.sku,
+          size: row.size_name,
+          color: row.color_name,
+          price: publicPrice,
+          vendor_cost: vendorCost,
+          inventory: Number(row.inventory_qty) || 0,
+          color_name: row.color_name,
+          color_code: row.color_code,
+          image_url: row.color_on_model_front_image || row.color_front_image || null,
+          color_swatch_image: row.color_swatch_image || null,
+          unit_weight: row.unit_weight || null,
+        })),
+        minimum_vendor_cost: calculatedVariants.length ? Math.min(...calculatedVariants.map((variant) => variant.vendorCost)) : null,
+        unit_weight: Math.max(0, ...stocked.map((row) => Number(row.unit_weight) || 0)),
+      };
+    });
+
+    const winterCandidates = candidates.filter((candidate) => Boolean(candidate.primary_type));
+    const readyCandidates = winterCandidates.filter((candidate) => candidate.ready_for_private_import);
+    const safeReport = (candidate: typeof candidates[number]) => ({
+      part_number: candidate.part_number,
+      style_name: candidate.style_name,
+      customer_name: candidate.customer_name,
+      primary_type: candidate.primary_type,
+      secondary_tags: candidate.secondary_tags,
+      total_inventory: candidate.total_inventory,
+      stocked_variants: candidate.stocked_variants,
+      stocked_colors: candidate.stocked_colors,
+      stocked_sizes: candidate.stocked_sizes,
+      common_sizes: candidate.common_sizes,
+      public_price: candidate.public_price,
+      image_available: Boolean(candidate.image_url),
+      refreshed_at: candidate.refreshed_at,
+      ready_for_private_import: candidate.ready_for_private_import,
+      blockers: candidate.blockers,
+    });
+
+    if (payload.action === 'get_champion_winter_candidate_report') {
+      return json(request, {
+        brand: 'Champion',
+        staging_session: latest.import_session_id,
+        staged_styles: candidates.length,
+        winter_candidates: winterCandidates.length,
+        ready_for_private_import: readyCandidates.length,
+        blocked: winterCandidates.length - readyCandidates.length,
+        products: winterCandidates.map(safeReport),
+        storefront_changed: false,
+        ss_order_submitted: false,
+        zerotouch_submitted: false,
+      });
+    }
+
+    if (readyCandidates.length === 0) {
+      return json(request, { error: 'No new Champion winter products passed the private-import checks' }, 409);
+    }
+    const productRows = readyCandidates.map((candidate) => ({
+      id: crypto.randomUUID(),
+      name: candidate.customer_name,
+      description: candidate.description || `${candidate.customer_name} blank apparel for teams, businesses, organizations, and everyday wear. Custom printing is optional.`,
+      price: candidate.public_price,
+      product_type: 'physical',
+      visibility: 'draft',
+      is_active: false,
+      image_url: candidate.image_url,
+      stock: candidate.total_inventory,
+      category: candidate.primary_type,
+      categories: [candidate.base_category, candidate.primary_type].filter(Boolean),
+      tags: candidate.secondary_tags.map((tag) => `storefront:${tag}`),
+      primary_garment_type: candidate.primary_type,
+      secondary_tags: candidate.secondary_tags,
+      available_sizes: candidate.sizes,
+      available_colors: candidate.colors,
+      size_prices: candidate.variants,
+      vendor_source: 'S&S Activewear',
+      vendor_cost: candidate.minimum_vendor_cost,
+      supplier_sku: candidate.part_number,
+      brand: 'Champion',
+      style_number: candidate.style_name || candidate.part_number,
+      vendor_data_refreshed_at: candidate.refreshed_at,
+      storefront_pricing_rule_key: candidate.pricing_rule_key,
+      storefront_price_applied_at: new Date().toISOString(),
+      garment_weight: candidate.unit_weight || null,
+      features: [candidate.base_category, 'Authenticated S&S catalog data', 'Winter / Cold Weather'].filter(Boolean),
+      draft_qa_status: 'pending',
+      internal_notes: `Private Champion winter S&S draft. Ready for Private QA only. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants. Not published.`,
+    }));
+    const { data: inserted, error: insertError } = await userClient
+      .from('products')
+      .insert(productRows)
+      .select('id,name,style_number,supplier_sku,primary_garment_type,secondary_tags,price,stock');
+    if (insertError) {
+      console.error('Unable to import Champion winter drafts', insertError.message);
+      return json(request, { error: 'Champion winter products could not be imported as private drafts' }, 500);
+    }
+    return json(request, {
+      brand: 'Champion',
+      imported_private_drafts: inserted?.length || 0,
+      ready_for_private_qa: inserted?.length || 0,
+      products: inserted || [],
+      candidate_report: winterCandidates.map(safeReport),
+      storefront_changed: false,
+      ss_order_submitted: false,
+      zerotouch_submitted: false,
+    });
+  }
 
   if (payload.action === 'get_brand_draft_report') {
     const brand = canonicalApprovedBrand(payload.brand);
