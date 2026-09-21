@@ -2,21 +2,23 @@ import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from './ssBrands.js';
 
 export const CATEGORY_FILTERS = [
   { value: 'all', label: 'All Products' },
-  { value: 'hats', label: 'Hats' },
-  { value: 'bags', label: 'Bags' },
   { value: 't_shirts', label: 'T-Shirts' },
-  { value: 'hoodies', label: 'Hoodies' },
-  { value: 'fleece', label: 'Fleece' },
-  { value: 'crewnecks', label: 'Crewnecks / Sweatshirts' },
-  { value: 'outerwear', label: 'Outerwear' },
   { value: 'long_sleeve', label: 'Long Sleeve' },
+  { value: 'hoodies', label: 'Hoodies' },
+  { value: 'crewnecks', label: 'Sweatshirts / Crewnecks' },
+  { value: 'polos', label: 'Polos' },
+  { value: 'quarter_zips', label: 'Quarter-Zips' },
+  { value: 'outerwear', label: 'Jackets / Outerwear' },
+  { value: 'pants', label: 'Pants / Bottoms' },
+  { value: 'shorts', label: 'Shorts' },
+  { value: 'hats', label: 'Headwear' },
+  { value: 'bags', label: 'Bags' },
   { value: 'tank_tops', label: 'Tank Tops' },
+  { value: 'fleece', label: 'Fleece' },
   { value: 'womens', label: "Women's" },
   { value: 'kids', label: 'Youth / Kids' },
   { value: 'sportswear', label: 'Sports / Activewear' },
   { value: 'business_apparel', label: 'Business Apparel' },
-  { value: 'quarter_zips', label: 'Quarter-Zips' },
-  { value: 'polos', label: 'Polos' },
   { value: 'mens', label: "Men's" },
   { value: 'custom_printed', label: 'Custom Printed' },
   { value: 'print_support', label: 'Print Support' },
@@ -26,8 +28,11 @@ export const STOREFRONT_CATEGORY_LABELS = {
   t_shirts: 'T-Shirt',
   hoodies: 'Hoodie',
   fleece: 'Fleece',
-  crewnecks: 'Crewneck / Sweatshirt',
-  outerwear: 'Outerwear',
+  crewnecks: 'Sweatshirt / Crewneck',
+  quarter_zips: 'Quarter-Zip',
+  outerwear: 'Jacket / Outerwear',
+  pants: 'Pants / Bottoms',
+  shorts: 'Shorts',
   long_sleeve: 'Long Sleeve T-Shirt',
   tank_tops: 'Tank Top',
   kids: 'Youth / Kids',
@@ -39,6 +44,12 @@ export const STOREFRONT_CATEGORY_LABELS = {
   print_support: 'Print Support',
   uncategorized: 'Garment',
 };
+
+export const PRIMARY_GARMENT_CATEGORY_ORDER = [
+  't_shirts', 'long_sleeve', 'hoodies', 'crewnecks', 'polos', 'quarter_zips',
+  'outerwear', 'pants', 'shorts', 'hats', 'bags', 'tank_tops', 'fleece', 'sportswear',
+  'uncategorized',
+];
 
 export const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest' },
@@ -66,6 +77,8 @@ const VENDOR_CATEGORY_GROUPS = {
   tank_tops: ['tank_tops', 'mens_tank_tops', 'womens_tank_tops', 'youth_tank_tops'],
   sportswear: ['sportswear', 'mens_sportswear', 'womens_sportswear', 'youth_sportswear', 'performance_shirts'],
   polos: ['polo_shirts', 'mens_polo_shirts', 'womens_polo_shirts', 'youth_polo_shirts'],
+  pants: ['pants', 'mens_pants', 'womens_pants', 'youth_pants', 'joggers', 'leggings'],
+  shorts: ['shorts', 'mens_shorts', 'womens_shorts', 'youth_shorts'],
   hats: ['hats', 'headwear'],
   bags: ['bags'],
 };
@@ -271,6 +284,16 @@ export function isWomensSpecific(product) {
     || categories.some(category => category.startsWith('womens_'));
 }
 
+export function isYouthSpecific(product) {
+  const text = productIdentityText(product);
+  const categories = [
+    ...asArray(product?.categories),
+    product?.category,
+  ].map(normalized).filter(Boolean);
+  return hasAnyTerm(text, ['youth', 'toddler', 'infant', 'kids', 'child'])
+    || categories.some(category => YOUTH_CATEGORIES.includes(category));
+}
+
 export function getStorefrontCategory(product) {
   const text = productIdentityText(product);
   const brand = normalized(getProductBrand(product));
@@ -284,12 +307,6 @@ export function getStorefrontCategory(product) {
   if (subtype === 'custom_printed') return 'custom_printed';
   if (subtype === 'print_support') return 'print_support';
 
-  if (
-    brand === 'rabbit skins'
-    || hasAnyTerm(text, ['youth', 'toddler', 'infant', 'kids', 'child'])
-    || categories.some(category => YOUTH_CATEGORIES.includes(category))
-  ) return 'kids';
-
   const styleRule = STYLE_CATEGORY_RULES.find(rule => (
     (brand === rule.brand || text.includes(rule.brand)) && rule.styles.some(style => styleTokens.has(style))
   ));
@@ -297,9 +314,12 @@ export function getStorefrontCategory(product) {
 
   // Strong garment terms take precedence over loose or incorrect vendor labels.
   if (hasAnyTerm(text, ['hoodie', 'hooded', 'pullover hood', 'hooded sweatshirt', 'fleece hood'])) return 'hoodies';
+  if (hasAnyTerm(text, ['quarter zip', 'quarter-zip', '1/4 zip', '1/4-zip'])) return 'quarter_zips';
   if (
     hasAnyTerm(text, ['jacket', 'outerwear', 'coat', 'soft shell', 'softshell', 'shell jacket', 'vest'])
   ) return 'outerwear';
+  if (hasAnyTerm(text, ['jogger', 'sweatpant', 'sweat pant', 'track pant', 'athletic pant', 'legging', 'pants'])) return 'pants';
+  if (hasAnyTerm(text, ['gym shorts', 'athletic shorts', 'performance shorts', 'shorts'])) return 'shorts';
   if (
     hasAnyTerm(text, ['fleece jacket', 'fleece vest', 'fleece pullover', 'fleece full zip', 'fleece quarter zip'])
     || (brand === 'columbia' && hasAnyTerm(text, ['fleece', 'pullover', 'quarter zip', 'half zip', 'full zip']))
@@ -310,8 +330,8 @@ export function getStorefrontCategory(product) {
   if (hasAnyTerm(text, ['beanie', 'headwear', 'baseball cap', 'trucker cap', 'snapback', 'cap', 'hat'])) return 'hats';
   if (hasAnyTerm(text, ['long sleeve tee', 'long sleeve t-shirt', 'long sleeve shirt', 'long-sleeve tee'])) return 'long_sleeve';
   if (hasAnyTerm(text, ['polo', 'golf shirt'])) return 'polos';
-  if (hasAnyTerm(text, ['performance shirt', 'activewear', 'sport shirt', 'athletic'])) return 'sportswear';
   if (hasAnyTerm(text, ['t-shirt', 't shirt', 'tee', 'short sleeve', 'pocket tee', 'softstyle', 'jersey tee'])) return 't_shirts';
+  if (hasAnyTerm(text, ['performance shirt', 'activewear', 'sport shirt', 'athletic'])) return 'sportswear';
 
   // Vendor categories are fallback signals only after stronger title/style rules.
   if (hasAnyVendorCategory(categories, 'hoodies')) return 'hoodies';
@@ -323,6 +343,8 @@ export function getStorefrontCategory(product) {
   if (hasAnyVendorCategory(categories, 'hats')) return 'hats';
   if (hasAnyVendorCategory(categories, 'long_sleeve')) return 'long_sleeve';
   if (hasAnyVendorCategory(categories, 'polos')) return 'polos';
+  if (hasAnyVendorCategory(categories, 'pants')) return 'pants';
+  if (hasAnyVendorCategory(categories, 'shorts')) return 'shorts';
   if (hasAnyVendorCategory(categories, 'sportswear')) return 'sportswear';
   if (hasAnyVendorCategory(categories, 't_shirts')) return 't_shirts';
   return 'uncategorized';
@@ -335,15 +357,18 @@ export function getStorefrontCategoryLabel(product) {
 export function matchesCategory(product, categoryValue) {
   if (!categoryValue || categoryValue === 'all') return true;
   if (categoryValue === 'womens') return isWomensSpecific(product);
+  if (categoryValue === 'kids') return isYouthSpecific(product)
+    || normalized(getProductBrand(product)) === 'rabbit skins';
   if (categoryValue === 'mens') return !isWomensSpecific(product)
     && (hasExplicitStorefrontCategoryTag(product, 'mens') || normalized(getProductBrand(product)) === 'champion');
-  if (categoryValue === 'business_apparel' || categoryValue === 'quarter_zips') {
+  if (categoryValue === 'business_apparel') {
     return hasExplicitStorefrontCategoryTag(product, categoryValue);
   }
   const normalizedCategory = getStorefrontCategory(product);
-  if (categoryValue === 't_shirts') {
-    return normalizedCategory === 't_shirts' || normalizedCategory === 'long_sleeve';
-  }
+  if (categoryValue === 'quarter_zips') return normalizedCategory === 'quarter_zips'
+    || hasExplicitStorefrontCategoryTag(product, categoryValue);
+  if (categoryValue === 'fleece') return normalizedCategory === 'fleece'
+    || hasAnyTerm(productIdentityText(product), ['fleece']);
   if (categoryValue === 'sportswear') {
     return normalizedCategory === 'sportswear'
       || hasExplicitStorefrontCategoryTag(product, 'sportswear');

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Layers3 } from 'lucide-react';
 
-export default function CatalogEditorialImage({ src, alt, className = '' }) {
+export default function CatalogEditorialImage({ src, alt, className = '', style, loading = 'lazy' }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => setFailed(false), [src]);
@@ -24,8 +24,9 @@ export default function CatalogEditorialImage({ src, alt, className = '' }) {
     <img
       src={src}
       alt={alt}
-      loading="lazy"
+      loading={loading}
       onError={() => setFailed(true)}
+      style={style}
       className={`h-full w-full bg-[#e9e1d1] object-cover object-center ${className}`}
     />
   );

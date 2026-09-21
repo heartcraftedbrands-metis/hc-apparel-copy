@@ -154,7 +154,7 @@ assert.equal(getStorefrontCategory(categoryProducts[6]), 'tank_tops', 'tank titl
 assert.deepEqual(categoryIds('hoodies'), ['gildan-18500', 'champion-s700'], 'Hoodies contains only hoodie products');
 assert.deepEqual(categoryIds('crewnecks'), ['gildan-18000', 'champion-crew'], 'Crewnecks contains only crewneck/sweatshirt products');
 assert.deepEqual(categoryIds('long_sleeve'), ['gildan-long-sleeve'], 'Long Sleeve contains long sleeve T-shirts only');
-assert.deepEqual(categoryIds('t_shirts'), ['gildan-5000', 'gildan-long-sleeve'], 'T-Shirts contains only short- and long-sleeve T-shirts');
+assert.deepEqual(categoryIds('t_shirts'), ['gildan-5000'], 'T-Shirts stays separate from Long Sleeve');
 assert.equal(categoryIds('hoodies').length, 2, 'normalized Hoodie sidebar count matches the two visible products');
 assert.equal(categoryIds('crewnecks').length, 2, 'normalized Crewneck sidebar count matches the two visible products');
 assert.deepEqual(ids(filterAndSortGarments(categoryProducts, { search: '18500' })), ['gildan-18500'], 'search still works with normalized categories');
@@ -167,8 +167,12 @@ assert.equal(getStorefrontCategory({ name: 'Adidas Structured Trucker Cap' }), '
 assert.equal(getStorefrontCategory({ name: 'Columbia Steens Mountain Fleece Full-Zip 2.0', brand: 'Columbia' }), 'fleece', 'Columbia fleece normalizes to Fleece');
 assert.equal(getStorefrontCategory({ name: 'Columbia Watertight II Jacket', brand: 'Columbia' }), 'outerwear', 'Columbia jackets normalize to Outerwear');
 assert.equal(getStorefrontCategory({ name: 'Columbia Hooded Fleece Hoodie', brand: 'Columbia' }), 'hoodies', 'Columbia hoodies normalize to Hoodies before the broader fleece rule');
-assert.equal(getStorefrontCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }), 'kids', 'Rabbit Skins products normalize to Youth / Kids');
+assert.equal(getStorefrontCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }), 't_shirts', 'youth tees remain grouped under their garment type');
+assert.equal(matchesCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }, 'kids'), true, 'Rabbit Skins products remain available through the Youth / Kids secondary filter');
 assert.equal(matchesCategory({ name: 'Bella + Canvas Women’s Relaxed Jersey Tee' }, 'womens'), true, 'women-specific titles populate the Women’s filter');
+assert.equal(getStorefrontCategory({ name: 'Champion Women’s Sport Soft Touch Leggings' }), 'pants', 'women’s leggings group under Pants / Bottoms');
+assert.equal(getStorefrontCategory({ name: 'Champion Unisex Cotton Gym Shorts' }), 'shorts', 'gym shorts group under Shorts');
+assert.equal(getStorefrontCategory({ name: 'Champion Powerblend Quarter-Zip Pullover' }), 'quarter_zips', 'quarter-zips get their own primary garment group');
 
 const oakleyAccessories = [
   { id: 'oakley-cap', name: 'Oakley FOS900833', brand: 'Oakley', style_number: 'FOS900833' },
