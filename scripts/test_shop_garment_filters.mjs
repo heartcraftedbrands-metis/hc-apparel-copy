@@ -173,6 +173,7 @@ assert.equal(matchesCategory({ name: 'Bella + Canvas Women’s Relaxed Jersey Te
 assert.equal(getStorefrontCategory({ name: 'Champion Women’s Sport Soft Touch Leggings' }), 'pants', 'women’s leggings group under Pants / Bottoms');
 assert.equal(getStorefrontCategory({ name: 'Champion Unisex Cotton Gym Shorts' }), 'shorts', 'gym shorts group under Shorts');
 assert.equal(getStorefrontCategory({ name: 'Champion Powerblend Quarter-Zip Pullover' }), 'quarter_zips', 'quarter-zips get their own primary garment group');
+assert.equal(getStorefrontCategory({ name: 'Champion CO200', vendor_specs: { product_title: 'Unisex Performance T-Shirt' }, categories: ['sportswear'] }), 't_shirts', 'customer-facing S&S title metadata overrides a loose Sports category');
 
 const oakleyAccessories = [
   { id: 'oakley-cap', name: 'Oakley FOS900833', brand: 'Oakley', style_number: 'FOS900833' },

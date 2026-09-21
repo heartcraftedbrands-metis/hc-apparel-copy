@@ -128,12 +128,20 @@ function normalized(value) {
   return String(value ?? '').trim().toLowerCase().replace(/[\u2018\u2019]/g, "'");
 }
 
+function vendorSpecTitle(product) {
+  const specs = product?.vendor_specs;
+  if (!specs || Array.isArray(specs) || typeof specs !== 'object') return '';
+  return specs.product_title || specs.productTitle || specs.style_name || specs.styleName
+    || specs.product_name || specs.productName || specs.title || specs.name || '';
+}
+
 function searchableProductText(product) {
   return [
     product?.name,
     product?.title,
     product?.vendor_title,
     product?.style_name,
+    vendorSpecTitle(product),
     product?.description,
     product?.brand,
     product?.style_number,
@@ -151,6 +159,7 @@ function productIdentityText(product) {
     product?.title,
     product?.vendor_title,
     product?.style_name,
+    vendorSpecTitle(product),
     product?.description,
     product?.brand,
     product?.style_number,
