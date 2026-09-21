@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   filterAndSortGarments,
   getProductColors,
+  getSecondaryTags,
   getProductSizes,
   getStorefrontCategory,
   getStorefrontCategoryLabel,
@@ -164,7 +165,7 @@ assert.equal(getStorefrontCategory({ name: 'Lane Seven LS14004', style_number: '
 assert.equal(getStorefrontCategory({ name: 'Independent Trading Co SS4500', style_number: 'SS4500' }), 'hoodies', 'known Independent hoodie styles normalize from style metadata');
 assert.equal(getStorefrontCategory({ name: 'Oakley 22L Sport Backpack' }), 'bags', 'backpacks normalize to Bags');
 assert.equal(getStorefrontCategory({ name: 'Adidas Structured Trucker Cap' }), 'hats', 'caps normalize to Hats');
-assert.equal(getStorefrontCategory({ name: 'Columbia Steens Mountain Fleece Full-Zip 2.0', brand: 'Columbia' }), 'fleece', 'Columbia fleece normalizes to Fleece');
+assert.equal(getStorefrontCategory({ name: 'Columbia Steens Mountain Fleece Full-Zip 2.0', brand: 'Columbia' }), 'outerwear', 'Columbia full-zip fleece normalizes to Jackets / Outerwear');
 assert.equal(getStorefrontCategory({ name: 'Columbia Watertight II Jacket', brand: 'Columbia' }), 'outerwear', 'Columbia jackets normalize to Outerwear');
 assert.equal(getStorefrontCategory({ name: 'Columbia Hooded Fleece Hoodie', brand: 'Columbia' }), 'hoodies', 'Columbia hoodies normalize to Hoodies before the broader fleece rule');
 assert.equal(getStorefrontCategory({ name: 'Rabbit Skins 3321 Fine Jersey Tee' }), 't_shirts', 'youth tees remain grouped under their garment type');
@@ -175,6 +176,44 @@ assert.equal(getStorefrontCategory({ name: 'Champion Unisex Cotton Gym Shorts' }
 assert.equal(getStorefrontCategory({ name: 'Champion Powerblend Quarter-Zip Pullover' }), 'quarter_zips', 'quarter-zips get their own primary garment group');
 assert.equal(getStorefrontCategory({ name: 'Champion CO200', vendor_specs: { product_title: 'Unisex Performance T-Shirt' }, categories: ['sportswear'] }), 't_shirts', 'customer-facing S&S title metadata overrides a loose Sports category');
 assert.equal(getStorefrontCategory({ name: 'Champion', brand: 'Champion', style_number: '63284', supplier_sku: 'CO200', categories: ['sportswear'] }), 't_shirts', 'legacy Champion CO200 reference normalizes to T-Shirts');
+assert.equal(getStorefrontCategory({ name: 'Incorrect Imported Tee', primary_garment_type: 'polos' }), 'polos', 'saved admin primary-type overrides take precedence over imported text');
+assert.deepEqual(
+  getSecondaryTags({ name: 'Champion Women’s Performance Sport Polo', secondary_tags: ['business_apparel'] }),
+  ['womens', 'sportswear', 'business_apparel', 'performance'],
+  'secondary audience and use-case tags do not replace the primary garment type',
+);
+
+const championExpectedGroups = new Map([
+  ['Champion Unisex Sport Joggers', 'pants'],
+  ['Champion Unisex Sport Polo', 'polos'],
+  ['Champion Unisex Powerblend Fleece Joggers', 'pants'],
+  ['Champion Unisex Full-Zip Anorak Jacket', 'outerwear'],
+  ['Champion Unisex Reverse Weave Crewneck Sweatshirt', 'crewnecks'],
+  ['Champion Women’s Sport Soft Touch Leggings', 'pants'],
+  ['Champion Unisex Coach’s Jacket', 'outerwear'],
+  ['Champion Unisex Cotton Max Hooded Sweatshirt', 'hoodies'],
+  ['Champion Youth Powerblend Hooded Sweatshirt', 'hoodies'],
+  ['Champion Unisex Sport T-Shirt', 't_shirts'],
+  ['Champion Unisex Cotton Gym Shorts', 'shorts'],
+  ['Champion Women’s Sport Hooded Sweatshirt', 'hoodies'],
+  ['Champion Women’s Powerblend Crewneck', 'crewnecks'],
+  ['Champion Women’s Sport Soft Touch T-Shirt', 't_shirts'],
+  ['Champion Unisex Powerblend Quarter-Zip Pullover', 'quarter_zips'],
+  ['Champion Women’s Sport Soft Touch Long Sleeve T-Shirt', 'long_sleeve'],
+  ['Champion Unisex Powerblend Full-Zip Hooded Sweatshirt', 'hoodies'],
+  ['Champion Unisex Bomber Jacket', 'outerwear'],
+  ['Champion Unisex Reverse Weave Hooded Sweatshirt', 'hoodies'],
+  ['Champion T-Shirt', 't_shirts'],
+  ['Champion Women’s Heritage Jersey Crop T-Shirt', 't_shirts'],
+]);
+
+for (const [name, expectedGroup] of championExpectedGroups) {
+  assert.equal(getStorefrontCategory({ name, brand: 'Champion' }), expectedGroup, `${name} groups under ${expectedGroup}`);
+}
+
+assert.equal(matchesCategory({ name: 'Champion Women’s Sport Hooded Sweatshirt' }, 'womens'), true, 'Women’s filter retains hoodie primary grouping');
+assert.equal(matchesCategory({ name: 'Champion Youth Powerblend Hooded Sweatshirt' }, 'kids'), true, 'Youth filter retains hoodie primary grouping');
+assert.equal(matchesCategory({ name: 'Champion Unisex Sport Polo' }, 'sportswear'), true, 'Sports filter includes an eligible polo without changing its primary group');
 
 const oakleyAccessories = [
   { id: 'oakley-cap', name: 'Oakley FOS900833', brand: 'Oakley', style_number: 'FOS900833' },
@@ -196,12 +235,12 @@ assert.equal(getStorefrontCategory(oakleyAccessories[0]), 'hats', 'Oakley FOS900
 assert.equal(getStorefrontCategory(oakleyAccessories[1]), 'bags', 'Oakley FOS901100 style metadata normalizes to Bags');
 assert.equal(getStorefrontCategory(oakleyAccessories[2]), 'polos', 'Oakley FOA402993 style metadata normalizes to Polos');
 assert.equal(getStorefrontCategory(oakleyAccessories[3]), 'hoodies', 'Oakley FOA402994 style metadata normalizes to Hoodies');
-assert.deepEqual(oakleyIds('hats'), ['oakley-cap', 'intentional-activewear-cap'], 'Hats contains headwear products only');
+assert.deepEqual(oakleyIds('hats'), ['intentional-activewear-cap', 'oakley-cap'], 'Hats contains headwear products only in a stable order');
 assert.deepEqual(oakleyIds('bags'), ['oakley-backpack'], 'Bags contains bag products only');
 assert.deepEqual(
   oakleyIds('sportswear'),
-  ['performance-shirt', 'intentional-activewear-cap'],
+  ['intentional-activewear-cap', 'performance-shirt'],
   'Sports / Activewear excludes hats and bags unless explicitly tagged for storefront overlap',
 );
 
-console.log('Shop Garments filter/category tests passed (47 assertions).');
+console.log('Shop Garments filter/category tests passed.');

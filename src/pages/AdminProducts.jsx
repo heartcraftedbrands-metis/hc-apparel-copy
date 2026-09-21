@@ -27,6 +27,12 @@ import { toast } from "sonner";
 import { isDigitalProduct } from "@/lib/productVisibility";
 import SSProductPlaceholder from "@/components/ss/SSProductPlaceholder";
 import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
+import {
+  PRIMARY_GARMENT_TYPE_OPTIONS,
+  SECONDARY_TAG_OPTIONS,
+  getSecondaryTags,
+  getStorefrontCategory,
+} from '@/lib/shopGarmentFilters';
 
 const CATEGORY_OPTIONS = [
   { value: 'digital_designs', label: 'Digital Designs' },
@@ -111,6 +117,7 @@ const EMPTY_FORM = {
   name: '', description: '', price: '', sale_price: '', product_type: 'physical',
   product_subtype: '', design_type: '',
   visibility: 'public', category: 'other', categories: [], stock: 0,
+  primary_garment_type: '', secondary_tags: [],
   image_url: '', mockup_images: [], file_url: '',
   available_sizes: [], available_colors: [], size_prices: [],
   tags: [], is_featured: false, is_best_seller: false,
@@ -173,6 +180,12 @@ export default function AdminProducts() {
     vendorCost * Number(pricingRule?.cost_multiplier || 1) + Number(pricingRule?.fixed_allowance || 0)
       + Number(pricingRule?.storefront_margin_buffer ?? 3),
   ) : null;
+  const inferredPrimaryGarmentType = getStorefrontCategory({
+    ...editingProduct,
+    ...formData,
+    primary_garment_type: '',
+    display_category: '',
+  });
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Product.create(data),
@@ -211,6 +224,10 @@ export default function AdminProducts() {
       visibility: product.visibility || (product.is_active ? 'public' : 'hidden'),
       category: product.category || 'other',
       categories: product.categories || (product.category ? [product.category] : []),
+      primary_garment_type: product.primary_garment_type || '',
+      secondary_tags: Array.isArray(product.secondary_tags) && product.secondary_tags.length
+        ? product.secondary_tags
+        : getSecondaryTags(product),
       stock: product.stock || 0,
       image_url: product.image_url || '',
       mockup_images: product.mockup_images || [],
@@ -280,6 +297,10 @@ export default function AdminProducts() {
       visibility: formData.visibility,
       category: formData.category || 'other',
       categories: formData.categories || [],
+      primary_garment_type: formData.product_type === 'physical'
+        ? (formData.primary_garment_type || inferredPrimaryGarmentType || 'other')
+        : null,
+      secondary_tags: formData.product_type === 'physical' ? (formData.secondary_tags || []) : [],
       stock: parseInt(formData.stock) || 0,
       image_url: formData.image_url || '',
       mockup_images: formData.mockup_images || [],
@@ -690,6 +711,60 @@ export default function AdminProducts() {
                 })}
               </div>
             </div>
+
+            {formData.product_type === 'physical' && (
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                <div>
+                  <Label>Primary Garment Type</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Controls the product section on every brand page. Raw S&amp;S categories remain unchanged.
+                  </p>
+                  <Select
+                    value={formData.primary_garment_type || 'automatic'}
+                    onValueChange={value => setFormData(previous => ({
+                      ...previous,
+                      primary_garment_type: value === 'automatic' ? '' : value,
+                    }))}
+                  >
+                    <SelectTrigger className="mt-2"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="automatic">Automatic — {PRIMARY_GARMENT_TYPE_OPTIONS.find(option => option.value === inferredPrimaryGarmentType)?.label || 'Other'}</SelectItem>
+                      {PRIMARY_GARMENT_TYPE_OPTIONS.map(option => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Secondary Tags <span className="text-xs text-muted-foreground">(filters only)</span></Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Audience and use-case tags never replace the primary garment type.
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {SECONDARY_TAG_OPTIONS.map(option => {
+                      const checked = (formData.secondary_tags || []).includes(option.value);
+                      return (
+                        <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setFormData(previous => ({
+                              ...previous,
+                              secondary_tags: checked
+                                ? (previous.secondary_tags || []).filter(value => value !== option.value)
+                                : [...(previous.secondary_tags || []), option.value],
+                            }))}
+                            className="h-4 w-4 rounded"
+                          />
+                          {option.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {formData.product_type === 'physical' && (
               <div>
