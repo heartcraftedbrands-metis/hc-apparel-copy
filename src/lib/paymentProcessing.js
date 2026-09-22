@@ -22,12 +22,30 @@ export const processingCost = (charge, method) => {
   return Math.round((Number(charge) * Number(method.percentage) / 100 + Number(method.fixed_fee)) * 100) / 100;
 };
 
+export const worstPaymentMethod = (costs, charge = 100) => Object.entries(normalizePaymentMethodCosts(costs))
+  .filter(([, method]) => method.enabled)
+  .map(([methodKey, method]) => ({ methodKey, method, amount: processingCost(charge, method) }))
+  .sort((a, b) => b.amount - a.amount)[0] || { methodKey: null, method: null, amount: 0 };
+
 export const paymentProtectedFloor = (vendorCost, desiredMargin, costs) => {
   const enabled = Object.entries(normalizePaymentMethodCosts(costs)).filter(([, method]) => method.enabled);
   if (!enabled.length) return { amount: Number(vendorCost) + Number(desiredMargin), methodKey: null, method: null };
   return enabled.reduce((worst, [methodKey, method]) => {
     const rate = Number(method.percentage) / 100;
-    const amount = (Number(vendorCost) + Number(desiredMargin) + Number(method.fixed_fee)) / (1 - rate);
+    const amount = Math.ceil(((Number(vendorCost) + Number(desiredMargin) + Number(method.fixed_fee)) / (1 - rate)) * 100) / 100;
     return amount > worst.amount ? { amount, methodKey, method } : worst;
   }, { amount: 0, methodKey: null, method: null });
 };
+
+export const orderNetMargin = ({
+  merchandiseRevenue = 0,
+  shippingRevenue = 0,
+  vendorGarmentCost = 0,
+  vendorShippingCost = 0,
+  processingCost: fee = 0,
+  printCost = 0,
+  otherVendorFees = 0,
+}) => Math.round((
+  Number(merchandiseRevenue) + Number(shippingRevenue) - Number(vendorGarmentCost)
+  - Number(vendorShippingCost) - Number(fee) - Number(printCost) - Number(otherVendorFees)
+) * 100) / 100;

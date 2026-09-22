@@ -11,6 +11,7 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';
+import { orderNetMargin } from '@/lib/paymentProcessing';
 import CreateVendorOrderModal from './CreateVendorOrderModal';
 import { isBlankGarmentOrder } from '@/lib/blankFulfillment';
 
@@ -105,9 +106,10 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
   const taxCollected = Number(order.sales_tax_amount) || 0;
   const processingCost = Number(order.actual_processing_cost ?? order.estimated_processing_cost ?? order.payment_processing_estimate) || 0;
   const vendorShippingCost = Number(order.actual_vendor_shipping ?? order.actual_shipping_cost ?? order.estimated_vendor_shipping) || 0;
+  const printCost = Number(order.printing_cost_estimate) || 0;
   const otherVendorFees = Number(order.other_vendor_fees) || 0;
   const marginRevenue = merchandiseRevenue + shippingRevenue;
-  const profit = marginRevenue - vendorCost - vendorShippingCost - otherVendorFees - processingCost;
+  const profit = orderNetMargin({ merchandiseRevenue, shippingRevenue, vendorGarmentCost: vendorCost, vendorShippingCost, processingCost, printCost, otherVendorFees });
   const margin = marginRevenue > 0 ? (profit / marginRevenue) * 100 : 0;
 
   const statusInfo = STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-600';
@@ -309,6 +311,10 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
                           <div>
                             <p className="text-xs text-muted-foreground">Sales Tax (not profit)</p>
                             <p className="font-semibold">${taxCollected.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Print / Customization</p>
+                            <p className="font-semibold text-red-600">${printCost.toFixed(2)}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Net Margin</p>

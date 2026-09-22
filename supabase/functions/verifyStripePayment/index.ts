@@ -8,7 +8,7 @@ import {
   getStripeCredentials,
   modeFromCheckoutSessionId,
 } from '../_shared/stripeCredentials.ts';
-import { stripePaymentDetails } from '../_shared/stripePaymentMethod.ts';
+import { orderNetMargin, stripePaymentDetails } from '../_shared/stripePaymentMethod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,7 +59,7 @@ Deno.serve(async (request) => {
     const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: order, error: orderError } = await admin
       .from('orders')
-      .select('id,owner_user_id,total_amount,payment_status,stripe_mode,payment_processing_estimate,pricing_snapshot')
+      .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,sales_tax_amount,vendor_cost_estimate,actual_vendor_shipping,actual_shipping_cost,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,stripe_mode,payment_processing_estimate,pricing_snapshot')
       .eq('id', orderId)
       .maybeSingle();
     if (orderError) {
@@ -88,6 +88,7 @@ Deno.serve(async (request) => {
       const methods = order.pricing_snapshot?.payment_method_costs || {};
       const rate = methods[paymentDetails.type] || methods.card || {};
       const estimatedProcessingCost = Math.round((Number(order.total_amount) * Number(rate.percentage || 0) / 100 + Number(rate.fixed_fee || 0)) * 100) / 100;
+      const appliedProcessingCost = paymentDetails.actualProcessingCost ?? estimatedProcessingCost;
       const { error: updateError } = await admin.from('orders').update({
         payment_status: 'paid',
         status: 'paid',
@@ -96,6 +97,7 @@ Deno.serve(async (request) => {
         estimated_processing_cost: estimatedProcessingCost,
         actual_processing_cost: paymentDetails.actualProcessingCost,
         processing_rate_used: { method: paymentDetails.type, label: paymentDetails.label, percentage: Number(rate.percentage || 0), fixed_fee: Number(rate.fixed_fee || 0) },
+        final_net_margin: orderNetMargin(order, appliedProcessingCost),
         amount_paid: order.total_amount,
         balance_due: 0,
         payment_date: new Date().toISOString(),

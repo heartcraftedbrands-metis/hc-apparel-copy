@@ -17,6 +17,7 @@ import MessageTemplateModal from '@/components/messages/MessageTemplateModal';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import MarginBadge from '@/components/profit/MarginBadge';
+import { orderNetMargin } from '@/lib/paymentProcessing';
 import CreateVendorOrderModal from '@/components/orders/CreateVendorOrderModal';
 import OrderHistorySection from '@/components/orders/OrderHistorySection';
 import CustomerNotificationsSection from '@/components/orders/CustomerNotificationsSection';
@@ -384,9 +385,10 @@ export default function AdminOrderDetail() {
   const taxCollected = Number(form.sales_tax_amount) || 0;
   const processingCost = Number(form.actual_processing_cost ?? form.estimated_processing_cost ?? form.payment_processing_estimate) || 0;
   const vendorShippingCost = Number(form.actual_vendor_shipping ?? form.actual_shipping_cost ?? form.estimated_vendor_shipping) || 0;
+  const printCost = Number(form.printing_cost_estimate) || 0;
   const otherVendorFees = Number(form.other_vendor_fees) || 0;
   const marginRevenue = merchandiseRevenue + shippingRevenue;
-  const profit = marginRevenue - vendorCost - vendorShippingCost - otherVendorFees - processingCost;
+  const profit = orderNetMargin({ merchandiseRevenue, shippingRevenue, vendorGarmentCost: vendorCost, vendorShippingCost, processingCost, printCost, otherVendorFees });
   const margin = marginRevenue > 0 ? (profit / marginRevenue) * 100 : 0;
 
   const primaryVendorOrder = linkedVendorOrders[0] || null;
@@ -1081,6 +1083,10 @@ export default function AdminOrderDetail() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Vendor shipping / fees</span>
                         <span className="font-semibold text-red-600">${(vendorShippingCost + otherVendorFees).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Print / customization cost</span>
+                        <span className="font-semibold text-red-600">${printCost.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">{form.actual_processing_cost != null ? 'Actual processing cost' : 'Estimated processing cost'}</span>

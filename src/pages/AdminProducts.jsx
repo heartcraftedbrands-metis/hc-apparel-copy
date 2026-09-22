@@ -191,8 +191,9 @@ export default function AdminProducts() {
     vendorCost / (1 - Number(pricingRule?.minimum_margin_percent || 0)),
     Number(paymentFloor?.amount || 0),
   ) : null;
+  const roundedMarginFloor = marginFloor === null ? null : Math.ceil(marginFloor * 100) / 100;
   const recommendedPrice = vendorCost > 0 ? Math.max(
-    marginFloor,
+    roundedMarginFloor,
     vendorCost * Number(pricingRule?.cost_multiplier || 1) + Number(pricingRule?.fixed_allowance || 0)
       + Number(pricingRule?.storefront_margin_buffer ?? 3),
   ) : null;
@@ -294,16 +295,16 @@ export default function AdminProducts() {
       toast.error('Product status is required');
       return;
     }
-    const isBelowSafeFloor = editingProduct && marginFloor !== null && (
-      Number(formData.price) < Math.round(marginFloor * 100) / 100
-      || (formData.sale_price !== '' && Number(formData.sale_price) < Math.round(marginFloor * 100) / 100)
+    const isBelowSafeFloor = editingProduct && roundedMarginFloor !== null && (
+      Number(formData.price) < roundedMarginFloor
+      || (formData.sale_price !== '' && Number(formData.sale_price) < roundedMarginFloor)
     );
     if (isBelowSafeFloor) {
       if (!formData.price_edit_note?.trim()) {
         toast.error('A reason is required to override the payment-protected pricing floor.');
         return;
       }
-      if (!window.confirm(`This price is below the payment-protected safe floor of $${marginFloor.toFixed(2)} and may reduce margin. Save this Super Admin override?`)) return;
+      if (!window.confirm(`This price is below the payment-protected safe floor of $${roundedMarginFloor.toFixed(2)} and may reduce margin. Save this Super Admin override?`)) return;
     }
     if (
       editingProduct?.is_sample
@@ -624,18 +625,19 @@ export default function AdminProducts() {
                 <div className="col-span-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-sm">
                   <p className="font-semibold">Admin pricing review</p>
                   <p>Current public price: ${Number(editingProduct.price || 0).toFixed(2)} · Vendor cost: {vendorCost > 0 ? `$${vendorCost.toFixed(2)}` : 'not verified'}</p>
+                  <p>Configured minimum margin: ${desiredMargin.toFixed(2)}</p>
                   <p>Rule: {pricingRule?.display_name || 'No stored rule — vendor + $3 default'} · Recommended: {recommendedPrice === null ? 'unavailable without cost' : `$${recommendedPrice.toFixed(2)}`}</p>
                   <div className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
                     <p>Standard card cost: ${standardProcessingCost.toFixed(2)}</p>
                     <p>Cash App Afterpay cost: ${afterpayProcessingCost.toFixed(2)}</p>
                     <p>Klarna cost: ${klarnaProcessingCost.toFixed(2)}</p>
                     <p>Worst enabled cost: ${worstProcessingCost.toFixed(2)}</p>
-                    <p>Minimum safe public price: {marginFloor === null ? 'unverified without cost' : `$${marginFloor.toFixed(2)}`}</p>
+                    <p>Minimum safe public price: {roundedMarginFloor === null ? 'unverified without cost' : `$${roundedMarginFloor.toFixed(2)}`}</p>
                     <p>Expected margin after worst enabled fee: {vendorCost > 0 ? `$${expectedNetMargin.toFixed(2)}` : 'unavailable'}</p>
                   </div>
                   {paymentFloor?.method && <p className="mt-1 text-xs text-muted-foreground">Payment-method floor set by {paymentFloor.method.label} ({paymentFloor.method.percentage}% + ${Number(paymentFloor.method.fixed_fee).toFixed(2)}).</p>}
-                  {marginFloor !== null && Number(formData.price) < Math.round(marginFloor * 100) / 100 && (
-                    <p className="font-semibold text-amber-800">Warning: price is below the safe floor. Super Admin confirmation and a reason are required.</p>
+                  {roundedMarginFloor !== null && evaluatedPrice < roundedMarginFloor && (
+                    <p className="font-semibold text-amber-800">Current price may not preserve the configured margin when customers use higher-cost payment methods. Super Admin confirmation and a reason are required.</p>
                   )}
                   <Label htmlFor="price-edit-note" className="mt-2 block">Price change reason (admin audit)</Label>
                   <Input id="price-edit-note" value={formData.price_edit_note || ''} onChange={e => setFormData(p => ({ ...p, price_edit_note: e.target.value }))} placeholder="Required when overriding the safe floor" className="mt-1" />
