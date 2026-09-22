@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
+import { DEFAULT_PUBLIC_VISITOR_PRICING, normalizePublicVisitorPricing } from '@/lib/customerPricing';
 
 const AuthContext = createContext();
 
@@ -9,6 +10,20 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
+  const [publicPricingSettings, setPublicPricingSettings] = useState(DEFAULT_PUBLIC_VISITOR_PRICING);
+  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    supabase.rpc('get_public_visitor_pricing').then(({ data, error }) => {
+      if (!active) return;
+      if (error) console.warn('Public visitor pricing settings unavailable; using safe defaults.');
+      const row = Array.isArray(data) ? data[0] : data;
+      setPublicPricingSettings(normalizePublicVisitorPricing(row || DEFAULT_PUBLIC_VISITOR_PRICING));
+      setIsLoadingPublicSettings(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   const checkAppState = useCallback(async () => {
     setIsLoadingAuth(true);
@@ -51,7 +66,8 @@ export const AuthProvider = ({ children }) => {
       user,
       isAuthenticated,
       isLoadingAuth,
-      isLoadingPublicSettings: false,
+      isLoadingPublicSettings,
+      publicPricingSettings,
       authError,
       appPublicSettings: { auth_required: false },
       logout,

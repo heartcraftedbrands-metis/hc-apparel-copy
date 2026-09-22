@@ -66,7 +66,7 @@ const worstPaymentCost = (charge: number, value: unknown) => Object.entries(norm
 const settingsBooleanFields = new Set([
   'processing_enabled', 'sales_tax_enabled', 'ss_shipping_enabled', 'usps_enabled',
   'usps_ground_advantage_enabled', 'usps_priority_mail_enabled', 'hc_fallback_enabled',
-  'hc_free_shipping_enabled',
+  'hc_free_shipping_enabled', 'public_visitor_price_markup_enabled',
 ]);
 const settingsNumberFields = new Set([
   'minimum_margin_per_item', 'processing_percent', 'processing_fixed_fee',
@@ -74,6 +74,7 @@ const settingsNumberFields = new Set([
   'ss_tier_6_12', 'ss_tier_13_plus', 'ss_shipping_buffer', 'default_product_weight_oz',
   'default_package_length_in', 'default_package_width_in', 'default_package_height_in',
   'hc_fallback_rate', 'hc_free_shipping_threshold', 'hc_handling_amount',
+  'public_visitor_price_difference',
 ]);
 const settingsTextFields = new Set([
   'origin_street', 'origin_city', 'origin_state', 'origin_zip',

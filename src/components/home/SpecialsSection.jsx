@@ -2,10 +2,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/api/supabaseClient';
 import { getPublicProductName } from '@/lib/productDisplayName';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const money = value => `$${Number(value).toFixed(2)}`;
 
 export default function SpecialsSection() {
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
   const { data: specials = [] } = useQuery({
     queryKey: ['storefront-homepage-specials'],
     queryFn: async () => {
@@ -44,11 +46,12 @@ export default function SpecialsSection() {
                 <h3 className="mt-2 text-xl font-bold leading-tight text-[#26351f]">{getPublicProductName(item)}</h3>
                 {item.subtitle && <p className="mt-2 text-sm text-[#586251]">{item.subtitle}</p>}
                 <div className="mt-5 flex items-baseline gap-3">
-                  <span className="text-2xl font-extrabold text-[#26351f]">{money(item.price)}</span>
+                  <span className="text-2xl font-extrabold text-[#26351f]">{money(displayPrice(item.price, item))}</span>
                   {item.badge === 'Special' && Number(item.comparison_price) > Number(item.price) && (
-                    <span className="text-sm text-[#727b6e] line-through" aria-label={`Regular price ${money(item.comparison_price)}`}>{money(item.comparison_price)}</span>
+                    <span className="text-sm text-[#727b6e] line-through" aria-label={`Regular price ${money(displayPrice(item.comparison_price, item))}`}>{money(displayPrice(item.comparison_price, item))}</span>
                   )}
                 </div>
+                {!isAuthenticated && settings.enabled && <p className="mt-2 text-xs text-[#586251]">Sign in for HC Apparel customer pricing</p>}
                 <Link to={`/ProductDetail?id=${encodeURIComponent(item.product_id)}`} className="mt-5 inline-flex w-fit items-center justify-center rounded-lg bg-[#34472c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#253720]">Shop Blanks</Link>
               </div>
             </article>

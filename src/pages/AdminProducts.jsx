@@ -198,6 +198,9 @@ export default function AdminProducts() {
       + Number(pricingRule?.storefront_margin_buffer ?? 3),
   ) : null;
   const evaluatedPrice = Number(formData.sale_price || formData.price || 0);
+  const publicVisitorDifference = financialSettings?.public_visitor_price_markup_enabled === false
+    ? 0 : Number(financialSettings?.public_visitor_price_difference ?? 3);
+  const publicVisitorPrice = evaluatedPrice + publicVisitorDifference;
   const standardProcessingCost = processingCost(evaluatedPrice, paymentCosts.card);
   const afterpayProcessingCost = processingCost(evaluatedPrice, paymentCosts.afterpay_clearpay);
   const klarnaProcessingCost = processingCost(evaluatedPrice, paymentCosts.klarna);
@@ -624,7 +627,8 @@ export default function AdminProducts() {
               {editingProduct && (
                 <div className="col-span-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-sm">
                   <p className="font-semibold">Admin pricing review</p>
-                  <p>Current public price: ${Number(editingProduct.price || 0).toFixed(2)} · Vendor cost: {vendorCost > 0 ? `$${vendorCost.toFixed(2)}` : 'not verified'}</p>
+                  <p>HC Apparel customer price: ${evaluatedPrice.toFixed(2)} · Calculated public visitor price: ${publicVisitorPrice.toFixed(2)} · Difference: ${publicVisitorDifference.toFixed(2)}</p>
+                  <p>Vendor cost: {vendorCost > 0 ? `$${vendorCost.toFixed(2)}` : 'not verified'} (admin only)</p>
                   <p>Configured minimum margin: ${desiredMargin.toFixed(2)}</p>
                   <p>Rule: {pricingRule?.display_name || 'No stored rule — vendor + $3 default'} · Recommended: {recommendedPrice === null ? 'unavailable without cost' : `$${recommendedPrice.toFixed(2)}`}</p>
                   <div className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
@@ -632,7 +636,7 @@ export default function AdminProducts() {
                     <p>Cash App Afterpay cost: ${afterpayProcessingCost.toFixed(2)}</p>
                     <p>Klarna cost: ${klarnaProcessingCost.toFixed(2)}</p>
                     <p>Worst enabled cost: ${worstProcessingCost.toFixed(2)}</p>
-                    <p>Minimum safe public price: {roundedMarginFloor === null ? 'unverified without cost' : `$${roundedMarginFloor.toFixed(2)}`}</p>
+                    <p>Minimum safe customer price: {roundedMarginFloor === null ? 'unverified without cost' : `$${roundedMarginFloor.toFixed(2)}`}</p>
                     <p>Expected margin after worst enabled fee: {vendorCost > 0 ? `$${expectedNetMargin.toFixed(2)}` : 'unavailable'}</p>
                   </div>
                   {paymentFloor?.method && <p className="mt-1 text-xs text-muted-foreground">Payment-method floor set by {paymentFloor.method.label} ({paymentFloor.method.percentage}% + ${Number(paymentFloor.method.fixed_fee).toFixed(2)}).</p>}

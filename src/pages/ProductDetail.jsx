@@ -13,6 +13,7 @@ import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDi
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 import { getProductBrand, getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 import { getPublicProductDescription, getPublicProductText } from "@/lib/publicProductCopy";
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -284,6 +285,7 @@ function formatSpecLabel(key) {
 }
 
 export default function ProductDetail() {
+  const { isAuthenticated, settings: publicPriceSettings, displayPrice: priceForViewer } = useCustomerPricing();
   const urlParams = new URLSearchParams(window.location.search);
   const productId = urlParams.get('id');
   const isDraftPreview = urlParams.get('preview') === 'draft';
@@ -357,7 +359,8 @@ export default function ProductDetail() {
 
   // Price
   const priceRange = getProductPriceRange(product);
-  const displayPrice = selectedVariant?.price ?? priceRange.minimum;
+  const customerUnitPrice = selectedVariant?.price ?? priceRange.minimum;
+  const displayPrice = priceForViewer(customerUnitPrice, product);
 
   const selectedInventory = selectedVariant?.inventory;
   const inStock = selectedVariant
@@ -374,7 +377,7 @@ export default function ProductDetail() {
       product_name: publicName,
       brand: productBrand,
       style_number: product.style_number || product.supplier_sku || styleLabel,
-      price: displayPrice,
+      price: customerUnitPrice,
       image_url: cartImage,
       selectedSize: selectedVariant.size,
       selectedColor: selectedVariant.color,
@@ -528,15 +531,24 @@ export default function ProductDetail() {
             <div>
               <p className="mb-1 text-sm font-semibold text-muted-foreground">
                 {selectedVariant
-                  ? 'Selected price'
+                  ? (isAuthenticated ? 'HC Apparel customer price' : 'Public price')
                   : priceRange.hasVariablePricing
-                    ? 'Starting at'
-                    : 'Blank garment price'}
+                    ? (isAuthenticated ? 'HC Apparel customer price starting at' : 'Public price starting at')
+                    : (isAuthenticated ? 'HC Apparel customer price' : 'Public price')}
               </p>
               <div className="flex items-baseline gap-3">
                 <span className="text-4xl font-black text-primary">${displayPrice.toFixed(2)}</span>
-                {isOnSale && <span className="text-xl text-muted-foreground line-through">${product.price?.toFixed(2)}</span>}
+                {isOnSale && <span className="text-xl text-muted-foreground line-through">${priceForViewer(product.price, product)?.toFixed(2)}</span>}
               </div>
+              {!isAuthenticated && publicPriceSettings.enabled && (
+                <div className="mt-3 rounded-lg border border-accent/40 bg-accent/10 p-3 text-sm">
+                  <p><span className="font-semibold">HC Apparel customer price:</span> ${Number(customerUnitPrice).toFixed(2)}</p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <Link to="/Login" className="font-semibold text-primary underline">Sign In</Link>
+                    <Link to="/Signup" className="font-semibold text-primary underline">Create Account</Link>
+                  </div>
+                </div>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               Blank garment price. Artwork and decoration are priced separately.

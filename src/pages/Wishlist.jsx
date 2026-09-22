@@ -9,10 +9,12 @@ import { Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getPublicProductName, getProductStyleLabel } from '@/lib/productDisplayName';
 import { getPublicProductDescription } from '@/lib/publicProductCopy';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 export default function Wishlist() {
   const { items, toggle } = useWishlist();
   const { addToCart } = useCart();
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -79,7 +81,8 @@ export default function Wishlist() {
                 </Link>
                 {styleLabel && <p className="text-xs text-gray-500">Style: {styleLabel}</p>}
                 <p className="text-gray-500 text-sm line-clamp-1 mt-0.5">{getPublicProductDescription(product, publicName)}</p>
-                <p className="text-lg font-bold text-gray-900 mt-1">${product.price?.toFixed(2)}</p>
+                <p className="text-lg font-bold text-gray-900 mt-1">${displayPrice(product.price, product)?.toFixed(2)}</p>
+                {!isAuthenticated && settings.enabled && <p className="text-xs text-gray-500">Sign in for HC Apparel customer pricing</p>}
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
                 <Button

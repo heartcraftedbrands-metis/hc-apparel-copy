@@ -7,9 +7,11 @@ import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarm
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 export default function GarmentProductCard({ product }) {
   const [imgError, setImgError] = useState(false);
+  const { isAuthenticated, settings, displayPrice: customerDisplayPrice } = useCustomerPricing();
 
   const catLabel = getStorefrontCategoryLabel(product);
 
@@ -21,7 +23,7 @@ export default function GarmentProductCard({ product }) {
   });
   const sizes = product.available_sizes || [];
   const priceRange = getProductPriceRange(product);
-  const displayPrice = priceRange.minimum;
+  const displayPrice = customerDisplayPrice(priceRange.minimum, product);
   const isOnSale = product.sale_price && product.sale_price < product.price;
 
   const isCustomPrint = product.product_subtype === 'custom_printed';
@@ -85,11 +87,13 @@ export default function GarmentProductCard({ product }) {
           )}
           <span className="text-accent font-bold text-base">${displayPrice?.toFixed(2)}</span>
           {isOnSale && (
-            <span className="text-xs text-muted-foreground line-through">${product.price?.toFixed(2)}</span>
+            <span className="text-xs text-muted-foreground line-through">${customerDisplayPrice(product.price, product)?.toFixed(2)}</span>
           )}
         </div>
         <p className="text-[11px] text-muted-foreground -mt-1 mb-2">
-          Blank garment · Customization priced separately
+          {!isAuthenticated && settings.enabled
+            ? 'Sign in for HC Apparel customer pricing'
+            : 'Blank garment · Customization priced separately'}
         </p>
 
         {/* Colors preview */}

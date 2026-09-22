@@ -6,8 +6,10 @@ import { createPageUrl } from '@/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { getPublicProductDescription } from '@/lib/publicProductCopy';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 export default function CarouselSection() {
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
   const [current, setCurrent] = useState(0);
 
   const { data: products = [] } = useQuery({
@@ -48,11 +50,12 @@ export default function CarouselSection() {
                   <h3 className="text-2xl font-bold text-white mb-1">{product.name}</h3>
                   <p className="text-white/80 mb-4 text-sm line-clamp-2">{getPublicProductDescription(product, product.name)}</p>
                   <div className="flex items-center gap-4">
-                    <span className="text-white text-xl font-semibold">${product.price?.toFixed(2)}</span>
+                    <span className="text-white text-xl font-semibold">${displayPrice(product.price, product)?.toFixed(2)}</span>
                     <Link to={`${createPageUrl('ProductDetail')}?id=${product.id}`}>
                       <Button className="bg-white text-black hover:bg-gray-100">View Product</Button>
                     </Link>
                   </div>
+                  {!isAuthenticated && settings.enabled && <p className="mt-2 text-xs text-white/85">Sign in for HC Apparel customer pricing</p>}
                 </div>
               </div>
             ))}

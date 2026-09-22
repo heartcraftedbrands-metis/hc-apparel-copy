@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useWishlist } from "./WishlistContext";
 import { motion } from 'framer-motion';
 import { getPublicProductName, getProductStyleLabel } from '@/lib/productDisplayName';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const CATEGORY_LABEL = {
   halftone_packs: 'Halftone',
@@ -15,6 +16,8 @@ const CATEGORY_LABEL = {
 export default function ProductCard({ product, onAddToCart }) {
   const { isWishlisted, toggle } = useWishlist();
   const wishlisted = isWishlisted(product.id);
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
+  const shownPrice = displayPrice(product.price, product);
 
   const cats = product.categories?.length ? product.categories : (product.category ? [product.category] : []);
   const isHalftone = cats.includes('halftone_packs');
@@ -85,7 +88,10 @@ export default function ProductCard({ product, onAddToCart }) {
           <p className="text-xs text-muted-foreground mb-2">{catLabel}</p>
         )}
         <div className="mt-auto pt-2">
-          <p className="text-base font-bold text-primary mb-2">${product.price?.toFixed(2)}</p>
+          <p className="text-base font-bold text-primary">${shownPrice?.toFixed(2)}</p>
+          {!isAuthenticated && settings.enabled && product.product_type !== 'digital' && (
+            <p className="mb-2 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>
+          )}
           <div className="flex gap-1.5">
             <motion.button
               onClick={() => onAddToCart(product)}

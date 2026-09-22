@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ShoppingCart, ArrowRight, Eye, MessageSquare, Package } from 'lucide-react';
 import { filterPublicProducts } from "@/lib/productVisibility";
 import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const SUBTYPE_LABELS = {
   t_shirts: 'T-Shirt', hoodies: 'Hoodie', sweatshirts: 'Sweatshirt',
@@ -16,6 +17,7 @@ const SUBTYPE_LABELS = {
 };
 
 function ProductCard({ product, onAddToCart }) {
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
   const [imgError, setImgError] = useState(false);
   const label = product.product_subtype ? SUBTYPE_LABELS[product.product_subtype] : product.category?.replace(/_/g, ' ');
   const isCustomPrint = product.product_subtype === 'custom_printed';
@@ -51,7 +53,7 @@ function ProductCard({ product, onAddToCart }) {
         {styleLabel && <p className="mb-2 text-[11px] text-muted-foreground">Style: {styleLabel}</p>}
 
         <div className="flex items-center justify-between mb-2">
-          <span className="text-accent font-bold text-base">${(product.sale_price || product.price)?.toFixed(2)}</span>
+          <span className="text-accent font-bold text-base">${displayPrice(product.sale_price || product.price, product)?.toFixed(2)}</span>
           {colors.length > 0 && (
             <div className="flex gap-1">
               {colors.slice(0, 5).map((c, i) => (
@@ -61,6 +63,7 @@ function ProductCard({ product, onAddToCart }) {
             </div>
           )}
         </div>
+        {!isAuthenticated && settings.enabled && <p className="mb-2 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>}
 
         {/* Buttons pinned to bottom */}
         <div className="mt-auto space-y-1.5 pt-2">

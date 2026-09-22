@@ -7,11 +7,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Package, Zap, ShoppingCart } from 'lucide-react';
 import { filterPublicProducts } from "@/lib/productVisibility";
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const PRINT_SUPPORT_CATS = ['design_elements', 'accessories', 'other'];
 
 export default function PrintSupport() {
   const { addToCart } = useCart();
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
 
   const { data: allProducts = [], isLoading } = useQuery({
     queryKey: ['print-support-products'],
@@ -77,7 +79,8 @@ export default function PrintSupport() {
                 </div>
                 <div className="p-4">
                   <h3 className="font-semibold text-sm mb-1 line-clamp-2">{product.name}</h3>
-                  <p className="text-accent font-bold text-base mb-3">${product.price?.toFixed(2)}</p>
+                  <p className="text-accent font-bold text-base">${displayPrice(product.price, product)?.toFixed(2)}</p>
+                  {!isAuthenticated && settings.enabled && <p className="mb-3 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>}
                   <Button size="sm" className="w-full gap-2" onClick={() => { addToCart(product); toast.success(`${product.name} added!`); }}>
                     <ShoppingCart className="w-3.5 h-3.5" /> Add to Cart
                   </Button>

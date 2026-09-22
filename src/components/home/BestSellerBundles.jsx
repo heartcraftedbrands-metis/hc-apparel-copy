@@ -6,9 +6,11 @@ import { useCart } from "@/components/shop/CartContext";
 import { toast } from "sonner";
 import { Package2, ArrowRight, ShoppingCart } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 export default function BestSellerBundles() {
   const { addToCart } = useCart();
+  const { displayPrice } = useCustomerPricing();
 
   const { data: products = [] } = useQuery({
     queryKey: ['home-bundles'],
@@ -68,7 +70,7 @@ export default function BestSellerBundles() {
               </Link>
               <div className="p-3">
                 <p className="font-semibold text-sm line-clamp-2 mb-1">{product.name}</p>
-                <p className="text-primary font-bold">${product.price?.toFixed(2)}</p>
+                <p className="text-primary font-bold">${displayPrice(product.price, product)?.toFixed(2)}</p>
                 <button
                   onClick={() => { addToCart(product); toast.success(`${product.name} added!`); }}
                   className="mt-2 w-full flex items-center justify-center gap-1.5 bg-primary text-primary-foreground text-xs font-semibold py-2 rounded-lg hover:bg-primary/90 transition-colors"

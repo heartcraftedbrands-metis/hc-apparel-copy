@@ -33,6 +33,7 @@ import {
 } from '@/lib/productCustomization';
 import { getPublicProductName } from '@/lib/productDisplayName';
 import { getProductPriceRange } from '@/lib/shopGarmentFilters';
+import { useCustomerPricing } from '@/lib/useCustomerPricing';
 
 const emptyCustomization = {
   selectedColor: '',
@@ -61,6 +62,7 @@ export default function ProductCustomizationDialog({
   const [errors, setErrors] = useState([]);
   const [signInRequired, setSignInRequired] = useState(false);
   const { cart, addToCart } = useCart();
+  const { isAuthenticated, settings, displayPrice } = useCustomerPricing();
 
   useEffect(() => {
     if (!open) return;
@@ -85,7 +87,8 @@ export default function ProductCustomizationDialog({
     [form.selectedColor, form.selectedSize, product],
   );
   const priceRange = useMemo(() => getProductPriceRange(product), [product]);
-  const displayedPrice = variant?.price ?? priceRange.minimum;
+  const customerPrice = variant?.price ?? priceRange.minimum;
+  const displayedPrice = displayPrice(customerPrice, product);
   const existingCartQuantity = getSmallOrderCartQuantity(cart);
   const publicName = getPublicProductName(product);
   const bulkQuoteRequired = (
@@ -185,6 +188,9 @@ export default function ProductCustomizationDialog({
                 ? `Selected price: $${displayedPrice.toFixed(2)}`
                 : `${priceRange.hasVariablePricing ? 'Starting at ' : ''}$${displayedPrice.toFixed(2)}`}
             </p>
+            {!isAuthenticated && settings.enabled && (
+              <p className="mt-1 text-xs text-muted-foreground">Sign in for HC Apparel customer pricing.</p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
