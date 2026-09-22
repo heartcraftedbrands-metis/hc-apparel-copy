@@ -63,14 +63,15 @@ Deno.serve(async (request) => {
     let body;
     try { body = await request.json(); }
     catch { return respond({ error: 'Invalid checkout request', code: 'INVALID_REQUEST' }, 400); }
-    const { orderId, successUrl, cancelUrl, adminRetry, adminHealthCheck } = body || {};
-    if (!adminHealthCheck && (typeof orderId !== 'string' || !orderId.trim())) {
+    const { orderId, successUrl, cancelUrl, adminRetry, adminHealthCheck, adminPaymentMethodCheck } = body || {};
+    const adminOnlyAction = Boolean(adminRetry || adminHealthCheck || adminPaymentMethodCheck);
+    if (!adminHealthCheck && !adminPaymentMethodCheck && (typeof orderId !== 'string' || !orderId.trim())) {
       return respond({ error: 'A valid order ID is required', code: 'INVALID_REQUEST' }, 400);
     }
-    if (!adminHealthCheck && (typeof successUrl !== 'string' || !successUrl || typeof cancelUrl !== 'string' || !cancelUrl)) {
+    if (!adminHealthCheck && !adminPaymentMethodCheck && (typeof successUrl !== 'string' || !successUrl || typeof cancelUrl !== 'string' || !cancelUrl)) {
       return respond({ error: 'Order ID, success URL, and cancel URL are required', code: 'INVALID_REQUEST' }, 400);
     }
-    if (!adminHealthCheck) {
+    if (!adminHealthCheck && !adminPaymentMethodCheck) {
       try {
         if (![successUrl, cancelUrl].every(url => allowedOrigins.includes(new URL(url).origin))) {
           return respond({ error: 'Checkout return URL is invalid', code: 'INVALID_RETURN_URL' }, 400);
@@ -79,7 +80,7 @@ Deno.serve(async (request) => {
         return respond({ error: 'Checkout return URL is invalid', code: 'INVALID_RETURN_URL' }, 400);
       }
     }
-    if (adminRetry || adminHealthCheck) {
+    if (adminOnlyAction) {
       const { data: isAdmin, error: adminError } = await userClient.rpc('is_admin');
       if (adminError || !isAdmin) return respond({ error: 'Administrator access required', code: 'ADMIN_REQUIRED' }, 403);
     }
@@ -108,15 +109,15 @@ Deno.serve(async (request) => {
       .maybeSingle();
     if (settingsError) {
       console.error('Checkout payment settings lookup failed', { request_id: requestId, code: settingsError.code });
-      if (!adminRetry && !adminHealthCheck) await markStartFailed();
+      if (!adminOnlyAction) await markStartFailed();
       return respond({ error: 'Unable to load payment configuration', code: 'PAYMENT_SETTINGS_UNAVAILABLE' }, 500);
     }
     if (paymentSettings?.payment_mode !== 'stripe') {
-      if (!adminRetry && !adminHealthCheck) await markStartFailed();
+      if (!adminOnlyAction) await markStartFailed();
       return respond({ error: 'Stripe checkout is not enabled', code: 'STRIPE_NOT_SELECTED' }, 409);
     }
 
-    const stripeMode = normalizeStripeMode(paymentSettings?.stripe_mode);
+    const stripeMode = adminPaymentMethodCheck ? 'test' : normalizeStripeMode(paymentSettings?.stripe_mode);
     const stripeCredentials = getStripeCredentials(stripeMode);
     console.info('Stripe checkout credential configuration', {
       mode: stripeMode,
@@ -125,10 +126,37 @@ Deno.serve(async (request) => {
       configured: stripeCredentials.configured,
     });
     if (!stripeCredentials.configured || !stripeCredentials.secretKey) {
-      if (!adminRetry && !adminHealthCheck) await markStartFailed();
+      if (!adminOnlyAction) await markStartFailed();
       return respond({ error: 'Payment checkout could not be started', code: 'STRIPE_UNAVAILABLE' }, 503);
     }
     if (adminHealthCheck) return respond({ ready: true, stripe_mode: stripeMode, creates_order: false, creates_session: false });
+    if (adminPaymentMethodCheck) {
+      stage = 'payment_method_test_session';
+      const stripe = new Stripe(stripeCredentials.secretKey);
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        payment_method_types: ['card', 'afterpay_clearpay'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: { name: 'HC Apparel payment-method test' },
+            unit_amount: 5000,
+          },
+          quantity: 1,
+        }],
+        success_url: `${allowedOrigins[0]}/AdminPaymentSettings?payment_method_test=success`,
+        cancel_url: `${allowedOrigins[0]}/AdminPaymentSettings?payment_method_test=cancelled`,
+        metadata: { source: 'hc_apparel_payment_method_test', creates_order: 'false' },
+      });
+      return respond({
+        checkout_url: session.url,
+        session_id: session.id,
+        stripe_mode: 'test',
+        payment_method_types: session.payment_method_types,
+        creates_order: false,
+        payment_completed: false,
+      });
+    }
     stage = 'order_lookup';
     const { data: order, error: orderError } = await admin
       .from('orders')
@@ -194,7 +222,7 @@ Deno.serve(async (request) => {
     }
     try { session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'afterpay_clearpay'],
       customer_email: order.customer_email,
       client_reference_id: order.id,
       line_items: [...merchandiseLines, ...supplementalLines],

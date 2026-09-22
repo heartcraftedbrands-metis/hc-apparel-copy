@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [statusFunction, webhook, checkout, verify, credentials, stripeCredentials, adminSettings, config] = await Promise.all([
+const [statusFunction, webhook, checkout, verify, credentials, stripeCredentials, paymentMethod, adminSettings, config] = await Promise.all([
   readFile(new URL('../supabase/functions/getStripeStatus/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/stripeWebhook/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/createStripeCheckoutSession/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/verifyStripePayment/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/_shared/supabaseCredentials.ts', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/functions/_shared/stripeCredentials.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../supabase/functions/_shared/stripePaymentMethod.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/AdminPaymentSettings.jsx', import.meta.url), 'utf8'),
   readFile(new URL('../supabase/config.toml', import.meta.url), 'utf8'),
 ]);
@@ -35,6 +36,8 @@ assert.match(checkout, /selected: serviceCredential\.source/);
 assert.match(checkout, /present: serviceCredential\.present/);
 assert.doesNotMatch(checkout, /console\.(?:info|log)\([^\n]*serviceRoleKey/);
 assert.match(checkout, /checkout\.sessions\.create/);
+assert.match(checkout, /payment_method_types: \['card', 'afterpay_clearpay'\]/);
+assert.match(checkout, /hc_apparel_payment_method_test/);
 assert.match(checkout, /app_name: 'HC Apparel'/);
 assert.match(checkout, /client_reference_id: order\.id/);
 assert.match(checkout, /description: `HC Apparel order \$\{order\.id\}`/);
@@ -46,6 +49,9 @@ assert.match(checkout, /\.eq\('id', orderId\.trim\(\)\)/);
 assert.match(checkout, /Unable to load customer order/);
 assert.match(verify, /checkout\.sessions\.retrieve/);
 assert.match(verify, /session\.amount_total !== Math\.round\(Number\(order\.total_amount\) \* 100\)/);
+assert.match(webhook, /stripePaymentMethodLabel\(stripe, session\)/);
+assert.match(verify, /stripePaymentMethodLabel\(stripe, session\)/);
+assert.match(paymentMethod, /afterpay_clearpay: 'Afterpay \/ Clearpay'/);
 
 const currentSecretIndex = credentials.indexOf("readDefaultKey('SUPABASE_SECRET_KEYS')");
 const legacySecretIndex = credentials.indexOf("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");

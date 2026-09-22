@@ -50,6 +50,7 @@ export default function AdminPaymentSettings() {
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  const [paymentMethodTest, setPaymentMethodTest] = useState(null);
 
   useEffect(() => {
     if (settingsRecord) {
@@ -68,6 +69,21 @@ export default function AdminPaymentSettings() {
     onSuccess: () => {
       qc.invalidateQueries(['payment-settings']);
       toast.success('Payment settings saved!');
+    },
+  });
+
+  const testCheckoutMethods = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('createStripeCheckoutSession', { adminPaymentMethodCheck: true });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setPaymentMethodTest(data);
+      toast.success('Safe Stripe test checkout created. No order or payment was created.');
+    },
+    onError: () => {
+      setPaymentMethodTest(null);
+      toast.error('Stripe payment methods could not be tested.');
     },
   });
 
@@ -198,6 +214,18 @@ export default function AdminPaymentSettings() {
                   </p>
                 )}
               </div>
+            </Card>
+
+            <Card className="p-6 border shadow-sm">
+              <h2 className="text-lg font-bold">Stripe Checkout payment methods</h2>
+              <p className="mt-2 text-sm text-muted-foreground">Creates a $50 test-mode Checkout session to verify eligible payment methods. It does not create an HC Apparel order or complete a payment.</p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" disabled={testCheckoutMethods.isPending} onClick={() => testCheckoutMethods.mutate()}>
+                  {testCheckoutMethods.isPending ? 'Creating test…' : 'Create safe payment-method test'}
+                </Button>
+                {paymentMethodTest?.checkout_url && <a href={paymentMethodTest.checkout_url} target="_blank" rel="noreferrer" className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white">Open test Stripe Checkout</a>}
+              </div>
+              {paymentMethodTest && <p className="mt-3 text-xs text-muted-foreground">Allowed for this test session: {(paymentMethodTest.payment_method_types || []).map(type => type === 'afterpay_clearpay' ? 'Afterpay / Clearpay' : type === 'card' ? 'Cards and eligible wallets' : type).join(' · ')}. Eligibility is determined by Stripe at Checkout.</p>}
             </Card>
 
             {/* Connection Status */}

@@ -5,6 +5,7 @@ import {
   getStripeCredentials,
   type StripeMode,
 } from '../_shared/stripeCredentials.ts';
+import { stripePaymentMethodLabel } from '../_shared/stripePaymentMethod.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -20,7 +21,7 @@ Deno.serve(async (request) => {
   }
 
   const rawBody = await request.text();
-  let verified: { event: Stripe.Event; mode: StripeMode } | null = null;
+  let verified: { event: Stripe.Event; mode: StripeMode; stripe: Stripe } | null = null;
   for (const mode of ['test', 'live'] as const) {
     const credentials = getStripeCredentials(mode);
     if (!credentials.configured || !credentials.secretKey || !credentials.webhookSecret) continue;
@@ -33,7 +34,7 @@ Deno.serve(async (request) => {
         undefined,
         Stripe.createSubtleCryptoProvider(),
       );
-      verified = { event, mode };
+      verified = { event, mode, stripe };
       break;
     } catch {
       // A shared endpoint may receive test and live webhooks. Try the other isolated secret.
@@ -42,7 +43,7 @@ Deno.serve(async (request) => {
   if (!verified) {
     return json({ error: 'Invalid webhook signature' }, 400);
   }
-  const { event, mode: stripeMode } = verified;
+  const { event, mode: stripeMode, stripe } = verified;
   if (event.livemode !== (stripeMode === 'live')) {
     return json({ error: 'Webhook mode does not match its signing secret' }, 400);
   }
@@ -97,10 +98,11 @@ Deno.serve(async (request) => {
   }
 
   if (order.payment_status !== 'paid') {
+    const paymentMethod = await stripePaymentMethodLabel(stripe, session);
     const { error: updateError } = await admin.from('orders').update({
       payment_status: 'paid',
       status: 'paid',
-      payment_method: 'Stripe',
+      payment_method: paymentMethod,
       amount_paid: order.total_amount,
       balance_due: 0,
       payment_date: new Date().toISOString(),

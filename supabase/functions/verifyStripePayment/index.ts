@@ -8,6 +8,7 @@ import {
   getStripeCredentials,
   modeFromCheckoutSessionId,
 } from '../_shared/stripeCredentials.ts';
+import { stripePaymentMethodLabel } from '../_shared/stripePaymentMethod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -83,10 +84,11 @@ Deno.serve(async (request) => {
     }
 
     if (order.payment_status !== 'paid') {
+      const paymentMethod = await stripePaymentMethodLabel(stripe, session);
       const { error: updateError } = await admin.from('orders').update({
         payment_status: 'paid',
         status: 'paid',
-        payment_method: 'Stripe',
+        payment_method: paymentMethod,
         amount_paid: order.total_amount,
         balance_due: 0,
         payment_date: new Date().toISOString(),
