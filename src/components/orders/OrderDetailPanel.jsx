@@ -100,8 +100,15 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
   const qty = order.order_items?.reduce((s, i) => s + (Number(i.quantity) || 1), 0) || 1;
   const revenue = Number(order.total_amount) || 0;
   const vendorCost = Number(order.vendor_cost_estimate) || 0;
-  const profit = revenue - vendorCost;
-  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const merchandiseRevenue = Number(order.product_subtotal ?? Math.max(0, revenue - Number(order.shipping_amount || 0) - Number(order.sales_tax_amount || 0))) || 0;
+  const shippingRevenue = Number(order.shipping_amount) || 0;
+  const taxCollected = Number(order.sales_tax_amount) || 0;
+  const processingCost = Number(order.actual_processing_cost ?? order.estimated_processing_cost ?? order.payment_processing_estimate) || 0;
+  const vendorShippingCost = Number(order.actual_vendor_shipping ?? order.actual_shipping_cost ?? order.estimated_vendor_shipping) || 0;
+  const otherVendorFees = Number(order.other_vendor_fees) || 0;
+  const marginRevenue = merchandiseRevenue + shippingRevenue;
+  const profit = marginRevenue - vendorCost - vendorShippingCost - otherVendorFees - processingCost;
+  const margin = marginRevenue > 0 ? (profit / marginRevenue) * 100 : 0;
 
   const statusInfo = STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-600';
 
@@ -276,6 +283,7 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
                     <InfoGrid items={[
                       ['Order Status', order.status?.replace(/_/g, ' ')],
                       ['Payment', order.status === 'paid' || order.status === 'completed' ? 'Paid' : 'Pending'],
+                      ['Payment Method', order.payment_method || 'Not recorded'],
                       ['Fulfillment', order.vendor_order_id ? 'Vendor Order Created' : 'Not Started'],
                       ['Customer Total', `$${revenue.toFixed(2)}`],
                     ]} />
@@ -287,15 +295,23 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                           <div>
-                            <p className="text-xs text-muted-foreground">Customer Revenue</p>
-                            <p className="font-semibold">${revenue.toFixed(2)}</p>
+                            <p className="text-xs text-muted-foreground">Margin Revenue (tax excluded)</p>
+                            <p className="font-semibold">${marginRevenue.toFixed(2)}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Est. Vendor Cost</p>
                             <p className="font-semibold text-red-600">${vendorCost.toFixed(2)}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Est. Profit</p>
+                            <p className="text-xs text-muted-foreground">{order.actual_processing_cost != null ? 'Actual Processing' : 'Estimated Processing'}</p>
+                            <p className="font-semibold text-red-600">${processingCost.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Sales Tax (not profit)</p>
+                            <p className="font-semibold">${taxCollected.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Net Margin</p>
                             <p className={`font-bold ${profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${profit.toFixed(2)}</p>
                           </div>
                           <div>

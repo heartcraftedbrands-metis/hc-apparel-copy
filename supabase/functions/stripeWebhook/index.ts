@@ -5,7 +5,7 @@ import {
   getStripeCredentials,
   type StripeMode,
 } from '../_shared/stripeCredentials.ts';
-import { stripePaymentMethodLabel } from '../_shared/stripePaymentMethod.ts';
+import { stripePaymentDetails } from '../_shared/stripePaymentMethod.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -75,7 +75,7 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
   const { data: order, error: orderError } = await admin
     .from('orders')
-    .select('id,owner_user_id,total_amount,payment_status,checkout_source,stripe_mode')
+    .select('id,owner_user_id,total_amount,payment_status,checkout_source,stripe_mode,payment_processing_estimate,pricing_snapshot')
     .eq('id', orderId)
     .maybeSingle();
   if (orderError) {
@@ -98,11 +98,18 @@ Deno.serve(async (request) => {
   }
 
   if (order.payment_status !== 'paid') {
-    const paymentMethod = await stripePaymentMethodLabel(stripe, session);
+    const paymentDetails = await stripePaymentDetails(stripe, session);
+    const methods = order.pricing_snapshot?.payment_method_costs || {};
+    const rate = methods[paymentDetails.type] || methods.card || {};
+    const estimatedProcessingCost = Math.round((Number(order.total_amount) * Number(rate.percentage || 0) / 100 + Number(rate.fixed_fee || 0)) * 100) / 100;
     const { error: updateError } = await admin.from('orders').update({
       payment_status: 'paid',
       status: 'paid',
-      payment_method: paymentMethod,
+      payment_method: paymentDetails.label,
+      payment_method_type: paymentDetails.type,
+      estimated_processing_cost: estimatedProcessingCost,
+      actual_processing_cost: paymentDetails.actualProcessingCost,
+      processing_rate_used: { method: paymentDetails.type, label: paymentDetails.label, percentage: Number(rate.percentage || 0), fixed_fee: Number(rate.fixed_fee || 0) },
       amount_paid: order.total_amount,
       balance_due: 0,
       payment_date: new Date().toISOString(),

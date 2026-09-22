@@ -135,7 +135,7 @@ Deno.serve(async (request) => {
       const stripe = new Stripe(stripeCredentials.secretKey);
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
-        payment_method_types: ['card', 'afterpay_clearpay'],
+        payment_method_types: ['card', 'cashapp', 'afterpay_clearpay', 'klarna'],
         line_items: [{
           price_data: {
             currency: 'usd',
@@ -222,7 +222,7 @@ Deno.serve(async (request) => {
     }
     try { session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card', 'afterpay_clearpay'],
+      payment_method_types: ['card', 'cashapp', 'afterpay_clearpay', 'klarna'],
       customer_email: order.customer_email,
       client_reference_id: order.id,
       line_items: [...merchandiseLines, ...supplementalLines],

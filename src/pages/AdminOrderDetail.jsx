@@ -379,8 +379,15 @@ export default function AdminOrderDetail() {
   const amountPaid = Number(form.amount_paid) || 0;
   const balanceDue = revenue - amountPaid;
   const vendorCost = Number(form.vendor_cost_estimate) || 0;
-  const profit = revenue - vendorCost;
-  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const merchandiseRevenue = Number(form.product_subtotal ?? Math.max(0, revenue - Number(form.shipping_amount || 0) - Number(form.sales_tax_amount || 0))) || 0;
+  const shippingRevenue = Number(form.shipping_amount) || 0;
+  const taxCollected = Number(form.sales_tax_amount) || 0;
+  const processingCost = Number(form.actual_processing_cost ?? form.estimated_processing_cost ?? form.payment_processing_estimate) || 0;
+  const vendorShippingCost = Number(form.actual_vendor_shipping ?? form.actual_shipping_cost ?? form.estimated_vendor_shipping) || 0;
+  const otherVendorFees = Number(form.other_vendor_fees) || 0;
+  const marginRevenue = merchandiseRevenue + shippingRevenue;
+  const profit = marginRevenue - vendorCost - vendorShippingCost - otherVendorFees - processingCost;
+  const margin = marginRevenue > 0 ? (profit / marginRevenue) * 100 : 0;
 
   const primaryVendorOrder = linkedVendorOrders[0] || null;
   const blankOrder = isBlankGarmentOrder(form, quoteRequest);
@@ -992,6 +999,7 @@ export default function AdminOrderDetail() {
                  <div>
                    <Label className="text-xs text-muted-foreground">Payment Method</Label>
                    <Input value={form.payment_method || ''} onChange={set('payment_method')} placeholder="e.g., bank transfer, credit card, Stripe" className="mt-1" />
+                   {form.payment_method_type && <p className="mt-1 text-xs text-muted-foreground">Stripe method type: {form.payment_method_type}</p>}
                  </div>
                  <div>
                    <Label className="text-xs text-muted-foreground">Payment Date</Label>
@@ -1045,6 +1053,18 @@ export default function AdminOrderDetail() {
                     <span className="font-semibold">${revenue.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Merchandise revenue</span>
+                    <span className="font-semibold">${merchandiseRevenue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Shipping charged</span>
+                    <span className="font-semibold">${shippingRevenue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Sales tax (not profit)</span>
+                    <span className="font-semibold">${taxCollected.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Amount Paid</span>
                     <span className="font-semibold text-green-700">${amountPaid.toFixed(2)}</span>
                   </div>
@@ -1059,7 +1079,15 @@ export default function AdminOrderDetail() {
                         <span className="font-semibold text-red-600">${vendorCost.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Est. Profit</span>
+                        <span className="text-muted-foreground">Vendor shipping / fees</span>
+                        <span className="font-semibold text-red-600">${(vendorShippingCost + otherVendorFees).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{form.actual_processing_cost != null ? 'Actual processing cost' : 'Estimated processing cost'}</span>
+                        <span className="font-semibold text-red-600">${processingCost.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Net margin (tax excluded)</span>
                         <span className={`font-bold ${profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${profit.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between items-center text-sm">

@@ -18,6 +18,7 @@
     "test:checkout-vendor-draft": "node scripts/test_checkout_vendor_draft_flow.mjs",
     "test:notification-workflow": "node scripts/test_customer_notification_workflow.mjs",
     "test:stripe-connection": "node scripts/test_stripe_connection.mjs",
+    "test:payment-fees": "node scripts/test_payment_method_fees.mjs",
     "test:live-integrations": "node scripts/test_live_integrations.mjs",
     "test:qa-separation": "node scripts/test_qa_admin_separation.mjs",
     "test:product-display-names": "node scripts/test_product_display_names.mjs",

@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { isDigitalProduct } from "@/lib/productVisibility";
 import SSProductPlaceholder from "@/components/ss/SSProductPlaceholder";
 import { getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
+import { normalizePaymentMethodCosts, paymentProtectedFloor, processingCost } from '@/lib/paymentProcessing';
 import {
   PRIMARY_GARMENT_TYPE_OPTIONS,
   SECONDARY_TAG_OPTIONS,
@@ -159,6 +160,14 @@ export default function AdminProducts() {
     },
   });
 
+  const { data: financialSettings } = useQuery({
+    queryKey: ['checkout-financial-settings'],
+    queryFn: async () => {
+      const result = await base44.functions.invoke('checkout-pricing', { action: 'settings_get' });
+      return result.data.settings;
+    },
+  });
+
   const category = formData.category || '';
   const fallbackRuleKey = category.includes('hood') ? 'hoodie'
     : category.includes('crew') || category.includes('sweat') ? 'crewneck'
@@ -170,16 +179,32 @@ export default function AdminProducts() {
   const pricingRule = pricingRules.find(rule => rule.rule_key === editingProduct?.storefront_pricing_rule_key)
     || pricingRules.find(rule => rule.rule_key === fallbackRuleKey);
   const vendorCost = Number(formData.vendor_cost);
+  const paymentCosts = normalizePaymentMethodCosts(financialSettings?.payment_method_costs);
+  const desiredMargin = Math.max(
+    Number(financialSettings?.minimum_margin_per_item ?? 3),
+    Number(pricingRule?.storefront_margin_buffer ?? 3),
+  );
+  const paymentFloor = vendorCost > 0 ? paymentProtectedFloor(vendorCost, desiredMargin, paymentCosts) : null;
   const marginFloor = vendorCost > 0 ? Math.max(
     Number(pricingRule?.minimum_price || 0),
     vendorCost + Number(pricingRule?.storefront_margin_buffer ?? 3),
     vendorCost / (1 - Number(pricingRule?.minimum_margin_percent || 0)),
+    Number(paymentFloor?.amount || 0),
   ) : null;
   const recommendedPrice = vendorCost > 0 ? Math.max(
     marginFloor,
     vendorCost * Number(pricingRule?.cost_multiplier || 1) + Number(pricingRule?.fixed_allowance || 0)
       + Number(pricingRule?.storefront_margin_buffer ?? 3),
   ) : null;
+  const evaluatedPrice = Number(formData.sale_price || formData.price || 0);
+  const standardProcessingCost = processingCost(evaluatedPrice, paymentCosts.card);
+  const afterpayProcessingCost = processingCost(evaluatedPrice, paymentCosts.afterpay_clearpay);
+  const klarnaProcessingCost = processingCost(evaluatedPrice, paymentCosts.klarna);
+  const worstProcessingCost = Math.max(
+    ...Object.values(paymentCosts).filter(method => method.enabled).map(method => processingCost(evaluatedPrice, method)),
+    0,
+  );
+  const expectedNetMargin = evaluatedPrice - vendorCost - worstProcessingCost;
   const inferredPrimaryGarmentType = getStorefrontCategory({
     ...editingProduct,
     ...formData,
@@ -269,12 +294,16 @@ export default function AdminProducts() {
       toast.error('Product status is required');
       return;
     }
-    if (editingProduct && marginFloor !== null && (
+    const isBelowSafeFloor = editingProduct && marginFloor !== null && (
       Number(formData.price) < Math.round(marginFloor * 100) / 100
       || (formData.sale_price !== '' && Number(formData.sale_price) < Math.round(marginFloor * 100) / 100)
-    )) {
-      toast.error(`Public price is below the current cost and margin floor ($${marginFloor.toFixed(2)}).`);
-      return;
+    );
+    if (isBelowSafeFloor) {
+      if (!formData.price_edit_note?.trim()) {
+        toast.error('A reason is required to override the payment-protected pricing floor.');
+        return;
+      }
+      if (!window.confirm(`This price is below the payment-protected safe floor of $${marginFloor.toFixed(2)} and may reduce margin. Save this Super Admin override?`)) return;
     }
     if (
       editingProduct?.is_sample
@@ -596,12 +625,20 @@ export default function AdminProducts() {
                   <p className="font-semibold">Admin pricing review</p>
                   <p>Current public price: ${Number(editingProduct.price || 0).toFixed(2)} · Vendor cost: {vendorCost > 0 ? `$${vendorCost.toFixed(2)}` : 'not verified'}</p>
                   <p>Rule: {pricingRule?.display_name || 'No stored rule — vendor + $3 default'} · Recommended: {recommendedPrice === null ? 'unavailable without cost' : `$${recommendedPrice.toFixed(2)}`}</p>
-                  <p>Minimum allowed: {marginFloor === null ? 'unverified without cost' : `$${marginFloor.toFixed(2)}`}</p>
+                  <div className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
+                    <p>Standard card cost: ${standardProcessingCost.toFixed(2)}</p>
+                    <p>Cash App Afterpay cost: ${afterpayProcessingCost.toFixed(2)}</p>
+                    <p>Klarna cost: ${klarnaProcessingCost.toFixed(2)}</p>
+                    <p>Worst enabled cost: ${worstProcessingCost.toFixed(2)}</p>
+                    <p>Minimum safe public price: {marginFloor === null ? 'unverified without cost' : `$${marginFloor.toFixed(2)}`}</p>
+                    <p>Expected margin after worst enabled fee: {vendorCost > 0 ? `$${expectedNetMargin.toFixed(2)}` : 'unavailable'}</p>
+                  </div>
+                  {paymentFloor?.method && <p className="mt-1 text-xs text-muted-foreground">Payment-method floor set by {paymentFloor.method.label} ({paymentFloor.method.percentage}% + ${Number(paymentFloor.method.fixed_fee).toFixed(2)}).</p>}
                   {marginFloor !== null && Number(formData.price) < Math.round(marginFloor * 100) / 100 && (
-                    <p className="font-semibold text-red-700">Price is below the margin floor and cannot be saved.</p>
+                    <p className="font-semibold text-amber-800">Warning: price is below the safe floor. Super Admin confirmation and a reason are required.</p>
                   )}
                   <Label htmlFor="price-edit-note" className="mt-2 block">Price change reason (admin audit)</Label>
-                  <Input id="price-edit-note" value={formData.price_edit_note || ''} onChange={e => setFormData(p => ({ ...p, price_edit_note: e.target.value }))} placeholder="Optional reason for this price edit" className="mt-1" />
+                  <Input id="price-edit-note" value={formData.price_edit_note || ''} onChange={e => setFormData(p => ({ ...p, price_edit_note: e.target.value }))} placeholder="Required when overriding the safe floor" className="mt-1" />
                 </div>
               )}
               <div>

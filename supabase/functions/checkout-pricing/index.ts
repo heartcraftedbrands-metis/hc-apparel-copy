@@ -31,6 +31,38 @@ type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
 type Product = Record<string, unknown>;
 
+const paymentMethodDefaults: Record<string, Item> = {
+  card: { label: 'Card', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
+  apple_pay: { label: 'Apple Pay', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
+  cashapp: { label: 'Cash App Pay', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
+  link: { label: 'Link / Card', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
+  afterpay_clearpay: { label: 'Cash App Afterpay', enabled: true, percentage: 6, fixed_fee: 0.3 },
+  klarna: { label: 'Klarna', enabled: true, percentage: 5.99, fixed_fee: 0.3 },
+};
+const normalizePaymentMethods = (value: unknown) => {
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, Item> : {};
+  return Object.fromEntries(Object.entries(paymentMethodDefaults).map(([key, defaults]) => {
+    const supplied = input[key] || {};
+    return [key, {
+      ...defaults,
+      ...supplied,
+      enabled: supplied.enabled == null ? defaults.enabled : supplied.enabled === true,
+      percentage: Math.max(0, Math.min(99, safeNumber(supplied.percentage ?? defaults.percentage))),
+      fixed_fee: Math.max(0, safeNumber(supplied.fixed_fee ?? defaults.fixed_fee)),
+    }];
+  }));
+};
+const worstPaymentCost = (charge: number, value: unknown) => Object.entries(normalizePaymentMethods(value))
+  .filter(([, method]) => method.enabled === true)
+  .map(([key, method]) => ({
+    key,
+    label: String(method.label || key),
+    percentage: safeNumber(method.percentage),
+    fixed_fee: safeNumber(method.fixed_fee),
+    amount: money(charge * safeNumber(method.percentage) / 100 + safeNumber(method.fixed_fee)),
+  }))
+  .sort((a, b) => b.amount - a.amount)[0] || { key: null, label: 'Disabled', percentage: 0, fixed_fee: 0, amount: 0 };
+
 const settingsBooleanFields = new Set([
   'processing_enabled', 'sales_tax_enabled', 'ss_shipping_enabled', 'usps_enabled',
   'usps_ground_advantage_enabled', 'usps_priority_mail_enabled', 'hc_fallback_enabled',
@@ -386,12 +418,15 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   const shipping = money(components.reduce((sum, component) => sum + safeNumber(component.customer_charge), 0));
   const tax = settings.sales_tax_enabled === true ? money((merchandise + shipping) * safeNumber(settings.sales_tax_rate_percent) / 100) : 0;
   const total = money(merchandise + shipping + tax);
-  const processing = settings.processing_enabled === false ? 0 : money(total * safeNumber(settings.processing_percent) / 100 + safeNumber(settings.processing_fixed_fee));
+  const processingMethod = settings.processing_enabled === false
+    ? { key: null, label: 'Disabled', percentage: 0, fixed_fee: 0, amount: 0 }
+    : worstPaymentCost(total, settings.payment_method_costs);
+  const processing = processingMethod.amount;
   const beforeShipping = money(merchandise - vendorCost - printCost - processing);
   const estimatedMargin = money(beforeShipping + shipping - estimatedVendorShipping - uspsQuotedShipping);
   const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * items.reduce((sum, item) => sum + safeNumber(item.quantity), 0));
   if (estimatedMargin < requiredMargin) throw new Error('This cart requires a pricing review before checkout. Please contact support@ilovehcapparel.net.');
-  return { merchandise, shipping, tax, total, processing, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
+  return { merchandise, shipping, tax, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
 }
 
 Deno.serve(async (request) => {
@@ -428,6 +463,14 @@ Deno.serve(async (request) => {
         if (settingsBooleanFields.has(key) && typeof value === 'boolean') updates[key] = value;
         if (settingsNumberFields.has(key) && value !== '' && value != null && Number.isFinite(Number(value))) updates[key] = Number(value);
         if (settingsTextFields.has(key) && typeof value === 'string' && value.trim() !== '') updates[key] = value.trim();
+      }
+      if (payload.payment_method_costs && typeof payload.payment_method_costs === 'object' && !Array.isArray(payload.payment_method_costs)) {
+        const normalized = normalizePaymentMethods(payload.payment_method_costs);
+        const updatedAt = new Date().toISOString();
+        updates.payment_method_costs = Object.fromEntries(Object.entries(normalized).map(([key, method]) => [key, { ...method, updated_at: updatedAt }]));
+        const legacyWorst = worstPaymentCost(100, updates.payment_method_costs);
+        updates.processing_percent = legacyWorst.percentage;
+        updates.processing_fixed_fee = legacyWorst.fixed_fee;
       }
       if (updates.default_product_weight_unit && !['oz', 'lb'].includes(String(updates.default_product_weight_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
       if (updates.default_package_dimension_unit && !['in', 'cm'].includes(String(updates.default_package_dimension_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
@@ -530,11 +573,13 @@ Deno.serve(async (request) => {
       estimated_vendor_shipping: quote.estimatedVendorShipping,
       usps_quoted_shipping: quote.uspsQuotedShipping,
       payment_processing_estimate: quote.processing,
+      estimated_processing_cost: quote.processing,
+      processing_rate_used: quote.processingMethod,
       printing_cost_estimate: quote.printCost,
       net_margin_before_shipping: quote.beforeShipping,
       estimated_net_margin: quote.estimatedMargin,
       shipping_components: quote.components,
-      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax_rate_percent: settings.sales_tax_rate_percent, processing_percent: settings.processing_percent, processing_fixed_fee: settings.processing_fixed_fee },
+      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax_rate_percent: settings.sales_tax_rate_percent, payment_method_costs: normalizePaymentMethods(settings.payment_method_costs), worst_case_processing: quote.processingMethod },
       shipping_carrier: service?.carrier || (quote.components.length === 1 ? 'S&S fallback' : 'Mixed'),
       shipping_service: service?.service || null,
       shipping_quote_at: new Date().toISOString(),
