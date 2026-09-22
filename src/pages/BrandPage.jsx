@@ -60,6 +60,9 @@ export default function BrandPage() {
   const heroProduct = selectBrandProduct(products, page.name);
   const heroImage = page.hero_image_url || getCatalogProductImage(heroProduct);
   const heroPosition = page.hero_object_position || 'center center';
+  const heroMobilePosition = page.hero_mobile_object_position || heroPosition;
+  const heroFit = page.hero_image_fit === 'contain' ? 'contain' : 'cover';
+  const heroBackground = heroFit === 'contain' ? 'bg-[#efebeb]' : 'bg-[#202b16]';
   const availableCategoryButtons = useMemo(() => CATEGORY_FILTERS.slice(1)
     .filter(item => products.some(product => matchesCategory(product, item.value))), [products]);
   const categoryButtons = useMemo(() => {
@@ -87,8 +90,9 @@ export default function BrandPage() {
   return <div className="min-h-screen bg-[#f8f5ed]">
     <section className="bg-[#303f20] text-[#f8f5ed]">
       <div className="container mx-auto grid min-w-0 overflow-hidden lg:grid-cols-[minmax(0,7fr)_minmax(320px,5fr)]">
-        <div className="aspect-video min-w-0 overflow-hidden bg-[#202b16]">
-          <CatalogEditorialImage src={heroImage} alt={`${page.name} apparel blanks`} className="object-cover" style={{ objectPosition: heroPosition }} loading="eager" />
+        <div className={`${heroFit === 'contain' ? 'aspect-[4/5] sm:aspect-[4/3] lg:aspect-video' : 'aspect-video'} min-w-0 overflow-hidden ${heroBackground}`}>
+          <CatalogEditorialImage src={heroImage} alt={`${page.name} apparel blanks`} className="hidden lg:block" style={{ objectFit: heroFit, objectPosition: heroPosition }} loading="eager" />
+          <CatalogEditorialImage src={heroImage} alt={`${page.name} apparel blanks`} className="lg:hidden" style={{ objectFit: heroFit, objectPosition: heroMobilePosition }} loading="eager" />
         </div>
         <div className="flex min-w-0 flex-col justify-center px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
           {page.logo_url || page.logo ? <div className="mb-6 flex h-20 max-w-xs items-center rounded-xl bg-white p-4"><img src={page.logo_url || page.logo} alt={`${page.name} logo`} className="max-h-full max-w-full object-contain" /></div> : <p className="mb-5 text-xl font-black tracking-tight">{page.name}</p>}

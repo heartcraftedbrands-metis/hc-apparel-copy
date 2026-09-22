@@ -15,11 +15,11 @@ const HERO_POSITIONS = [
   ['right center', 'Right Center'],
 ];
 
-function HeroPreview({ image, name, position, mobile = false }) {
+function HeroPreview({ image, name, position, fit = 'cover', mobile = false }) {
   return <div className={mobile ? 'mx-auto w-[180px]' : 'w-full'}>
     <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{mobile ? 'Mobile hero preview' : 'Desktop hero preview'}</p>
-    <div className="aspect-video overflow-hidden rounded-lg border bg-[#25331a]">
-      {image ? <img src={image} alt={`${name} ${mobile ? 'mobile' : 'desktop'} hero preview`} className="h-full w-full object-cover" style={{ objectPosition: position }} /> : <div className="flex h-full items-center justify-center px-3 text-center text-sm font-bold text-white">{name}</div>}
+    <div className={`${mobile && fit === 'contain' ? 'aspect-[4/5]' : 'aspect-video'} overflow-hidden rounded-lg border ${fit === 'contain' ? 'bg-[#efebeb]' : 'bg-[#25331a]'}`}>
+      {image ? <img src={image} alt={`${name} ${mobile ? 'mobile' : 'desktop'} hero preview`} className="h-full w-full" style={{ objectFit: fit, objectPosition: position }} /> : <div className="flex h-full items-center justify-center px-3 text-center text-sm font-bold text-white">{name}</div>}
     </div>
   </div>;
 }
@@ -64,6 +64,8 @@ export default function AdminBrandPages() {
       slug: page.slug, name: page.name.trim(), tagline: page.tagline.trim(), description: page.description.trim(),
       hero_image_url: page.hero_image_url || null, logo_url: page.logo_url || null,
       hero_object_position: page.hero_object_position || 'center center',
+      hero_mobile_object_position: page.hero_mobile_object_position || null,
+      hero_image_fit: page.hero_image_fit === 'contain' ? 'contain' : 'cover',
       categories: page.categories, is_active: page.is_active !== false, sort_order: Number(page.sort_order) || 0,
       updated_at: new Date().toISOString(),
     };
@@ -124,12 +126,14 @@ export default function AdminBrandPages() {
           </div>
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><strong>Safe area:</strong> Keep faces, logos, and important subjects inside the center safe zone. Use this size for best desktop and mobile cropping.</p>
           <div className="mt-4 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
-            <HeroPreview image={page.hero_image_url} name={page.name} position={page.hero_object_position || 'center center'} />
-            <HeroPreview image={page.hero_image_url} name={page.name} position={page.hero_object_position || 'center center'} mobile />
+            <HeroPreview image={page.hero_image_url} name={page.name} position={page.hero_object_position || 'center center'} fit={page.hero_image_fit || 'cover'} />
+            <HeroPreview image={page.hero_image_url} name={page.name} position={page.hero_mobile_object_position || page.hero_object_position || 'center center'} fit={page.hero_image_fit || 'cover'} mobile />
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-semibold">Upload / replace {page.name} hero image<input aria-label={`Upload ${page.name} hero image`} type="file" accept="image/png,image/jpeg,image/webp" onChange={event => upload('hero', event.target.files?.[0])} className="mt-2 block w-full text-xs font-normal" /></label>
-            <label className="text-sm font-semibold">Hero image position<select value={page.hero_object_position || 'center center'} onChange={event => update({ hero_object_position: event.target.value })} className="mt-1 block w-full rounded-lg border bg-white p-2 font-normal">{HERO_POSITIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="text-sm font-semibold">Image fit<select value={page.hero_image_fit || 'cover'} onChange={event => update({ hero_image_fit: event.target.value })} className="mt-1 block w-full rounded-lg border bg-white p-2 font-normal"><option value="cover">Cover frame (cropped)</option><option value="contain">Show full garment</option></select></label>
+            <label className="text-sm font-semibold">Desktop focal position<select value={page.hero_object_position || 'center center'} onChange={event => update({ hero_object_position: event.target.value })} className="mt-1 block w-full rounded-lg border bg-white p-2 font-normal">{HERO_POSITIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="text-sm font-semibold">Mobile focal position<select value={page.hero_mobile_object_position || page.hero_object_position || 'center center'} onChange={event => update({ hero_mobile_object_position: event.target.value })} className="mt-1 block w-full rounded-lg border bg-white p-2 font-normal">{HERO_POSITIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           </div>
           <button type="button" onClick={() => update({ hero_image_url: null })} className="mt-3 text-xs font-semibold text-red-700 underline">Remove hero image</button>
         </section>
