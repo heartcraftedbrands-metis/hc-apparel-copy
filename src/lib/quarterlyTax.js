@@ -128,7 +128,7 @@ export function quarterlyDataCheck(orders) {
     if (order.sales_tax_amount == null) warnings.push({ severity: 'warning', order_id: order.id, message: 'Tax amount is not stored.' });
     if (!order.payment_method_type && !order.payment_method) warnings.push({ severity: 'warning', order_id: order.id, message: 'Payment method is missing.' });
     if (order.shipping_amount == null) warnings.push({ severity: 'warning', order_id: order.id, message: 'Shipping amount is not stored.' });
-    if (order.vendor_garment_cost == null && order.vendor_cost_estimate == null) warnings.push({ severity: 'warning', order_id: order.id, message: 'Vendor product cost is missing; estimated profit is incomplete.' });
+    if (money(order.vendor_garment_cost ?? order.vendor_cost_estimate) <= 0) warnings.push({ severity: 'warning', order_id: order.id, message: 'Vendor product cost is missing or zero; estimated profit is incomplete.' });
     if ((order.status === 'refunded' || order.payment_status === 'refunded') && jsonValue(order.pricing_snapshot, ['refund_amount', 'refunded_amount', 'total_refunded']) === null) warnings.push({ severity: 'warning', order_id: order.id, message: 'Refund total is inferred from the paid amount; refund breakdown is unavailable.' });
     if (values.paid <= 0) warnings.push({ severity: 'error', order_id: order.id, message: 'Paid order has a zero amount.' });
     if (!order.fulfillment_source && !order.shipping_components) warnings.push({ severity: 'warning', order_id: order.id, message: 'Fulfillment source is missing.' });
