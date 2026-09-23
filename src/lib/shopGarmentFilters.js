@@ -493,12 +493,14 @@ export function matchesBrand(product, brandValue) {
   const requestedBrand = SS_ACTIVEWEAR_BRANDS.find(brand => (
     normalized(brand) === normalized(brandValue)
     || brandFilterValue(brand) === normalized(brandValue)
-  ));
-  return requestedBrand ? normalized(getProductBrand(product)) === normalized(requestedBrand) : false;
+  )) || String(brandValue).replace(/_/g, ' ');
+  return normalized(getProductBrand(product)) === normalized(requestedBrand);
 }
 
 export function getFilterOptions(products) {
-  const brands = SS_ACTIVEWEAR_BRANDS
+  const catalogBrands = [...new Set(products.map(getProductBrand).filter(Boolean))];
+  const brands = catalogBrands
+    .sort((a, b) => a.localeCompare(b))
     .map(brand => ({
       value: brandFilterValue(brand),
       label: brand,

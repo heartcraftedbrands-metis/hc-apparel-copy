@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
-import { BRAND_PAGES } from '@/lib/brandPages';
-import { CATEGORY_FILTERS } from '@/lib/shopGarmentFilters';
+import { BRAND_PAGES, defaultBrandPage, normalizeBrandName } from '@/lib/brandPages';
+import { filterPublicProducts } from '@/lib/productVisibility';
+import { CATEGORY_FILTERS, getProductBrand } from '@/lib/shopGarmentFilters';
 
 const maxBytes = 8 * 1024 * 1024;
 const HERO_WIDTH = 1600;
@@ -33,11 +35,45 @@ export default function AdminBrandPages() {
   const [catalogResult, setCatalogResult] = useState(null);
   useEffect(() => {
     document.title = 'Admin Brand Pages | HC Apparel';
-    supabase.from('brand_pages').select('*').then(({ data, error: loadError }) => {
-      if (loadError) { setError('Brand settings could not be loaded. Check the brand pages migration.'); return; }
-      const saved = new Map((data || []).map(page => [page.slug, page]));
-      setPages(BRAND_PAGES.map(page => ({ ...page, ...saved.get(page.slug) })));
-    });
+    Promise.all([
+      supabase.from('brand_pages').select('*'),
+      base44.entities.Product.list('-created_date'),
+    ]).then(([{ data, error: loadError }, catalog]) => {
+      if (loadError) setError('Saved brand settings could not be loaded. Catalog defaults remain available.');
+      const saved = new Map((data || []).map(item => [item.slug, item]));
+      const publicProducts = filterPublicProducts(catalog || []);
+      const counts = new Map();
+      publicProducts.forEach(product => {
+        const name = getProductBrand(product);
+        if (!name) return;
+        const key = normalizeBrandName(name);
+        counts.set(key, { name, count: (counts.get(key)?.count || 0) + 1 });
+      });
+      const names = new Map(BRAND_PAGES.map(item => [normalizeBrandName(item.name), item.name]));
+      counts.forEach((value, key) => names.set(key, value.name));
+      const merged = [...names.entries()].map(([key, name]) => {
+        const defaults = defaultBrandPage(name);
+        const persisted = saved.get(defaults.slug);
+        const productCount = counts.get(key)?.count || 0;
+        const configStatus = productCount === 0
+          ? 'No public products'
+          : !persisted
+            ? 'Missing config'
+            : !(persisted.hero_image_url || defaults.hero_image_url)
+              ? 'Missing hero'
+              : 'Ready';
+        return {
+          ...defaults,
+          ...(persisted || {}),
+          product_count: productCount,
+          config_status: configStatus,
+          route_status: productCount > 0 ? 'Ready' : 'No public products',
+          has_saved_config: Boolean(persisted),
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      setPages(merged);
+      setSelected(current => merged.some(item => item.slug === current) ? current : merged[0]?.slug);
+    }).catch(() => setError('Brand catalog status could not be loaded. Please refresh.'));
   }, []);
   const page = pages.find(item => item.slug === selected);
   const update = patch => setPages(items => items.map(item => item.slug === selected ? { ...item, ...patch } : item));
@@ -107,10 +143,16 @@ export default function AdminBrandPages() {
     <h1 className="mt-3 text-3xl font-black">Admin Brand Pages</h1>
     <p className="mt-2 text-sm text-muted-foreground">Manage brand presentation only. Product visibility and pricing are handled separately.</p>
     <div className="mt-8 grid gap-5 md:grid-cols-[240px_1fr]">
-      <nav aria-label="Brands" className="flex gap-2 overflow-x-auto pb-2 md:flex-col md:overflow-visible">{[...pages].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(item => <button key={item.slug} type="button" onClick={() => { setSelected(item.slug); setError(''); setMessage(''); }} className={`shrink-0 rounded-lg border px-4 py-3 text-left text-sm font-semibold ${selected === item.slug ? 'bg-primary text-white' : 'bg-white'}`}>{item.name}</button>)}</nav>
+      <nav aria-label="Brands" className="flex gap-2 overflow-x-auto pb-2 md:flex-col md:overflow-visible">{[...pages].sort((a, b) => a.name.localeCompare(b.name)).map(item => <button key={item.slug} type="button" onClick={() => { setSelected(item.slug); setError(''); setMessage(''); }} className={`shrink-0 rounded-lg border px-4 py-3 text-left text-sm font-semibold ${selected === item.slug ? 'bg-primary text-white' : 'bg-white'}`}><span className="block">{item.name}</span><span className={`mt-1 block text-[10px] ${selected === item.slug ? 'text-white/75' : item.config_status === 'Ready' ? 'text-green-700' : 'text-amber-700'}`}>{item.config_status}</span></button>)}</nav>
       {page && <div className="min-w-0 rounded-2xl border bg-white p-5 shadow-sm sm:p-7">
         {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         {message && <p role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
+        <div className="mb-5 grid gap-3 rounded-xl border bg-[#faf8f1] p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div><span className="block text-xs text-muted-foreground">Slug</span><strong>{page.slug}</strong></div>
+          <div><span className="block text-xs text-muted-foreground">Public products</span><strong>{page.product_count || 0}</strong></div>
+          <div><span className="block text-xs text-muted-foreground">Configuration</span><strong>{page.config_status}</strong></div>
+          <div><span className="block text-xs text-muted-foreground">Route status</span><strong>{page.route_status}</strong></div>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold">Brand name<input value={page.name} onChange={event => update({ name: event.target.value })} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label>
           <label className="text-sm font-semibold">Sort order<input type="number" value={page.sort_order || 0} onChange={event => update({ sort_order: event.target.value })} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label>

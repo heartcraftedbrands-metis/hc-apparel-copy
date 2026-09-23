@@ -18,5 +18,30 @@ export const BRAND_PAGES = [
   { slug: 'oakley', name: 'Oakley', tagline: 'Performance-inspired everyday gear.', description: 'Shop apparel and accessories for active teams and businesses.', categories: ['sportswear', 'polos', 'hats', 'bags'], logo: undefined },
 ];
 
-export const brandPageBySlug = slug => BRAND_PAGES.find(brand => brand.slug === slug);
-export const brandPageByName = name => BRAND_PAGES.find(brand => brand.name.toLowerCase().replace(/[^a-z0-9]/g, '') === String(name || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+export const normalizeBrandName = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export const brandSlug = value => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/&/g, ' and ')
+  .replace(/\+/g, ' plus ')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+  .replace(/^bella-plus-canvas$/, 'bella-canvas')
+  .replace(/^port-and-company$/, 'port-company');
+
+export const brandPageBySlug = slug => BRAND_PAGES.find(brand => brand.slug === brandSlug(slug));
+export const brandPageByName = name => BRAND_PAGES.find(brand => normalizeBrandName(brand.name) === normalizeBrandName(name));
+
+export function defaultBrandPage(name) {
+  const savedDefault = brandPageByName(name);
+  if (savedDefault) return savedDefault;
+  return {
+    slug: brandSlug(name),
+    name: String(name || '').trim(),
+    tagline: `Shop ${String(name || '').trim()} apparel blanks.`,
+    description: `Explore public ${String(name || '').trim()} garments for teams, businesses, creators, and everyday wear.`,
+    categories: [],
+    is_active: true,
+  };
+}

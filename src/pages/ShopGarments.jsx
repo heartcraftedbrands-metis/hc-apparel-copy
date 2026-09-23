@@ -28,7 +28,7 @@ import {
   matchesCategory,
 } from '@/lib/shopGarmentFilters';
 import { SS_ACTIVEWEAR_BRANDS, brandFilterValue } from '@/lib/ssBrands';
-import { BRAND_PAGES, brandPageByName } from '@/lib/brandPages';
+import { brandSlug } from '@/lib/brandPages';
 
 function toggleListValue(setter, value) {
   setter(current => (
@@ -65,6 +65,7 @@ function FilterPanel({
   resetFilters,
   filterState,
 }) {
+  const [brandSearch, setBrandSearch] = useState('');
   const visibleCategories = CATEGORY_FILTERS.filter(filter => (
     filter.value === 'all'
     || products.some(product => matchesCategory(product, filter.value))
@@ -80,6 +81,7 @@ function FilterPanel({
     option.value,
     filterAndSortGarments(products, { ...filterState, brand: option.value }).length,
   ]));
+  const visibleBrands = options.brands.filter(option => option.label.toLowerCase().includes(brandSearch.trim().toLowerCase()));
 
   return (
     <div className="space-y-6">
@@ -107,7 +109,11 @@ function FilterPanel({
 
       {options.brands.length > 0 && (
         <div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Brand</p>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Search by Brands</p>
+          <label className="relative mb-2 block">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input aria-label="Search brands" placeholder="Search brands…" value={brandSearch} onChange={event => setBrandSearch(event.target.value)} className="h-9 w-full rounded-lg border bg-white pl-8 pr-2 text-sm" />
+          </label>
           <div className="space-y-0.5">
             <button
               type="button"
@@ -121,7 +127,7 @@ function FilterPanel({
             >
               All Brands
             </button>
-            {options.brands.map(option => (
+            {visibleBrands.map(option => (
               <button
                 key={option.value}
                 type="button"
@@ -327,13 +333,12 @@ export default function ShopGarments() {
       brandFilterValue(item) === requestedType
       || brandFilterValue(item) === requestedBrand
       || item.toLowerCase() === requestedBrand?.toLowerCase()
-    ));
+    )) || requestedBrand;
 
     setSearch(params.get('q') || '');
     setCategory(categoryExists ? requestedType : 'all');
     setBrand(matchedBrand ? brandFilterValue(matchedBrand) : 'all');
-    if (matchedBrand && brandPageByName(matchedBrand)) navigate(`/brand/${brandPageByName(matchedBrand).slug}`, { replace: true });
-  }, [location.search, navigate]);
+  }, [location.search]);
 
   const {
     data: allProducts = [],
@@ -400,8 +405,8 @@ export default function ShopGarments() {
     setCategory,
     brand,
     setBrand: value => {
-      const page = BRAND_PAGES.find(item => brandFilterValue(item.name) === value);
-      if (page) navigate(`/brand/${page.slug}`);
+      const option = filterOptions.brands.find(item => item.value === value);
+      if (option) navigate(`/brand/${brandSlug(option.label)}`);
       else setBrand(value);
     },
     selectedSizes,
@@ -487,7 +492,7 @@ export default function ShopGarments() {
       </div>
 
       <div className="container mx-auto px-4 py-6">
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-2" aria-label="Shop by brand">{BRAND_PAGES.map(item => <Link key={item.slug} to={`/brand/${item.slug}`} className="shrink-0 rounded-full border bg-white px-4 py-2 text-xs font-bold hover:border-primary hover:text-primary">{item.name}</Link>)}</div>
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-2" aria-label="Search by Brands">{filterOptions.brands.map(item => <Link key={item.value} to={`/brand/${brandSlug(item.label)}`} className="shrink-0 rounded-full border bg-white px-4 py-2 text-xs font-bold hover:border-primary hover:text-primary">{item.label}</Link>)}</div>
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <div className="relative min-w-[180px] max-w-sm flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
 import GarmentProductCard from '@/components/shop/GarmentProductCard';
 import CatalogEditorialImage from '@/components/home/CatalogEditorialImage';
-import { brandPageBySlug } from '@/lib/brandPages';
+import { brandPageBySlug, brandSlug, defaultBrandPage } from '@/lib/brandPages';
 import { filterPublicProducts } from '@/lib/productVisibility';
 import { getCatalogProductImage, selectBrandProduct } from '@/lib/homeCatalogImages';
 import {
@@ -23,7 +23,7 @@ import {
 
 export default function BrandPage() {
   const { slug } = useParams();
-  const defaults = brandPageBySlug(slug);
+  const staticDefaults = brandPageBySlug(slug);
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
@@ -34,14 +34,11 @@ export default function BrandPage() {
   useEffect(() => {
     setCategory('all'); setSearch(''); setSize(''); setColor('');
   }, [slug]);
-  useEffect(() => { document.title = `${defaults?.name || 'Brand'} Blanks | HC Apparel`; }, [defaults?.name]);
-
-  const { data: savedPage, isLoading: pageLoading, isError: pageError } = useQuery({
+  const { data: savedPage } = useQuery({
     queryKey: ['brand-page', slug],
-    enabled: Boolean(defaults),
     queryFn: async () => {
       const { data, error } = await supabase.from('brand_pages').select('*').eq('slug', slug).maybeSingle();
-      if (error) throw error;
+      if (error) return null;
       return data;
     },
   });
@@ -49,10 +46,17 @@ export default function BrandPage() {
     queryKey: ['shop-garments'],
     queryFn: () => base44.entities.Product.list('-created_date'),
   });
-  const page = { ...defaults, ...(savedPage || {}) };
-  const products = useMemo(() => filterPublicProducts(catalog).filter(product =>
+  const publicProducts = useMemo(() => filterPublicProducts(catalog), [catalog]);
+  const catalogBrand = useMemo(() => {
+    const product = publicProducts.find(item => brandSlug(getProductBrand(item)) === brandSlug(slug));
+    return product ? getProductBrand(product) : '';
+  }, [publicProducts, slug]);
+  const defaults = staticDefaults || (catalogBrand ? defaultBrandPage(catalogBrand) : null);
+  const page = { ...(defaults || {}), ...(savedPage || {}) };
+  useEffect(() => { document.title = `${page.name || 'Brand'} Blanks | HC Apparel`; }, [page.name]);
+  const products = useMemo(() => publicProducts.filter(product =>
     getProductBrand(product).toLowerCase().replace(/[^a-z0-9]/g, '') === page.name?.toLowerCase().replace(/[^a-z0-9]/g, '')
-  ), [catalog, page.name]);
+  ), [publicProducts, page.name]);
   const filtered = useMemo(() => filterAndSortGarments(products, {
     category, search, sort, minPrice, maxPrice,
     sizes: size ? [size] : [], colors: color ? [color] : [],
@@ -84,8 +88,11 @@ export default function BrandPage() {
     });
   }, [filtered]);
 
-  if (pageLoading) return <div className="container mx-auto px-4 py-20 text-center">Loading brand page…</div>;
-  if (!defaults || pageError || !savedPage || page.is_active === false) return <div className="container mx-auto px-4 py-20 text-center"><h1 className="text-3xl font-bold">Brand page unavailable</h1><Link to="/ShopGarments" className="mt-5 inline-block text-primary underline">Shop all garments</Link></div>;
+  if (isLoading && !defaults) return <div className="container mx-auto px-4 py-20 text-center">Loading brand page…</div>;
+  if (!defaults || page.is_active === false) {
+    const fallbackBrand = page.name || catalogBrand || slug;
+    return <Navigate to={`/ShopGarments?brand=${encodeURIComponent(fallbackBrand)}`} replace />;
+  }
 
   return <div className="min-h-screen bg-[#f8f5ed]">
     <section className="bg-[#303f20] text-[#f8f5ed]">
