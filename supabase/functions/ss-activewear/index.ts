@@ -845,16 +845,25 @@ Deno.serve(async (request) => {
       stock: candidate.total_inventory,
       category: candidate.primary_type === 'long_sleeve'
         ? candidate.secondary_tags.includes('kids') ? 'youth_long_sleeve_shirts'
-          : candidate.secondary_tags.includes('womens') ? 'womens_long_sleeve_shirts' : 'long_sleeve_shirts'
+          : candidate.secondary_tags.includes('womens') ? 'womens_long_sleeve_shirts' : 'mens_long_sleeve_shirts'
         : candidate.primary_type === 'hoodies' ? 'hoodies'
-          : candidate.primary_type === 'crewnecks' || candidate.primary_type === 'quarter_zips' ? 'crewnecks'
-            : candidate.primary_type === 'outerwear' ? 'jackets'
+          : candidate.primary_type === 'crewnecks' || candidate.primary_type === 'quarter_zips'
+            ? candidate.secondary_tags.includes('kids') ? 'youth_crewnecks'
+              : candidate.secondary_tags.includes('womens') ? 'womens_crewnecks' : 'mens_crewnecks'
+            : candidate.primary_type === 'outerwear'
+              ? candidate.secondary_tags.includes('kids') ? 'youth_jackets'
+                : candidate.secondary_tags.includes('womens') ? 'womens_jackets' : 'mens_jackets'
               : candidate.primary_type === 'hats' ? 'hats'
-                : candidate.primary_type === 't_shirts' ? 't_shirts'
-                  : candidate.primary_type === 'tank_tops' ? 'tank_tops'
-                    : candidate.primary_type === 'polos' ? 'polos'
-                      : candidate.primary_type === 'shorts' ? 'shorts'
-                        : candidate.primary_type === 'pants' ? 'pants' : 'sportswear',
+                : candidate.primary_type === 't_shirts'
+                  ? candidate.secondary_tags.includes('kids') ? 'youth_short_sleeve_shirts'
+                    : candidate.secondary_tags.includes('womens') ? 'womens_short_sleeve_shirts' : 'mens_short_sleeve_shirts'
+                  : candidate.primary_type === 'polos'
+                    ? candidate.secondary_tags.includes('kids') ? 'youth_polo_shirts'
+                      : candidate.secondary_tags.includes('womens') ? 'womens_polo_shirts' : 'mens_polo_shirts'
+                    : ['tank_tops', 'shorts', 'pants'].includes(candidate.primary_type)
+                      ? candidate.secondary_tags.includes('kids') ? 'youth_sportswear'
+                        : candidate.secondary_tags.includes('womens') ? 'womens_sportswear' : 'mens_sportswear'
+                      : 'sportswear',
       categories: [candidate.base_category, candidate.primary_type].filter(Boolean),
       tags: candidate.secondary_tags.map((tag) => `storefront:${tag}`),
       primary_garment_type: candidate.primary_type,
