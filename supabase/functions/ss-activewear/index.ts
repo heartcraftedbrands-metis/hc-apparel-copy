@@ -192,6 +192,57 @@ function americanApparelFallWinterScore(style: Record<string, unknown> & { canon
   return score;
 }
 
+function nextLevelMerchScore(style: Record<string, unknown> & { canonicalBrand: string }) {
+  const text = [style.styleName, style.title, style.baseCategory, style.partNumber]
+    .map((value) => String(value || '').toLowerCase()).join(' ');
+  let score = 0;
+  if (/(tee|t-shirt|t shirt|long.?sleeve)/.test(text)) score += 12;
+  if (/(hood|hoodie|fleece|sweatshirt|crewneck|crew neck)/.test(text)) score += 14;
+  if (/(tank|polo|quarter.?zip|jacket|outerwear|jogger|pant|short)/.test(text)) score += 12;
+  if (/(women|ladies|youth|kids|performance|moisture|athletic|team)/.test(text)) score += 5;
+  if (/(mask|tote|blanket|accessory)/.test(text)) score -= 30;
+  if (!imageUrl(style.styleImage)) score -= 100;
+  return score;
+}
+
+function nextLevelPrimary(textValueInput: unknown) {
+  const text = String(textValueInput || '').toLowerCase();
+  if (/(quarter.?zip|1\/4.?zip)/.test(text)) return 'quarter_zips';
+  if (/(jacket|outerwear|windbreaker|vest|coat)/.test(text)) return 'outerwear';
+  if (/(hood|hoodie|hooded.?sweatshirt)/.test(text)) return 'hoodies';
+  if (/(crewneck|crew.?neck|sweatshirt|fleece)/.test(text)) return 'crewnecks';
+  if (/(jogger|sweat.?pant|legging|\bpants?\b)/.test(text)) return 'pants';
+  if (/\bshorts?\b/.test(text)) return 'shorts';
+  if (/\bpolos?\b/.test(text)) return 'polos';
+  if (/(tank|sleeveless)/.test(text)) return 'tank_tops';
+  if (/(long.?sleeve|longsleeve)/.test(text)) return 'long_sleeve';
+  if (/(tee|t-shirt|t shirt)/.test(text)) return 't_shirts';
+  if (/(hat|cap|beanie|headwear)/.test(text)) return 'hats';
+  return null;
+}
+
+function nextLevelSecondaryTags(primaryType: string, textValueInput: unknown) {
+  const text = String(textValueInput || '').toLowerCase();
+  const tags = new Set<string>();
+  if (/(women|ladies)/.test(text)) tags.add('womens');
+  else if (/(youth|kids|child)/.test(text)) tags.add('kids');
+  else tags.add('mens');
+  if (/(performance|moisture|wicking|athletic|sport|team)/.test(text)) tags.add('sportswear');
+  if (/(performance|moisture|wicking)/.test(text)) tags.add('performance');
+  if (['polos', 'quarter_zips', 'outerwear'].includes(primaryType)) tags.add('business_apparel');
+  if (['long_sleeve', 'hoodies', 'crewnecks', 'outerwear', 'pants'].includes(primaryType)) tags.add('winter_cold_weather');
+  return [...tags];
+}
+
+function nextLevelRuleKey(primaryType: string) {
+  if (primaryType === 'hoodies') return 'hoodie';
+  if (primaryType === 'crewnecks') return 'crewneck';
+  if (primaryType === 'long_sleeve') return 'long_sleeve';
+  if (primaryType === 'hats') return 'hat';
+  if (['outerwear', 'quarter_zips', 'pants', 'shorts', 'polos'].includes(primaryType)) return 'premium_specialty';
+  return 'premium_tshirt';
+}
+
 const championWinterGarmentOrder = [
   'long_sleeve', 'quarter_zips', 'hoodies', 'crewnecks', 'outerwear', 'pants', 'hats',
 ];
@@ -509,6 +560,8 @@ Deno.serve(async (request) => {
     'get_american_apparel_fall_winter_candidate_report',
     'import_american_apparel_fall_winter_drafts',
     'mark_american_apparel_fall_winter_qa_ready',
+    'get_next_level_candidate_report',
+    'import_next_level_live_products',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -588,10 +641,12 @@ Deno.serve(async (request) => {
     'import_champion_winter_drafts',
     'get_american_apparel_fall_winter_candidate_report',
     'import_american_apparel_fall_winter_drafts',
+    'get_next_level_candidate_report',
+    'import_next_level_live_products',
   ].includes(payload.action || '')) {
-    const seasonalBrand = payload.action?.includes('american_apparel') ? 'American Apparel' : 'Champion';
+    const seasonalBrand = payload.action?.includes('next_level') ? 'Next Level' : payload.action?.includes('american_apparel') ? 'American Apparel' : 'Champion';
     const normalizedSeasonalBrand = normalizeBrand(seasonalBrand);
-    const reportAction = seasonalBrand === 'Champion' ? 'get_champion_winter_candidate_report' : 'get_american_apparel_fall_winter_candidate_report';
+    const reportAction = seasonalBrand === 'Champion' ? 'get_champion_winter_candidate_report' : seasonalBrand === 'American Apparel' ? 'get_american_apparel_fall_winter_candidate_report' : 'get_next_level_candidate_report';
     const { data: latest, error: latestError } = await userClient
       .from('ss_import_staging')
       .select('import_session_id')
@@ -606,7 +661,7 @@ Deno.serve(async (request) => {
       return json(request, { error: `Stage and refresh ${seasonalBrand} styles before reviewing seasonal candidates` }, 409);
     }
 
-    const [stylesResult, skuResult, existingResult, rulesResult] = await Promise.all([
+    const [stylesResult, skuResult, existingResult, rulesResult, settingsResult] = await Promise.all([
       userClient.from('ss_import_staging')
         .select('raw_row_data,style_number,image_url')
         .eq('import_session_id', latest.import_session_id)
@@ -620,8 +675,11 @@ Deno.serve(async (request) => {
       userClient.from('storefront_pricing_rules')
         .select('rule_key,cost_multiplier,fixed_allowance,minimum_margin_percent,storefront_margin_buffer')
         .eq('is_active', true),
+      userClient.from('checkout_financial_settings')
+        .select('minimum_margin_per_item,payment_method_costs')
+        .eq('id', 'default').maybeSingle(),
     ]);
-    const readError = stylesResult.error || skuResult.error || existingResult.error || rulesResult.error;
+    const readError = stylesResult.error || skuResult.error || existingResult.error || rulesResult.error || settingsResult.error;
     if (readError) {
       console.error(`Unable to build ${seasonalBrand} seasonal candidate report`, readError.message);
       return json(request, { error: `${seasonalBrand} seasonal candidates could not be reviewed` }, 500);
@@ -630,6 +688,7 @@ Deno.serve(async (request) => {
     const existing = new Set((existingResult.data || []).flatMap((product) => [product.style_number, product.supplier_sku])
       .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
     const rules = new Map((rulesResult.data || []).map((rule) => [rule.rule_key, rule]));
+    const financialSettings = settingsResult.data || {};
     const skuRows = skuResult.data || [];
     const candidates = (stylesResult.data || []).map((styleRow) => {
       let raw: Record<string, unknown> = {};
@@ -645,7 +704,7 @@ Deno.serve(async (request) => {
       const description = importedDescriptionLines(raw.description).join(' ');
       const catalogIdentityText = [styleName, title, baseCategory, partNumber].join(' ');
       const identityText = [catalogIdentityText, description].join(' ');
-      const primaryType = championWinterPrimary(catalogIdentityText);
+      const primaryType = seasonalBrand === 'Next Level' ? nextLevelPrimary(catalogIdentityText) : championWinterPrimary(catalogIdentityText);
       const variants = skuRows.filter((row) => String(row.part_number || '').trim().toLowerCase() === partNumber.toLowerCase());
       const stocked = variants.filter((row) => Number(row.inventory_qty) > 0);
       const priced = stocked.filter((row) => Number(row.customer_price || row.piece_price) > 0);
@@ -653,16 +712,20 @@ Deno.serve(async (request) => {
       const colors = [...new Set(stocked.map((row) => String(row.color_name || '').trim()).filter(Boolean))];
       const sizes = [...new Set(stocked.map((row) => String(row.size_name || '').trim()).filter(Boolean))];
       const commonSizes = new Set(sizes.map(championCommonSize).filter((size) => ['S', 'M', 'L', 'XL', '2XL'].includes(size)));
-      const ruleKey = primaryType ? championWinterRuleKey(primaryType) : 'premium_specialty';
+      const ruleKey = primaryType ? (seasonalBrand === 'Next Level' ? nextLevelRuleKey(primaryType) : championWinterRuleKey(primaryType)) : 'premium_specialty';
       const rule = rules.get(ruleKey);
       const calculatedVariants = priced.map((row) => {
         const vendorCost = Number(row.customer_price || row.piece_price);
         const realMap = Number(row.map_price) > 0.01 ? Number(row.map_price) : 0;
+        const methodFloors = Object.values((financialSettings.payment_method_costs || {}) as Record<string, Record<string, unknown>>)
+          .filter((method) => method?.enabled === true)
+          .map((method) => (vendorCost + Math.max(Number(financialSettings.minimum_margin_per_item || 3), Number(rule?.storefront_margin_buffer || 3)) + Number(method.fixed_fee || 0)) / (1 - Number(method.percentage || 0) / 100));
         const publicPrice = rule ? Number(Math.max(
           vendorCost + Number(rule.storefront_margin_buffer || 3),
           vendorCost * Number(rule.cost_multiplier || 1) + Number(rule.fixed_allowance || 0) + Number(rule.storefront_margin_buffer || 3),
           vendorCost / (1 - Number(rule.minimum_margin_percent || 0)),
           realMap,
+          ...methodFloors,
         ).toFixed(2)) : 0;
         return { row, vendorCost, realMap, publicPrice };
       });
@@ -673,8 +736,8 @@ Deno.serve(async (request) => {
       const latestRefresh = stocked.map((row) => new Date(String(row.fetched_at || 0)).getTime())
         .filter(Number.isFinite).sort((a, b) => b - a)[0] || 0;
       const blockers = [
-        !primaryType ? 'Not a winter/cold-weather garment type' : null,
-        existing.has(styleName.toLowerCase()) || existing.has(partNumber.toLowerCase()) ? 'Already exists in the Champion catalog' : null,
+        !primaryType ? 'Unsupported or unclear garment type' : null,
+        existing.has(styleName.toLowerCase()) || existing.has(partNumber.toLowerCase()) ? `Already exists in the ${seasonalBrand} catalog` : null,
         !primaryImage ? 'Missing product image' : null,
         stocked.length === 0 ? 'No stocked SKU variants' : null,
         calculatedVariants.length === 0 ? 'No current vendor price' : null,
@@ -687,8 +750,8 @@ Deno.serve(async (request) => {
         latestRefresh < Date.now() - 24 * 60 * 60 * 1000 ? 'Pricing or inventory is stale' : null,
         calculatedVariants.some((variant) => !(variant.publicPrice > variant.vendorCost)) ? 'Pricing guardrail failed' : null,
       ].filter(Boolean) as string[];
-      const displayTitle = title || styleName || partNumber || 'Winter Apparel';
-      const brandPattern = seasonalBrand === 'Champion' ? /^champion\b/i : /^american apparel\b/i;
+      const displayTitle = title || styleName || partNumber || 'Apparel';
+      const brandPattern = new RegExp(`^${seasonalBrand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
       const customerName = brandPattern.test(displayTitle) ? displayTitle : `${seasonalBrand} ${displayTitle}`;
       return {
         part_number: partNumber,
@@ -697,7 +760,7 @@ Deno.serve(async (request) => {
         base_category: baseCategory,
         description,
         primary_type: primaryType,
-        secondary_tags: primaryType ? championWinterSecondaryTags(primaryType, identityText) : [],
+        secondary_tags: primaryType ? (seasonalBrand === 'Next Level' ? nextLevelSecondaryTags(primaryType, identityText) : championWinterSecondaryTags(primaryType, identityText)) : [],
         pricing_rule_key: ruleKey,
         total_inventory: totalInventory,
         stocked_variants: stocked.length,
@@ -786,7 +849,12 @@ Deno.serve(async (request) => {
         : candidate.primary_type === 'hoodies' ? 'hoodies'
           : candidate.primary_type === 'crewnecks' || candidate.primary_type === 'quarter_zips' ? 'crewnecks'
             : candidate.primary_type === 'outerwear' ? 'jackets'
-              : candidate.primary_type === 'hats' ? 'hats' : 'sportswear',
+              : candidate.primary_type === 'hats' ? 'hats'
+                : candidate.primary_type === 't_shirts' ? 't_shirts'
+                  : candidate.primary_type === 'tank_tops' ? 'tank_tops'
+                    : candidate.primary_type === 'polos' ? 'polos'
+                      : candidate.primary_type === 'shorts' ? 'shorts'
+                        : candidate.primary_type === 'pants' ? 'pants' : 'sportswear',
       categories: [candidate.base_category, candidate.primary_type].filter(Boolean),
       tags: candidate.secondary_tags.map((tag) => `storefront:${tag}`),
       primary_garment_type: candidate.primary_type,
@@ -804,8 +872,10 @@ Deno.serve(async (request) => {
       storefront_price_applied_at: new Date().toISOString(),
       garment_weight: candidate.unit_weight ? `${candidate.unit_weight} lb` : null,
       features: [candidate.base_category, 'Authenticated S&S catalog data', 'Fall / Winter'].filter(Boolean),
-      draft_qa_status: 'ready_for_private_qa',
-      internal_notes: `Private ${seasonalBrand} ${seasonalBrand === 'Champion' ? 'winter' : 'fall/winter'} S&S draft. Ready for Private QA only. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants. Not published.`,
+      draft_qa_status: seasonalBrand === 'Next Level' ? 'ready_for_admin_approval' : 'ready_for_private_qa',
+      internal_notes: seasonalBrand === 'Next Level'
+        ? `Next Level authenticated S&S draft passed image, inventory, SKU, size/color, MAP, margin, and payment-method fee checks. Approved in this task for publication. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants.`
+        : `Private ${seasonalBrand} ${seasonalBrand === 'Champion' ? 'winter' : 'fall/winter'} S&S draft. Ready for Private QA only. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants. Not published.`,
     }));
     const { data: inserted, error: insertError } = await userClient
       .from('products')
@@ -815,6 +885,21 @@ Deno.serve(async (request) => {
       console.error(`Unable to import ${seasonalBrand} seasonal drafts`, insertError.message);
       return json(request, {
         error: `${seasonalBrand} seasonal products could not be imported as private drafts: ${insertError.message.slice(0, 240)}`,
+      });
+    }
+    if (seasonalBrand === 'Next Level') {
+      const insertedIds = (inserted || []).map((product) => product.id);
+      const { data: published, error: publishError } = await userClient.from('products').update({
+        visibility: 'public', is_active: true, draft_qa_status: 'approved', draft_qa_reviewed_at: new Date().toISOString(),
+      }).in('id', insertedIds).select('id,name,style_number,supplier_sku,primary_garment_type,secondary_tags,price,stock');
+      if (publishError) {
+        console.error('Next Level publication failed after private import', publishError.message);
+        return json(request, { error: 'Next Level products passed import QA but could not be published; they remain private.' }, 500);
+      }
+      return json(request, {
+        brand: seasonalBrand, reviewed: winterCandidates.length, published: published?.length || 0,
+        products: published || [], blocked_products: winterCandidates.filter((candidate) => !candidate.ready_for_private_import).map(safeReport),
+        storefront_changed: true, ss_order_submitted: false, zerotouch_submitted: false,
       });
     }
     return json(request, {
@@ -1924,7 +2009,7 @@ Deno.serve(async (request) => {
       .select('import_session_id')
       .eq('row_status', 'pending')
       .eq('brand', brand)
-      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors|champion|americanapparel)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
+      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors|champion|americanapparel|nextlevel)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
       .order('created_date', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -2261,7 +2346,7 @@ Deno.serve(async (request) => {
       if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles' || payload.action === 'stage_brand_styles') {
         const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
         const selectedBrand = payload.action === 'stage_brand_styles' ? canonicalApprovedBrand(payload.brand) : null;
-        if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK', 'Champion', 'American Apparel'].includes(selectedBrand || '')) {
+        if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK', 'Champion', 'American Apparel', 'Next Level'].includes(selectedBrand || '')) {
           return json(request, { error: 'Only approved private-import brands can be staged with this action' }, 400);
         }
         const brandStyles = selectedBrand ? styles.filter(style => style.canonicalBrand === selectedBrand) : [];
@@ -2322,6 +2407,24 @@ Deno.serve(async (request) => {
             .sort((a, b) => americanApparelFallWinterScore(b) - americanApparelFallWinterScore(a))
             .slice(0, 40);
         }
+        let nextLevelStyles: typeof brandStyles = [];
+        if (selectedBrand === 'Next Level') {
+          const { data: existingNextLevel, error: existingNextLevelError } = await userClient
+            .from('products').select('style_number,supplier_sku').eq('brand', 'Next Level');
+          if (existingNextLevelError) {
+            console.error('Unable to read existing Next Level styles', existingNextLevelError.message);
+            return json(request, { error: 'Unable to compare Next Level styles with the existing catalog' }, 500);
+          }
+          const existingIdentifiers = new Set((existingNextLevel || [])
+            .flatMap((product) => [product.style_number, product.supplier_sku])
+            .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+          nextLevelStyles = brandStyles
+            .filter((style) => ![style.styleName, style.partNumber]
+              .some((value) => existingIdentifiers.has(String(value || '').trim().toLowerCase())))
+            .filter((style) => nextLevelMerchScore(style) > 0)
+            .sort((a, b) => nextLevelMerchScore(b) - nextLevelMerchScore(a))
+            .slice(0, 40);
+        }
         const selectedStyles = selectedBrand === 'DRI DUCK'
           ? focusedDriDuck
           : selectedBrand === 'Comfort Colors'
@@ -2330,6 +2433,8 @@ Deno.serve(async (request) => {
               ? championStyles
             : selectedBrand === 'American Apparel'
               ? americanApparelStyles
+            : selectedBrand === 'Next Level'
+              ? nextLevelStyles
             : coldWeatherOnly ? styles.filter(isColdWeatherStyle) : styles;
         if (selectedStyles.length === 0) {
           return json(request, { error: selectedBrand ? `No S&S styles were available for ${selectedBrand}` : 'No eligible S&S styles were available' }, 409);
@@ -2387,7 +2492,7 @@ Deno.serve(async (request) => {
             style_name: style.styleName,
             title: style.title,
             category: style.baseCategory,
-            merchandising_group: selectedBrand === 'Champion' ? championMerchGroup(style) : selectedBrand === 'American Apparel' ? 'fall_winter' : null,
+            merchandising_group: selectedBrand === 'Champion' ? championMerchGroup(style) : selectedBrand === 'American Apparel' ? 'fall_winter' : selectedBrand === 'Next Level' ? 'assortment' : null,
             image_url: imageUrl(style.styleImage),
           })),
         });

@@ -77,6 +77,11 @@ export default function AdminDashboard() {
     { to: '/AdminCalendarSettings', label: 'Calendar Settings', desc: 'Manage the private Google Calendar connection and assignments.', icon: <CalendarDays /> },
     { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', desc: 'Manage team assignments and internal productivity settings.', icon: <User /> },
   ];
+  const financeCards = [
+    { to: '/AdminQuarterlyTaxCenter', label: 'Quarterly Tax Center', desc: 'Review and download quarterly sales, tax, payment, refund, and order records.', icon: <FileText /> },
+    { to: '/AdminProfitCalc', label: 'Profit Calculator', desc: 'Estimate product and order margins with current business costs.', icon: <BarChart3 /> },
+    { to: '/AdminAnalytics', label: 'Sales Analytics', desc: 'Review sales and order performance.', icon: <DollarSign /> },
+  ];
 
   return <div className="min-h-screen bg-muted/30">
     <PaymentFeesInitializer />
@@ -98,13 +103,14 @@ export default function AdminDashboard() {
       <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Live Operations</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{primaryCards.map(card => <NavCard key={card.to} {...card} highlight />)}</div></section>
       <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Marketing</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{marketingCards.map(card => <NavCard key={card.to} {...card} />)}</div></section>
       <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Productivity</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{productivityCards.map(card => <NavCard key={card.to} {...card} />)}</div></section>
+      <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Business / Finance</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{financeCards.map(card => <NavCard key={card.to} {...card} />)}</div></section>
 
       <section><h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Business Settings</h2><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <ToolLink to="/AdminPaymentSettings" label="Payment Settings" icon={<DollarSign />} /><ToolLink to="/AdminPaymentFeeSettings" label="Pricing & Shipping Settings" icon={<Truck />} /><ToolLink to="/AdminSSApiSettings" label="S&S Vendor Settings" icon={<Settings />} /><ToolLink to="/AdminBrandPages" label="Brand Pages" icon={<Store />} /><ToolLink to="/AdminSubscribers" label="Subscribers" icon={<Mail />} /><ToolLink to="/AdminMessageTemplates" label="Message Templates" icon={<FileText />} /><ToolLink to="/AdminCustomerNotifications" label="Customer Notifications" icon={<Mail />} />
       </div><Link to="/RequestQuote" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View Public Bulk Quote Page <ChevronRight className="h-3 w-3" /></Link></section>
 
       <details className="group rounded-2xl border bg-white"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-bold [&::-webkit-details-marker]:hidden"><span>Advanced Tools</span><ChevronDown className="h-5 w-5 transition-transform group-open:rotate-180" /></summary><div className="grid grid-cols-2 gap-3 border-t p-5 sm:grid-cols-3 lg:grid-cols-4">
-        <ToolLink to="/PublicCatalogAudit" label="Catalog Audit" icon={<FileText />} /><ToolLink to="/AdminDigitalArchive" label="Design Archive" icon={<Archive />} /><ToolLink to="/AdminProfitCalc" label="Profit Calculator" icon={<BarChart3 />} /><ToolLink to="/AdminVendorPricing" label="Vendor Pricing" icon={<DollarSign />} /><ToolLink to="/AdminSSCatalog" label="S&S Catalog" icon={<Archive />} /><ToolLink to="/AdminAnalytics" label="Sales Analytics" icon={<BarChart3 />} /><ToolLink to="/AdminVendors" label="Vendor Records" icon={<Truck />} /><ToolLink to="/AdminQATestReport" label="Operations Diagnostics" icon={<Settings />} />
+        <ToolLink to="/PublicCatalogAudit" label="Catalog Audit" icon={<FileText />} /><ToolLink to="/AdminDigitalArchive" label="Design Archive" icon={<Archive />} /><ToolLink to="/AdminVendorPricing" label="Vendor Pricing" icon={<DollarSign />} /><ToolLink to="/AdminSSCatalog" label="S&S Catalog" icon={<Archive />} /><ToolLink to="/AdminVendors" label="Vendor Records" icon={<Truck />} /><ToolLink to="/AdminQATestReport" label="Operations Diagnostics" icon={<Settings />} />
       </div></details>
 
       <section className="overflow-hidden rounded-2xl border bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><h2 className="font-bold">Recent Orders</h2><Link to="/AdminOperationsDashboard" className="flex items-center gap-1 text-xs text-primary hover:underline">View All <ChevronRight className="h-3 w-3" /></Link></div><div className="divide-y">

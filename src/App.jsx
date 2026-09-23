@@ -87,6 +87,7 @@ import AdminProductivityDashboard from './pages/AdminProductivityDashboard';
 import AdminCalendarSettings from './pages/AdminCalendarSettings';
 import AdminGoogleCalendar from './pages/AdminGoogleCalendar';
 import AdminTeamProductivity from './pages/AdminTeamProductivity';
+import AdminQuarterlyTaxCenter from './pages/AdminQuarterlyTaxCenter';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 
 const { Layout } = pagesConfig;
@@ -149,6 +150,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminCalendarSettings" element={<LayoutWrapper currentPageName="AdminCalendarSettings"><AdminCalendarSettings /></LayoutWrapper>} />
       <Route path="/AdminGoogleCalendar" element={<LayoutWrapper currentPageName="AdminGoogleCalendar"><AdminGoogleCalendar /></LayoutWrapper>} />
       <Route path="/AdminTeamProductivity" element={<LayoutWrapper currentPageName="AdminTeamProductivity"><AdminTeamProductivity /></LayoutWrapper>} />
+      <Route path="/AdminQuarterlyTaxCenter" element={<LayoutWrapper currentPageName="AdminQuarterlyTaxCenter"><AdminQuarterlyTaxCenter /></LayoutWrapper>} />
       <Route path="/AdminProducts" element={<LayoutWrapper currentPageName="AdminProducts"><AdminProducts /></LayoutWrapper>} />
       <Route path="/AdminDigitalArchive" element={<LayoutWrapper currentPageName="AdminDigitalArchive"><AdminDigitalArchive /></LayoutWrapper>} />
       <Route path="/AdminOrders" element={<LayoutWrapper currentPageName="AdminOrders"><AdminOrders /></LayoutWrapper>} />
