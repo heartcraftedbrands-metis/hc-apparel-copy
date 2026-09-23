@@ -1,13 +1,13 @@
 export const DEFAULT_PUBLIC_VISITOR_PRICING = Object.freeze({
   enabled: true,
-  difference: 3,
+  difference: 5,
 });
 
 export function normalizePublicVisitorPricing(value) {
   const difference = Number(value?.difference ?? value?.public_visitor_price_difference);
   return {
     enabled: value?.enabled ?? value?.public_visitor_price_markup_enabled ?? true,
-    difference: Number.isFinite(difference) && difference >= 0 ? difference : 3,
+    difference: Number.isFinite(difference) && difference >= 0 ? difference : 5,
   };
 }
 

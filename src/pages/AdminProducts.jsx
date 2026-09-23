@@ -199,7 +199,7 @@ export default function AdminProducts() {
   ) : null;
   const evaluatedPrice = Number(formData.sale_price || formData.price || 0);
   const publicVisitorDifference = financialSettings?.public_visitor_price_markup_enabled === false
-    ? 0 : Number(financialSettings?.public_visitor_price_difference ?? 3);
+    ? 0 : Number(financialSettings?.public_visitor_price_difference ?? 5);
   const publicVisitorPrice = evaluatedPrice + publicVisitorDifference;
   const standardProcessingCost = processingCost(evaluatedPrice, paymentCosts.card);
   const afterpayProcessingCost = processingCost(evaluatedPrice, paymentCosts.afterpay_clearpay);
