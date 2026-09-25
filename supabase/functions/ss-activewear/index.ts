@@ -598,6 +598,7 @@ Deno.serve(async (request) => {
     'import_next_level_live_products',
     'get_adidas_candidate_report',
     'import_adidas_live_products',
+    'audit_adidas_pricing',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -617,6 +618,157 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'audit_adidas_pricing') {
+    const { data: latest, error: latestError } = await userClient
+      .from('ss_import_staging')
+      .select('import_session_id')
+      .eq('brand', 'adidas')
+      .eq('row_status', 'pending')
+      .like('import_session_id', 'ss-brand-adidas-%')
+      .order('created_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestError || !latest) {
+      return json(request, { error: 'Refresh the authenticated Adidas S&S catalog before running the pricing audit.' }, 409);
+    }
+
+    const [productsResult, skuResult, rulesResult, settingsResult] = await Promise.all([
+      userClient.from('products')
+        .select('id,name,style_number,supplier_sku,price,vendor_cost,stock,storefront_pricing_rule_key')
+        .eq('brand', 'adidas').eq('visibility', 'public').eq('is_active', true),
+      userClient.from('ss_sku_staging')
+        .select('part_number,style_name,sku,size_name,color_name,inventory_qty,fetched_at,map_price,retail_price,piece_price,dozen_price,case_price,sale_price,customer_price,noe_retailing')
+        .eq('style_session_id', latest.import_session_id).eq('brand', 'adidas'),
+      userClient.from('storefront_pricing_rules')
+        .select('rule_key,display_name,minimum_price,maximum_price,cost_multiplier,fixed_allowance,minimum_margin_percent,storefront_margin_buffer')
+        .eq('is_active', true),
+      userClient.from('checkout_financial_settings')
+        .select('minimum_margin_per_item,processing_enabled,payment_method_costs,public_visitor_price_markup_enabled,public_visitor_price_difference')
+        .eq('id', 'default').maybeSingle(),
+    ]);
+    const readError = productsResult.error || skuResult.error || rulesResult.error || settingsResult.error;
+    if (readError) {
+      console.error('Adidas pricing audit read failed', readError.message);
+      return json(request, { error: 'The Adidas pricing audit data could not be loaded.' }, 500);
+    }
+
+    const products = productsResult.data || [];
+    const skuRows = skuResult.data || [];
+    const rules = new Map((rulesResult.data || []).map((rule) => [String(rule.rule_key), rule]));
+    const settings = settingsResult.data || {};
+    const methods = Object.values((settings.payment_method_costs || {}) as Record<string, Record<string, unknown>>)
+      .filter((method) => method?.enabled === true);
+    const visitorDifference = settings.public_visitor_price_markup_enabled === false
+      ? 0 : Number(settings.public_visitor_price_difference ?? 5);
+    const money = (value: number) => Number(value.toFixed(2));
+
+    const audits = products.map((product) => {
+      const style = String(product.style_number || '').trim().toLowerCase();
+      const part = String(product.supplier_sku || '').trim().toLowerCase();
+      const rows = skuRows.filter((row) => {
+        const rowStyle = String(row.style_name || '').trim().toLowerCase();
+        const rowPart = String(row.part_number || '').trim().toLowerCase();
+        return (style && rowStyle === style) || (part && rowPart === part);
+      });
+      const stocked = rows.filter((row) => Number(row.inventory_qty) > 0);
+      const rule = rules.get(String(product.storefront_pricing_rule_key || ''));
+      const variants = stocked.map((row) => {
+        const vendorCost = Number(row.customer_price || row.piece_price || 0);
+        const explicitMap = Number(row.map_price) > 0.01 ? Number(row.map_price) : 0;
+        const msrp = Number(row.retail_price) > 0 ? Number(row.retail_price) : 0;
+        const desiredMargin = Math.max(
+          Number(settings.minimum_margin_per_item || 3),
+          Number(rule?.storefront_margin_buffer || 3),
+        );
+        const paymentFloors = settings.processing_enabled === false ? [] : methods.map((method) => {
+          const percentage = Number(method.percentage || 0) / 100;
+          return percentage < 1 ? (vendorCost + desiredMargin + Number(method.fixed_fee || 0)) / (1 - percentage) : 0;
+        });
+        const paymentFloor = Math.max(0, ...paymentFloors);
+        const ruleFloor = rule ? Math.max(
+          Number(rule.minimum_price || 0),
+          vendorCost + Number(rule.storefront_margin_buffer || 3),
+          vendorCost * Number(rule.cost_multiplier || 1) + Number(rule.fixed_allowance || 0) + Number(rule.storefront_margin_buffer || 3),
+          vendorCost / (1 - Number(rule.minimum_margin_percent || 0)),
+        ) : vendorCost + desiredMargin;
+        const safeFloor = Math.max(ruleFloor, paymentFloor);
+        const recommended = Math.max(safeFloor, explicitMap);
+        const processingCost = settings.processing_enabled === false ? 0 : Math.max(0, ...methods.map((method) => (
+          recommended * Number(method.percentage || 0) / 100 + Number(method.fixed_fee || 0)
+        )));
+        const pricingSource = explicitMap >= safeFloor && explicitMap > 0 ? 'S&S MAP'
+          : paymentFloor >= ruleFloor ? 'Payment-processing floor' : 'HC Apparel pricing rule';
+        return {
+          sku: row.sku,
+          size: row.size_name,
+          color: row.color_name,
+          vendor_cost: money(vendorCost),
+          map: explicitMap ? money(explicitMap) : null,
+          msrp: msrp ? money(msrp) : null,
+          sale_price: Number(row.sale_price) > 0 ? money(Number(row.sale_price)) : null,
+          piece_price: Number(row.piece_price) > 0 ? money(Number(row.piece_price)) : null,
+          payment_floor: money(paymentFloor),
+          safe_floor: money(safeFloor),
+          recommended: money(recommended),
+          processing_cost: money(processingCost),
+          pricing_source: pricingSource,
+          inventory: Number(row.inventory_qty) || 0,
+          noe_retailing: Boolean(row.noe_retailing),
+          fetched_at: row.fetched_at,
+        };
+      }).filter((variant) => variant.vendor_cost > 0);
+      const representative = variants.sort((a, b) => a.recommended - b.recommended || a.vendor_cost - b.vendor_cost)[0];
+      const currentPrice = money(Number(product.price || 0));
+      const recommended = representative?.recommended || 0;
+      const difference = money(currentPrice - recommended);
+      const status = !representative || !rule ? 'DATA ERROR'
+        : currentPrice + 0.01 < recommended ? 'BELOW FLOOR'
+          : currentPrice - 0.01 > recommended ? 'TOO HIGH'
+            : 'PASS';
+      return {
+        product_id: product.id,
+        style: product.style_number,
+        part_number: product.supplier_sku,
+        product: product.name,
+        inventory: stocked.reduce((sum, row) => sum + Math.max(0, Number(row.inventory_qty) || 0), 0),
+        ss_cost: representative?.vendor_cost || null,
+        map: representative?.map || null,
+        map_status: representative?.map ? 'Explicit S&S mapPrice' : 'Missing or placeholder; not enforced',
+        msrp_list: representative?.msrp || null,
+        sale_price: representative?.sale_price || null,
+        current_customer_price: currentPrice,
+        calculated_safe_floor: representative?.safe_floor || null,
+        payment_processing_floor: representative?.payment_floor || null,
+        recommended_customer_price: recommended || null,
+        public_visitor_price: money((recommended || currentPrice) + visitorDifference),
+        difference,
+        pricing_source: representative?.pricing_source || 'Unavailable',
+        pricing_rule: rule?.display_name || null,
+        minimum_margin: Math.max(Number(settings.minimum_margin_per_item || 3), Number(rule?.storefront_margin_buffer || 3)),
+        estimated_processing_cost: representative ? representative.processing_cost : null,
+        estimated_net_margin: representative && recommended
+          ? money(recommended - representative.vendor_cost - representative.processing_cost)
+          : null,
+        status,
+        variant_count: variants.length,
+        fetched_at: representative?.fetched_at || null,
+      };
+    }).sort((a, b) => String(a.style).localeCompare(String(b.style)));
+
+    return json(request, {
+      brand: 'adidas',
+      staging_session: latest.import_session_id,
+      products_audited: audits.length,
+      counts: audits.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {} as Record<string, number>),
+      audits,
+      visitor_price_difference: visitorDifference,
+      ss_map_definition: 'S&S Products API mapPrice (Minimum Advertised Price)',
+      ss_retail_definition: "S&S Products API retailPrice (Manufacturer's Suggested Retail Price)",
+      storefront_changed: false,
+      ss_order_submitted: false,
+    });
+  }
 
   if (payload.action === 'mark_champion_winter_qa_ready' || payload.action === 'mark_american_apparel_fall_winter_qa_ready') {
     const seasonalBrand = payload.action === 'mark_champion_winter_qa_ready' ? 'Champion' : 'American Apparel';
