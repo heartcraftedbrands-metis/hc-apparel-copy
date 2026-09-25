@@ -54,4 +54,13 @@ assert.equal(getProductStyleLabel(champion), 'T453W');
 const fallback = { name: 'Oakley FOA402993', brand: 'Oakley', product_subtype: 'sportswear' };
 assert.equal(getPublicProductName(fallback), 'Oakley Performance Apparel');
 
+const adidasAnorak = {
+  name: "adidas Men's Half-Zip Hooded Anorak",
+  brand: 'adidas',
+  style_number: 'A607',
+  product_type: 'physical',
+  vendor_specs: { title: 'Jacket' },
+};
+assert.equal(getPublicProductName(adidasAnorak), "adidas Men's Half-Zip Hooded Anorak");
+
 console.log('Product display name checks passed.');
