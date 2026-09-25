@@ -91,9 +91,6 @@ export default function AdminSSPricingPreview() {
         costValue: result.costValue + Number(row.average_customer_cost || 0) * skus,
         priceValue: result.priceValue + Number(row.average_proposed_price || 0) * skus,
         marginValue: result.marginValue + Number(row.estimated_contribution_margin || 0) * skus,
-        map: result.map + count(row.map_enforced_skus),
-        retailCapped: result.retailCapped + count(row.retail_capped_skus),
-        aboveRetail: result.aboveRetail + count(row.above_vendor_retail_skus),
         belowSafe: result.belowSafe + count(row.below_safe_margin_skus),
         restricted: result.restricted + count(row.marketplace_restricted_skus),
       };
@@ -102,9 +99,6 @@ export default function AdminSSPricingPreview() {
       costValue: 0,
       priceValue: 0,
       marginValue: 0,
-      map: 0,
-      retailCapped: 0,
-      aboveRetail: 0,
       belowSafe: 0,
       restricted: 0,
     });
@@ -156,7 +150,8 @@ export default function AdminSSPricingPreview() {
                   <h2 className="font-bold">Recommended launch assumptions</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     $1.00 operating allowance per item, 2.9% + $0.30 card processing, $7.99 minimum,
-                    MAP protection, vendor-retail cap, and upward `.99` rounding. Shipping, tax, and decoration are excluded.
+                    HC Apparel margin protection, payment-processing protection, and upward `.99` rounding.
+                    S&amp;S MAP and MSRP remain reference-only fields. Shipping, tax, and decoration are excluded.
                   </p>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                     <div className="rounded-lg border p-3"><strong>≤ $5 cost</strong><br />45% target</div>
@@ -183,9 +178,9 @@ export default function AdminSSPricingPreview() {
               />
               <SummaryCard
                 icon={<ShieldCheck className="h-5 w-5" />}
-                label="Retail-capped SKUs"
-                value={numberFormat.format(totals.retailCapped)}
-                detail="Proposed price was lowered to S&S vendor retail"
+                label="MAP / MSRP policy"
+                value="Reference only"
+                detail="Neither value changes or blocks HC Apparel pricing"
               />
               <SummaryCard
                 icon={<AlertTriangle className="h-5 w-5" />}
@@ -195,20 +190,11 @@ export default function AdminSSPricingPreview() {
               />
             </div>
 
-            {totals.aboveRetail > 0 && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  {numberFormat.format(totals.aboveRetail)} SKUs have an S&amp;S MAP value above vendor retail.
-                  These vendor-data conflicts require review before approval.
-                </AlertDescription>
-              </Alert>
-            )}
             {totals.belowSafe > 0 && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
-                  {numberFormat.format(totals.belowSafe)} retail-capped SKUs fall below a 20% contribution margin.
+                  {numberFormat.format(totals.belowSafe)} SKUs fall below a 20% contribution margin.
                   They should be excluded or manually repriced before a rule is approved.
                 </AlertDescription>
               </Alert>
@@ -231,10 +217,7 @@ export default function AdminSSPricingPreview() {
                       <TableHead>Proposed range</TableHead>
                       <TableHead className="text-right">Avg. price</TableHead>
                       <TableHead className="text-right">Margin</TableHead>
-                      <TableHead className="text-right">MAP raised</TableHead>
-                      <TableHead className="text-right">Retail capped</TableHead>
                       <TableHead className="text-right">Low margin</TableHead>
-                      <TableHead className="text-right">Retail conflicts</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -248,18 +231,9 @@ export default function AdminSSPricingPreview() {
                         </TableCell>
                         <TableCell className="text-right">{money(row.average_proposed_price)}</TableCell>
                         <TableCell className="text-right">{Number(row.estimated_contribution_margin || 0).toFixed(1)}%</TableCell>
-                        <TableCell className="text-right">{numberFormat.format(count(row.map_enforced_skus))}</TableCell>
-                        <TableCell className="text-right">
-                          {numberFormat.format(count(row.retail_capped_skus))}
-                        </TableCell>
                         <TableCell className="text-right">
                           <span className={count(row.below_safe_margin_skus) > 0 ? 'font-semibold text-destructive' : ''}>
                             {numberFormat.format(count(row.below_safe_margin_skus))}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className={count(row.above_vendor_retail_skus) > 0 ? 'font-semibold text-destructive' : ''}>
-                            {numberFormat.format(count(row.above_vendor_retail_skus))}
                           </span>
                         </TableCell>
                       </TableRow>
@@ -273,7 +247,7 @@ export default function AdminSSPricingPreview() {
               <div>
                 <h2 className="font-bold">Review pricing exceptions</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Inspect MAP-versus-retail conflicts and low-margin SKUs grouped by style before anything is approved.
+                  Inspect low-margin SKUs grouped by style before anything is approved.
                 </p>
               </div>
               <Link to="/AdminSSPricingExceptions">
@@ -287,7 +261,7 @@ export default function AdminSSPricingPreview() {
             <Alert>
               <Calculator className="h-4 w-4" />
               <AlertDescription>
-                Preview only. After the above-retail exceptions are acceptable, the next step is saving a versioned rule
+                Preview only. After the margin exceptions are acceptable, the next step is saving a versioned rule
                 and applying it to a small draft-product test—not the public storefront.
               </AlertDescription>
             </Alert>

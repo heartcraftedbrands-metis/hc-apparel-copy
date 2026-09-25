@@ -34,10 +34,6 @@ const range = (minimum, maximum) => Number(minimum) === Number(maximum)
   : `${money(minimum)}–${money(maximum)}`;
 
 const issueDetails = {
-  map_above_vendor_retail: {
-    label: 'MAP exceeds retail',
-    recommendation: 'Use recommended MAP price; warning retained',
-  },
   below_20_percent_margin: {
     label: 'Below 20% margin',
     recommendation: 'Use recommended price; low-margin warning retained',
@@ -104,11 +100,9 @@ export default function AdminSSPricingExceptions() {
   }, []);
 
   const totals = useMemo(() => rows.reduce((summary, row) => ({
-    retailConflicts: summary.retailConflicts
-      + (row.issue_type === 'map_above_vendor_retail' ? count(row.affected_skus) : 0),
     lowMargin: summary.lowMargin
       + (row.issue_type === 'below_20_percent_margin' ? count(row.affected_skus) : 0),
-  }), { retailConflicts: 0, lowMargin: 0 }), [rows]);
+  }), { lowMargin: 0 }), [rows]);
 
   const approveRecommendedPrices = async () => {
     if (!session) return;
@@ -157,10 +151,10 @@ export default function AdminSSPricingExceptions() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border bg-white p-5">
-                <p className="text-sm text-muted-foreground">MAP above vendor retail</p>
-                <p className="mt-1 text-3xl font-bold">{numberFormat.format(totals.retailConflicts)}</p>
+                <p className="text-sm text-muted-foreground">S&amp;S MAP / MSRP policy</p>
+                <p className="mt-1 text-3xl font-bold">Reference only</p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Recommended MAP prices will be used; the vendor-data warning remains visible.
+                  Stored for Super Admin visibility; neither value changes, blocks, or approves an HC Apparel price.
                 </p>
               </div>
               <div className="rounded-2xl border bg-white p-5">
@@ -176,7 +170,7 @@ export default function AdminSSPricingExceptions() {
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 Decision recorded for review: use the recommended proposed price for all
-                {' '}{numberFormat.format(totals.retailConflicts + totals.lowMargin)} exception SKUs.
+                {' '}{numberFormat.format(totals.lowMargin)} margin-exception SKUs.
                 Warnings remain visible for audit and do not override marketplace restrictions.
               </AlertDescription>
             </Alert>
@@ -244,8 +238,8 @@ export default function AdminSSPricingExceptions() {
                       <TableHead>Brand / style</TableHead>
                       <TableHead className="text-right">SKUs</TableHead>
                       <TableHead>Customer cost</TableHead>
-                      <TableHead>MAP</TableHead>
-                      <TableHead>Vendor retail</TableHead>
+                      <TableHead>MAP (reference only)</TableHead>
+                      <TableHead>MSRP (reference only)</TableHead>
                       <TableHead>Proposed</TableHead>
                       <TableHead className="text-right">Lowest margin</TableHead>
                       <TableHead>Recommendation</TableHead>

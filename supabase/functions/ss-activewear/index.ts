@@ -599,6 +599,8 @@ Deno.serve(async (request) => {
     'get_adidas_candidate_report',
     'import_adidas_live_products',
     'audit_adidas_pricing',
+    'reprice_adidas_without_map',
+    'get_map_reference_price_report',
     'refresh_public_style_content',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
@@ -619,7 +621,23 @@ Deno.serve(async (request) => {
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
 
-  if (payload.action === 'audit_adidas_pricing') {
+  if (payload.action === 'get_map_reference_price_report') {
+    const { data, error } = await userClient.rpc('admin_map_reference_price_audit');
+    if (error) {
+      console.error('MAP reference-only audit failed', error.message);
+      return json(request, { error: 'The non-Adidas MAP reference audit could not be loaded.' }, 500);
+    }
+    return json(request, {
+      products: data || [],
+      products_flagged: data?.length || 0,
+      note: 'Reference report only. No non-Adidas price was changed.',
+      storefront_changed: false,
+      ss_order_submitted: false,
+    });
+  }
+
+  if (payload.action === 'audit_adidas_pricing' || payload.action === 'reprice_adidas_without_map') {
+    const applyAdidasPrices = payload.action === 'reprice_adidas_without_map';
     const { data: latest, error: latestError } = await userClient
       .from('ss_import_staging')
       .select('import_session_id')
@@ -635,7 +653,7 @@ Deno.serve(async (request) => {
 
     const [productsResult, skuResult, rulesResult, settingsResult] = await Promise.all([
       userClient.from('products')
-        .select('id,name,style_number,supplier_sku,price,vendor_cost,stock,storefront_pricing_rule_key')
+        .select('id,name,style_number,supplier_sku,price,vendor_cost,stock,size_prices,storefront_pricing_rule_key')
         .eq('brand', 'adidas').eq('visibility', 'public').eq('is_active', true),
       userClient.from('ss_sku_staging')
         .select('part_number,style_name,sku,size_name,color_name,inventory_qty,fetched_at,map_price,retail_price,piece_price,dozen_price,case_price,sale_price,customer_price,noe_retailing')
@@ -662,6 +680,7 @@ Deno.serve(async (request) => {
     const visitorDifference = settings.public_visitor_price_markup_enabled === false
       ? 0 : Number(settings.public_visitor_price_difference ?? 5);
     const money = (value: number) => Number(value.toFixed(2));
+    const safeMoney = (value: number) => Math.ceil((value - Number.EPSILON) * 100) / 100;
 
     const audits = products.map((product) => {
       const style = String(product.style_number || '').trim().toLowerCase();
@@ -693,12 +712,15 @@ Deno.serve(async (request) => {
           vendorCost / (1 - Number(rule.minimum_margin_percent || 0)),
         ) : vendorCost + desiredMargin;
         const safeFloor = Math.max(ruleFloor, paymentFloor);
-        const recommended = Math.max(safeFloor, explicitMap);
+        // S&S MAP and MSRP are retained for admin reference only. HC Apparel
+        // pricing is determined exclusively by cost, its selected pricing rule,
+        // desired margin, and the worst-case enabled payment-method fee.
+        const recommended = safeMoney(safeFloor);
         const processingCost = settings.processing_enabled === false ? 0 : Math.max(0, ...methods.map((method) => (
           recommended * Number(method.percentage || 0) / 100 + Number(method.fixed_fee || 0)
         )));
-        const pricingSource = explicitMap >= safeFloor && explicitMap > 0 ? 'S&S MAP'
-          : paymentFloor >= ruleFloor ? 'Payment-processing floor' : 'HC Apparel pricing rule';
+        const pricingSource = paymentFloor >= ruleFloor
+          ? 'Payment-processing protection' : 'HC Apparel pricing rule';
         return {
           sku: row.sku,
           size: row.size_name,
@@ -734,10 +756,12 @@ Deno.serve(async (request) => {
         inventory: stocked.reduce((sum, row) => sum + Math.max(0, Number(row.inventory_qty) || 0), 0),
         ss_cost: representative?.vendor_cost || null,
         map: representative?.map || null,
-        map_status: representative?.map ? 'Explicit S&S mapPrice' : 'Missing or placeholder; not enforced',
+        map_status: representative?.map ? 'Reference only — not used for HC Apparel pricing' : 'Unavailable or placeholder — not used for pricing',
         msrp_list: representative?.msrp || null,
         sale_price: representative?.sale_price || null,
         current_customer_price: currentPrice,
+        old_customer_price: currentPrice,
+        new_customer_price: recommended || null,
         calculated_safe_floor: representative?.safe_floor || null,
         payment_processing_floor: representative?.payment_floor || null,
         recommended_customer_price: recommended || null,
@@ -753,8 +777,66 @@ Deno.serve(async (request) => {
         status,
         variant_count: variants.length,
         fetched_at: representative?.fetched_at || null,
+        variant_prices: variants.map((variant) => ({
+          sku: variant.sku,
+          price: variant.recommended,
+          vendor_cost: variant.vendor_cost,
+          inventory: variant.inventory,
+        })),
       };
     }).sort((a, b) => String(a.style).localeCompare(String(b.style)));
+
+    if (applyAdidasPrices) {
+      const invalid = audits.filter((item) => item.status === 'DATA ERROR' || !(Number(item.new_customer_price) > 0));
+      if (invalid.length > 0 || audits.length !== 27) {
+        return json(request, {
+          error: `Adidas repricing stopped safely: expected 27 complete live products and found ${audits.length - invalid.length} eligible records.`,
+          audits,
+          storefront_changed: false,
+          ss_order_submitted: false,
+        }, 409);
+      }
+
+      for (const audit of audits) {
+        const product = products.find((item) => item.id === audit.product_id);
+        const pricesBySku = new Map((audit.variant_prices || []).map((item) => [String(item.sku), item]));
+        const existingVariants = Array.isArray(product?.size_prices) ? product.size_prices : [];
+        const updatedVariants = existingVariants.map((variant: Record<string, unknown>) => {
+          const current = pricesBySku.get(String(variant.sku || ''));
+          return current ? {
+            ...variant,
+            price: current.price,
+            vendor_cost: current.vendor_cost,
+            inventory: current.inventory,
+          } : variant;
+        });
+        if (updatedVariants.length === 0 || updatedVariants.some((variant: Record<string, unknown>) => !(Number(variant.price) > 0))) {
+          return json(request, {
+            error: `Adidas repricing stopped safely because ${audit.style} does not have complete SKU price data.`,
+            audits,
+            storefront_changed: false,
+            ss_order_submitted: false,
+          }, 409);
+        }
+        const { error: updateError } = await userClient.from('products').update({
+          price: audit.new_customer_price,
+          vendor_cost: audit.ss_cost,
+          size_prices: updatedVariants,
+          profit_estimate: money(Number(audit.new_customer_price) - Number(audit.ss_cost) - Number(audit.estimated_processing_cost || 0)),
+          storefront_price_applied_at: new Date().toISOString(),
+          price_edit_note: 'Removed HC Apparel MAP pricing policy; repriced from current S&S cost, HC pricing rule, margin, and payment-processing protection.',
+        }).eq('id', audit.product_id);
+        if (updateError) {
+          console.error('Adidas no-MAP repricing update failed', audit.product_id, updateError.message);
+          return json(request, {
+            error: `Adidas repricing stopped while updating ${audit.style}. Review the price audit before retrying.`,
+            audits,
+            storefront_changed: true,
+            ss_order_submitted: false,
+          }, 500);
+        }
+      }
+    }
 
     return json(request, {
       brand: 'adidas',
@@ -763,9 +845,10 @@ Deno.serve(async (request) => {
       counts: audits.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {} as Record<string, number>),
       audits,
       visitor_price_difference: visitorDifference,
-      ss_map_definition: 'S&S Products API mapPrice (Minimum Advertised Price)',
-      ss_retail_definition: "S&S Products API retailPrice (Manufacturer's Suggested Retail Price)",
-      storefront_changed: false,
+      ss_map_definition: 'S&S Products API mapPrice — stored for Super Admin reference only; not enforced',
+      ss_retail_definition: "S&S Products API retailPrice — stored for Super Admin reference only; not enforced",
+      pricing_policy: 'HC Apparel cost, pricing rule, margin, and worst-case enabled payment-method protection; MAP and MSRP excluded',
+      storefront_changed: applyAdidasPrices,
       ss_order_submitted: false,
     });
   }
@@ -910,7 +993,6 @@ Deno.serve(async (request) => {
       const rule = rules.get(ruleKey);
       const calculatedVariants = priced.map((row) => {
         const vendorCost = Number(row.customer_price || row.piece_price);
-        const realMap = Number(row.map_price) > 0.01 ? Number(row.map_price) : 0;
         const methodFloors = Object.values((financialSettings.payment_method_costs || {}) as Record<string, Record<string, unknown>>)
           .filter((method) => method?.enabled === true)
           .map((method) => (vendorCost + Math.max(Number(financialSettings.minimum_margin_per_item || 3), Number(rule?.storefront_margin_buffer || 3)) + Number(method.fixed_fee || 0)) / (1 - Number(method.percentage || 0) / 100));
@@ -918,10 +1000,9 @@ Deno.serve(async (request) => {
           vendorCost + Number(rule.storefront_margin_buffer || 3),
           vendorCost * Number(rule.cost_multiplier || 1) + Number(rule.fixed_allowance || 0) + Number(rule.storefront_margin_buffer || 3),
           vendorCost / (1 - Number(rule.minimum_margin_percent || 0)),
-          realMap,
           ...methodFloors,
         ).toFixed(2)) : 0;
-        return { row, vendorCost, realMap, publicPrice };
+        return { row, vendorCost, publicPrice };
       });
       const primaryImage = stocked.find((row) => row.color_on_model_front_image)?.color_on_model_front_image
         || stocked.find((row) => row.color_front_image)?.color_front_image
@@ -1030,7 +1111,7 @@ Deno.serve(async (request) => {
     }
     if (seasonalBrand === 'adidas' && readyCandidates.length < 27) {
       return json(request, {
-        error: `Only ${readyCandidates.length} Adidas products passed current image, inventory, SKU, size/color, MAP, and pricing checks; at least 27 are required before publication.`,
+        error: `Only ${readyCandidates.length} Adidas products passed current image, inventory, SKU, size/color, margin, and pricing checks; at least 27 are required before publication.`,
         products: winterCandidates.map(safeReport),
       }, 409);
     }
@@ -1085,7 +1166,7 @@ Deno.serve(async (request) => {
       features: [candidate.base_category, 'Authenticated S&S catalog data', seasonalBrand === 'adidas' ? 'Performance apparel and accessories' : 'Fall / Winter'].filter(Boolean),
       draft_qa_status: ['Next Level', 'adidas'].includes(seasonalBrand) ? 'ready_for_admin_approval' : 'ready_for_private_qa',
       internal_notes: ['Next Level', 'adidas'].includes(seasonalBrand)
-        ? `${seasonalBrand} authenticated S&S draft passed image, inventory, SKU, size/color, MAP, margin, and payment-method fee checks. Approved in this task for publication. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants.`
+        ? `${seasonalBrand} authenticated S&S draft passed image, inventory, SKU, size/color, HC Apparel margin, and payment-method fee checks. S&S MAP and MSRP are reference-only fields and were not used for pricing. Approved in this task for publication. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants.`
         : `Private ${seasonalBrand} ${seasonalBrand === 'Champion' ? 'winter' : 'fall/winter'} S&S draft. Ready for Private QA only. ${candidate.total_inventory} current units across ${candidate.stocked_colors} colors, ${candidate.stocked_sizes} sizes, and ${candidate.stocked_variants} stocked SKU variants. Not published.`,
     }));
     const { data: inserted, error: insertError } = await userClient

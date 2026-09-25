@@ -34,7 +34,9 @@ export default function AddToShopModal({ item, open, onClose, onSuccess }) {
       setForm({
         name: item.product_name || '',
         description: item.description || '',
-        price: item.msrp ? (item.msrp * 1.3).toFixed(2) : '',
+        // MAP/MSRP are reference-only vendor fields. Never derive an HC Apparel
+        // selling price from either value in this manual draft workflow.
+        price: '',
         sale_price: '',
         category: 'other',
         product_subtype: 'apparel_blanks',
@@ -134,6 +136,7 @@ export default function AddToShopModal({ item, open, onClose, onSuccess }) {
               <Label>Selling Price * ($)</Label>
               <Input type="number" step="0.01" min="0" placeholder="e.g. 24.99"
                 value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+              <p className="mt-1 text-xs text-muted-foreground">Use vendor cost and HC Apparel guardrails. S&amp;S MAP/MSRP are reference only.</p>
             </div>
             <div>
               <Label>Sale Price (optional)</Label>
