@@ -14,7 +14,7 @@ export const BRAND_PAGES = [
   { slug: 'independent-trading-co', name: 'Independent Trading Co.', tagline: 'Fleece and layers made for the everyday.', description: 'Shop hoodie, sweatshirt, and outerwear blanks for brands and teams.', categories: ['hoodies', 'fleece', 'crewnecks', 'outerwear'] },
   { slug: 'district', name: 'District', tagline: 'Modern everyday blanks for teams and creators.', description: 'Shop approachable tees, fleece, and casual apparel for organizations, events, and branded programs.', categories: ['t_shirts', 'long_sleeve', 'hoodies', 'crewnecks', 'womens'] },
   { slug: 'lane-seven', name: 'Lane Seven', tagline: 'Comfortable fleece and everyday layers.', description: 'Explore hoodies, crewnecks, tees, and versatile blanks for brands, teams, and organizations.', categories: ['t_shirts', 'hoodies', 'crewnecks', 'outerwear'] },
-  { slug: 'adidas', name: 'adidas', tagline: 'Sport-minded apparel for active teams.', description: 'Explore activewear and versatile apparel blanks for groups and organizations.', categories: ['sportswear', 'polos', 'outerwear'] },
+  { slug: 'adidas', name: 'adidas', tagline: 'Performance apparel and gear for teams, businesses, and everyday wear.', description: 'Shop authentic adidas tees, polos, layers, outerwear, headwear, and bags through HC Apparel.', categories: ['t_shirts', 'long_sleeve', 'polos', 'quarter_zips', 'hoodies', 'crewnecks', 'outerwear', 'pants', 'shorts', 'hats', 'bags', 'sportswear', 'business_apparel'] },
   { slug: 'oakley', name: 'Oakley', tagline: 'Performance-inspired everyday gear.', description: 'Shop apparel and accessories for active teams and businesses.', categories: ['sportswear', 'polos', 'hats', 'bags'], logo: undefined },
 ];
 

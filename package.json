@@ -24,6 +24,7 @@
     "test:live-integrations": "node scripts/test_live_integrations.mjs",
     "test:qa-separation": "node scripts/test_qa_admin_separation.mjs",
     "test:product-display-names": "node scripts/test_product_display_names.mjs",
+    "test:adidas-catalog": "node scripts/test_adidas_catalog_import.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },
