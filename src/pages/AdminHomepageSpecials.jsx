@@ -7,7 +7,8 @@ import { getPublicProductName } from '@/lib/productDisplayName';
 const money = value => value == null ? '—' : `$${Number(value).toFixed(2)}`;
 const dateValue = value => value ? new Date(value).toISOString().slice(0, 16) : '';
 const saleBrands = ['adidas', 'American Apparel', 'Columbia'];
-const saleLabel = brand => `${brand} Sale Pick`;
+const canonicalSaleBrand = brand => String(brand || '').toLowerCase() === 'adidas' ? 'adidas' : brand;
+const saleLabel = brand => `${canonicalSaleBrand(brand)} Sale Pick`;
 const blankEdit = { headline: '', subtitle: '', starts_at: '', ends_at: '', display_order: 0, promotion_slot: '', promo_image_url: '', badge_label: 'adidas Sale Pick' };
 const isCurrentSale = candidate => candidate.eligible && candidate.is_vendor_special;
 const priority = candidate => {
@@ -51,7 +52,7 @@ export default function AdminHomepageSpecials() {
     },
   });
   const records = useMemo(() => new Map(rows.map(row => [`${row.product_id}:${row.sku}`, row])), [rows]);
-  const targetCandidates = useMemo(() => candidates.filter(candidate => saleBrands.includes(candidate.brand)), [candidates]);
+  const targetCandidates = useMemo(() => candidates.filter(candidate => saleBrands.some(brand => brand.toLowerCase() === String(candidate.brand || '').toLowerCase())), [candidates]);
   const filtered = useMemo(() => targetCandidates.filter(candidate => {
     if (view === 'specials' && !isCurrentSale(candidate)) return false;
     if (view === 'blocked' && isCurrentSale(candidate)) return false;

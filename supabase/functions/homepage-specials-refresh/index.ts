@@ -50,7 +50,7 @@ Deno.serve(async request => {
     if (adminError || !isAdmin) return reply({ error: 'Admin access required' }, 403, origin);
 
     if (input.action === 'inspect_sale_candidates') {
-      const brands = ['adidas', 'American Apparel', 'Columbia'];
+      const brands = ['adidas', 'Adidas', 'American Apparel', 'Columbia'];
       const { data: products, error: productError } = await client.from('products')
         .select('id,brand,style_number,name,category,price,sale_price,image_url,stock,size_prices')
         .in('brand', brands).eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
@@ -102,7 +102,7 @@ Deno.serve(async request => {
     }
 
     if (input.action === 'refresh_sale_brand_variants') {
-      const brands = ['adidas', 'American Apparel', 'Columbia'];
+      const brands = ['adidas', 'Adidas', 'American Apparel', 'Columbia'];
       const { data: products, error: productError } = await client.from('products')
         .select('brand,style_number').in('brand', brands)
         .eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
