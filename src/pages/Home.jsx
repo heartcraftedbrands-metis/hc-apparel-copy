@@ -23,9 +23,9 @@ export default function Home() {
   return (
     <div className="max-w-full overflow-x-clip bg-background">
       <HomeHero products={publicProducts} />
+      <SpecialsSection />
       <HomeFeaturedCategories products={publicProducts} />
       <HomeFeaturedBrands products={publicProducts} />
-      <SpecialsSection />
       <HomeHowItWorks />
       <HomeWhyUs />
       <ReviewsSection />
