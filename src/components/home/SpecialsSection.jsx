@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Clock3, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/api/supabaseClient';
 import { getPublicProductName } from '@/lib/productDisplayName';
@@ -43,26 +44,14 @@ function Spotlight({ item, isAuthenticated }) {
   );
 }
 
-function SaleCard({ item, isAuthenticated, eager }) {
-  const name = getPublicProductName(item);
-  return (
-    <article className="flex h-full flex-col overflow-hidden rounded-3xl border border-white/15 bg-white shadow-xl">
-      <Link to={productUrl(item)} className="group relative block aspect-[4/3] overflow-hidden bg-gradient-to-br from-[#f9f7f0] via-white to-[#e4ddc9]">
-        <span className="absolute left-4 top-4 z-10 rounded-full bg-[#c9232d] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white shadow">S&amp;S sale</span>
-        <img src={item.image_url} alt={name} className="h-full w-full object-contain p-7 transition duration-500 group-hover:scale-105" loading={eager ? 'eager' : 'lazy'} />
-      </Link>
-      <div className="flex flex-1 flex-col p-6">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-[#9d7b35]">{item.brand} · {item.style_number}</p>
-        <h3 className="mt-2 text-2xl font-black leading-tight text-[#26351f]">{name}</h3>
-        <p className="mt-3 flex-1 text-sm leading-relaxed text-[#586251]">{item.subtitle || 'Available through HC Apparel while supplies last.'}</p>
-        <div className="mt-5"><PriceAndAction item={item} isAuthenticated={isAuthenticated} /></div>
-      </div>
-    </article>
-  );
-}
-
 export default function SpecialsSection() {
   const { isAuthenticated } = useCustomerPricing();
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [hovered, setHovered] = useState(false);
+  const [interactionPaused, setInteractionPaused] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const touchStart = useRef(null);
+  const resumeTimer = useRef(null);
   const { data: specials = [] } = useQuery({
     queryKey: ['storefront-homepage-specials'],
     queryFn: async () => {
@@ -74,11 +63,68 @@ export default function SpecialsSection() {
     },
   });
 
+  const slideCount = specials.length;
+  const hasCarousel = slideCount > 1;
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (activeSlide >= slideCount) setActiveSlide(0);
+  }, [activeSlide, slideCount]);
+
+  useEffect(() => {
+    if (!hasCarousel || hovered || interactionPaused || reducedMotion) return undefined;
+    const timer = window.setInterval(() => setActiveSlide(current => (current + 1) % slideCount), 5500);
+    return () => window.clearInterval(timer);
+  }, [hasCarousel, hovered, interactionPaused, reducedMotion, slideCount]);
+
+  useEffect(() => () => window.clearTimeout(resumeTimer.current), []);
+
+  const pauseAfterInteraction = () => {
+    setInteractionPaused(true);
+    window.clearTimeout(resumeTimer.current);
+    if (!reducedMotion) resumeTimer.current = window.setTimeout(() => setInteractionPaused(false), 10000);
+  };
+  const showSlide = index => {
+    setActiveSlide((index + slideCount) % slideCount);
+    pauseAfterInteraction();
+  };
+  const handleKeyDown = event => {
+    if (!hasCarousel || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    showSlide(activeSlide + (event.key === 'ArrowRight' ? 1 : -1));
+  };
+  const handleTouchStart = event => { touchStart.current = event.touches[0]?.clientX ?? null; };
+  const handleTouchEnd = event => {
+    const end = event.changedTouches[0]?.clientX;
+    if (touchStart.current !== null && Number.isFinite(end) && Math.abs(end - touchStart.current) > 45) {
+      showSlide(activeSlide + (end < touchStart.current ? 1 : -1));
+    }
+    touchStart.current = null;
+  };
+
   if (!specials.length) return null;
-  const spotlight = specials.length < 3;
+  const activeItem = specials[activeSlide] || specials[0];
 
   return (
-    <section className="relative overflow-hidden bg-[#26351f] py-12 text-white md:py-16" aria-labelledby="homepage-specials-title">
+    <section
+      className="relative overflow-hidden bg-[#26351f] py-12 text-white md:py-16"
+      aria-labelledby="homepage-specials-title"
+      aria-roledescription={hasCarousel ? 'carousel' : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setHovered(true)}
+      onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setHovered(false); }}
+      onKeyDown={handleKeyDown}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <div className="pointer-events-none absolute inset-0 opacity-[0.08]" style={{ backgroundImage: 'radial-gradient(circle at 15% 10%, white 0 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
       <div className="container relative mx-auto px-4">
         <div className="mb-7 max-w-3xl md:mb-9">
@@ -86,17 +132,19 @@ export default function SpecialsSection() {
           <h2 id="homepage-specials-title" className="text-3xl font-black leading-tight tracking-tight sm:text-4xl md:text-5xl">Catch These Deals Before They’re Gone</h2>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/75 sm:text-base">Special S&amp;S sale styles available through HC Apparel while supplies last.</p>
         </div>
-        {spotlight ? (
-          <div className={specials.length === 2 ? 'grid gap-6 lg:grid-cols-2' : ''}>
-            {specials.map((item, index) => specials.length === 1
-              ? <Spotlight key={item.id} item={item} isAuthenticated={isAuthenticated} />
-              : <SaleCard key={item.id} item={item} isAuthenticated={isAuthenticated} eager={index === 0} />)}
+        <div className="relative" aria-live="polite" aria-atomic="true">
+          <p className="sr-only">Slide {activeSlide + 1} of {slideCount}: {getPublicProductName(activeItem)}</p>
+          <div className="transition-opacity duration-500" role="group" aria-label={`Sale slide ${activeSlide + 1} of ${slideCount}`}>
+            <Spotlight key={activeItem.id} item={activeItem} isAuthenticated={isAuthenticated} />
           </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {specials.map((item, index) => <SaleCard key={item.id} item={item} isAuthenticated={isAuthenticated} eager={index < 3} />)}
-          </div>
-        )}
+          {hasCarousel && <>
+            <button type="button" onClick={() => showSlide(activeSlide - 1)} aria-label="Previous sale product" className="absolute left-2 top-[38%] z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-[#26351f]/90 text-2xl font-black text-white shadow-lg transition hover:bg-[#34472c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd973] sm:left-4">&#8249;</button>
+            <button type="button" onClick={() => showSlide(activeSlide + 1)} aria-label="Next sale product" className="absolute right-2 top-[38%] z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-[#26351f]/90 text-2xl font-black text-white shadow-lg transition hover:bg-[#34472c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd973] sm:right-4">&#8250;</button>
+          </>}
+        </div>
+        {hasCarousel && <div className="mt-6 flex items-center justify-center gap-3" role="group" aria-label="Choose sale slide">
+          {specials.map((item, index) => <button key={item.id} type="button" onClick={() => showSlide(index)} aria-label={`Show slide ${index + 1}: ${getPublicProductName(item)}`} aria-current={index === activeSlide ? 'true' : undefined} className={`h-3 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd973] ${index === activeSlide ? 'w-9 bg-[#ffd973]' : 'w-3 bg-white/45 hover:bg-white/75'}`} />)}
+        </div>}
       </div>
     </section>
   );
