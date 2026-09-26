@@ -53,9 +53,10 @@ Deno.serve(async request => {
       const brands = ['adidas', 'Adidas', 'American Apparel', 'Columbia'];
       const { data: products, error: productError } = await client.from('products')
         .select('id,brand,style_number,name,category,price,sale_price,image_url,stock,size_prices')
-        .in('brand', brands).eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
+        .eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
       if (productError) throw productError;
-      const styles = [...new Set((products || []).map(product => String(product.style_number || '').trim()).filter(Boolean))];
+      const targetProducts = (products || []).filter(product => brands.some(brand => brand.toLowerCase() === String(product.brand || '').trim().toLowerCase()));
+      const styles = [...new Set(targetProducts.map(product => String(product.style_number || '').trim()).filter(Boolean))];
       const { data: staged, error: stagedError } = await client.from('ss_sku_staging')
         .select('sku,brand,part_number,color_name,size_name,inventory_qty,customer_price,sale_price,piece_price,sale_expiration,color_front_image,color_on_model_front_image,noe_retailing,fetched_at')
         .in('part_number', styles).order('fetched_at', { ascending: false }).limit(5000);
@@ -66,7 +67,7 @@ Deno.serve(async request => {
         if (key && !latest.has(key)) latest.set(key, row);
       }
       const now = Date.now();
-      const reports = (products || []).map(product => {
+      const reports = targetProducts.map(product => {
         const variants = [...latest.values()].filter(row =>
           String(row.brand || '').toLowerCase() === String(product.brand || '').toLowerCase()
           && String(row.part_number || '').toUpperCase() === String(product.style_number || '').toUpperCase());
@@ -104,10 +105,10 @@ Deno.serve(async request => {
     if (input.action === 'refresh_sale_brand_variants') {
       const brands = ['adidas', 'Adidas', 'American Apparel', 'Columbia'];
       const { data: products, error: productError } = await client.from('products')
-        .select('brand,style_number').in('brand', brands)
-        .eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
+        .select('brand,style_number').eq('visibility', 'public').eq('is_active', true).eq('is_sample', false);
       if (productError) throw productError;
-      const styles = [...new Set((products || []).map(product => String(product.style_number || '').trim()).filter(Boolean))];
+      const targetProducts = (products || []).filter(product => brands.some(brand => brand.toLowerCase() === String(product.brand || '').trim().toLowerCase()));
+      const styles = [...new Set(targetProducts.map(product => String(product.style_number || '').trim()).filter(Boolean))];
       if (!styles.length) return reply({ products_refreshed: 0, skus_refreshed: 0, message: 'No live requested-brand products found.' }, 200, origin);
       const { data: staged, error: stagedError } = await client.from('ss_sku_staging')
         .select('*').in('part_number', styles)
@@ -175,7 +176,7 @@ Deno.serve(async request => {
         const { error: updateError } = await client.from('ss_sku_staging').upsert(updates.slice(offset, offset + 100), { onConflict: 'id' });
         if (updateError) throw updateError;
       }
-      return reply({ products_refreshed: refreshedStyles.size, skus_refreshed: updates.length, candidate_products: products?.length || 0, skipped, api_requests: apiRequests, fetched_at: fetchedAt, products_created: 0, ss_order_submitted: false, storefront_prices_changed: false }, 200, origin);
+      return reply({ products_refreshed: refreshedStyles.size, skus_refreshed: updates.length, candidate_products: targetProducts.length, skipped, api_requests: apiRequests, fetched_at: fetchedAt, products_created: 0, ss_order_submitted: false, storefront_prices_changed: false }, 200, origin);
     }
 
     const { data: candidates, error: candidateError } = await client.rpc('homepage_special_candidates');

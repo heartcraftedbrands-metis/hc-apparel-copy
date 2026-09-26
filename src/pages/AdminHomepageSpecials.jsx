@@ -52,7 +52,7 @@ export default function AdminHomepageSpecials() {
     },
   });
   const records = useMemo(() => new Map(rows.map(row => [`${row.product_id}:${row.sku}`, row])), [rows]);
-  const targetCandidates = useMemo(() => candidates.filter(candidate => saleBrands.some(brand => brand.toLowerCase() === String(candidate.brand || '').toLowerCase())), [candidates]);
+  const targetCandidates = useMemo(() => candidates.filter(candidate => saleBrands.some(brand => brand.toLowerCase() === String(candidate.brand || '').trim().toLowerCase())), [candidates]);
   const filtered = useMemo(() => targetCandidates.filter(candidate => {
     if (view === 'specials' && !isCurrentSale(candidate)) return false;
     if (view === 'blocked' && isCurrentSale(candidate)) return false;
