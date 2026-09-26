@@ -5,44 +5,44 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const FAQS = [
   {
-    q: 'What file formats do I receive?',
-    a: 'All designs are delivered as high-resolution PNG files (300 DPI or higher). DTF-ready files are sized and formatted for standard gang sheets. You will receive a download link immediately after purchase.',
+    q: 'Can I order blank garments without printing?',
+    a: 'Yes. Products marked as apparel blanks can be purchased without customization. Choose an available color and size, then add the blank garment to your cart.',
   },
   {
-    q: 'What is a Halftone design vs. a Full-Tone design?',
-    a: 'Halftone designs use a dot-pattern printing technique that simulates gradients and shading using small dots — ideal for vintage and screenprint aesthetics on DTF. Full-Tone (distressed) designs use solid colors with distressed textures, giving an aged, worn look. Both are print-ready PNG files.',
+    q: 'How do I know whether a size or color is available?',
+    a: 'Each product page shows current color and size options from our catalog. Select a color first to see the sizes currently available for that color.',
   },
   {
-    q: 'Can I use these for DTF printing?',
-    a: 'Yes! All HC Apparel designs are optimized specifically for DTF (Direct-to-Film) transfers. Simply load the PNG into your RIP software, print your transfer, and press onto your garment.',
+    q: 'Do you offer custom printing?',
+    a: 'Yes. Use the Custom Printing page for smaller projects or request a bulk quote for larger team, business, event, or organization orders.',
   },
   {
-    q: 'Can I resell the design files?',
-    a: 'No. You may NOT resell, share, or redistribute the digital files themselves. You CAN print the designs on garments and sell the finished apparel. See our full License Information page for details.',
+    q: 'What artwork should I provide for custom printing?',
+    a: 'A high-resolution PNG with a transparent background or a clean vector file is preferred. If you are unsure whether your artwork is ready, send it through the quote or contact form and our team will review it.',
   },
   {
-    q: 'Do I need special software?',
-    a: 'For DTF printing you\'ll need RIP software compatible with your printer. For general use the PNG files open in any image viewer or editor. No special software is required to download or use the files.',
+    q: 'How is shipping calculated?',
+    a: 'Shipping is calculated before payment based on the items in your cart, their fulfillment source, and your delivery address. The full shipping amount is shown before checkout.',
   },
   {
-    q: 'Can I use these for screen printing?',
-    a: 'Screen printing requires film separations and specific setups not included with our files. Our designs are optimized for DTF. Contact us if you need screen-printing-specific files.',
+    q: 'Can I track my order?',
+    a: 'Yes. Use the Track Order page with the order information provided at checkout. Tracking details appear after the carrier has accepted the shipment.',
   },
   {
-    q: 'What sizes are the files?',
-    a: 'Most single designs are delivered at 12"×12" at 300 DPI. Bundle packs may contain designs at varying sizes. Exact dimensions are listed on each product page.',
+    q: 'Do you offer bulk pricing?',
+    a: 'Yes. For orders of 50 or more garments, use the Bulk Quote request so we can review quantities, garment choices, print requirements, and delivery timing.',
   },
   {
-    q: 'How do I download after purchasing?',
-    a: 'After a successful payment, you will receive an order confirmation email with a download link. You can also access your download from your order history in the shop. Downloads are available for 30 days.',
+    q: 'Why do prices change after I sign in?',
+    a: 'Signed-in HC Apparel customers receive the stored account price. Public visitors see the public visitor price until they sign in; the cart is recalculated before checkout.',
   },
   {
-    q: 'Do you offer refunds?',
-    a: 'Because these are digital downloads, all sales are final once the file has been downloaded. If you experience a technical issue with your file, contact us within 7 days and we will make it right.',
+    q: 'When is payment collected?',
+    a: 'Payment is collected only after you sign in, review the cart, enter a valid shipping address, and continue to the secure payment page. We never place a vendor order merely because you view or edit your cart.',
   },
   {
-    q: 'Can I request a custom design?',
-    a: 'Yes! We do accept custom design requests. Reach out through our Contact page with your concept and we\'ll provide a quote. Turnaround is typically 3–5 business days.',
+    q: 'How can I get help with an order or product?',
+    a: 'Use the Contact page or email support@ilovehcapparel.net. Include your order number when asking about an existing order so we can help efficiently.',
   },
 ];
 
@@ -83,7 +83,7 @@ export default function FAQ() {
           <HelpCircle className="w-12 h-12 mx-auto mb-4 text-accent" />
           <h1 className="text-4xl font-bold mb-3">Frequently Asked Questions</h1>
           <p className="text-primary-foreground/75 max-w-xl mx-auto">
-            Everything you need to know about HC Apparel digital designs.
+            Answers about garments, custom printing, shipping, checkout, and order support.
           </p>
         </div>
       </div>

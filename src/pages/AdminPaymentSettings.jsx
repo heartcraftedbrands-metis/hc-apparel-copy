@@ -175,7 +175,9 @@ export default function AdminPaymentSettings() {
                   </Select>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Live checkout remains unavailable until both STRIPE_LIVE_SECRET_KEY and STRIPE_LIVE_WEBHOOK_SECRET are configured server-side.
+                  {stripeStatus?.modes?.live?.ready
+                    ? 'Live Stripe server and webhook credentials are configured and verified.'
+                    : 'Live checkout remains unavailable until both STRIPE_LIVE_SECRET_KEY and STRIPE_LIVE_WEBHOOK_SECRET are configured server-side.'}
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3 text-sm">
                   {['test', 'live'].map((mode) => {

@@ -90,8 +90,9 @@ export default function BrandPage() {
 
   if (isLoading && !defaults) return <div className="container mx-auto px-4 py-20 text-center">Loading brand page…</div>;
   if (!defaults || page.is_active === false) {
-    const fallbackBrand = page.name || catalogBrand || slug;
-    return <Navigate to={`/ShopGarments?brand=${encodeURIComponent(fallbackBrand)}`} replace />;
+    const fallbackBrand = [page.name, catalogBrand, slug]
+      .find(value => typeof value === 'string' && value.trim() && value !== 'undefined');
+    return <Navigate to={fallbackBrand ? `/ShopGarments?brand=${encodeURIComponent(fallbackBrand)}` : '/ShopGarments'} replace />;
   }
 
   return <div className="min-h-screen bg-[#f8f5ed]">

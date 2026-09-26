@@ -35,9 +35,10 @@ assert.match(drafts, /key: 'qa'/);
 assert.match(drafts, /liveDrafts\.length/);
 assert.match(draftDetail, /!form\.is_sample/);
 assert.match(livePanel, /!draft\.is_sample/);
-for (const liveView of [dashboard, inbox, operations]) {
-  assert.match(liveView, /filter\(\((?:order|draft|notification)\) => !(?:order|draft|notification)\.is_sample\)/);
-}
+assert.match(dashboard, /filter\(order => !order\.is_sample\)/);
+assert.match(inbox, /filter\(isActiveInboxOrder\)/);
+assert.match(inbox, /isActiveInboxOrder/);
+assert.match(operations, /filter\(\((?:order|draft|notification)\) => !(?:order|draft|notification)\.is_sample\)/);
 assert.match(analytics, /Live customer orders only/);
 assert.match(customerNotifications, /Live Notifications/);
 assert.match(customerNotifications, /QA\/Test — Do Not Fulfill/);

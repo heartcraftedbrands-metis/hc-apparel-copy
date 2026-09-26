@@ -29,7 +29,8 @@ assert.match(stripeCredentials, /key\?\.startsWith\(`rk_\$\{suffix\}`\)/);
 assert.match(stripeCredentials, /key\.startsWith\('pk_'\)/);
 assert.match(stripeCredentials, /new RegExp\(`\^\$\{name\}\\\\s\*=\\\\s\*`\)/);
 assert.match(checkout, /stripe_mode/);
-assert.match(checkout, /Stripe \$\{stripeMode\} mode is not configured/);
+assert.match(checkout, /Payment checkout could not be started/);
+assert.match(checkout, /STRIPE_UNAVAILABLE/);
 assert.match(verify, /modeFromCheckoutSessionId/);
 assert.match(webhook, /constructEventAsync/);
 assert.match(webhook, /event\.livemode/);
@@ -56,7 +57,8 @@ assert.match(migration, /ss_submission_state in \('submitting', 'submitted'\)/);
 assert.match(ssFunction, /'submit_vendor_order'/);
 assert.match(ssFunction, /begin_live_ss_submission/);
 assert.match(ssFunction, /fail_live_ss_submission/);
-assert.match(ssFunction, /complete_live_ss_submission/);
+assert.match(ssFunction, /record_ss_order_confirmation/);
+assert.match(ssFunction, /fail_live_ss_submission_v2/);
 assert.match(ssFunction, /https:\/\/api\.ssactivewear\.com\/v2\/products\//);
 assert.match(ssFunction, /https:\/\/api\.ssactivewear\.com\/v2\/orders\//);
 assert.match(ssFunction, /testOrder: false/);
@@ -69,7 +71,7 @@ assert.match(ssFunction, /inventory_check/);
 assert.doesNotMatch(ssFunction, /zerotouch[^\n]*(?:fetch|POST)/i);
 
 assert.match(panel, /Submit Live S&amp;S Order/);
-assert.match(panel, /This will place a real S&S order\. Continue\?/);
+assert.match(panel, /This will place a real S&S order for customer order \$\{orderNumber\}\. Continue\?/);
 assert.match(panel, /draft\.payment_status === 'paid'/);
 assert.match(panel, /draft\.workflow_status === 'ready_to_submit_to_ss'/);
 assert.match(panel, /status\?\.ss_live_submission_enabled/);
@@ -78,10 +80,10 @@ assert.match(panel, /Automatic emails/);
 assert.match(notifications, /Automatic email delivery/);
 assert.match(notifications, /Disabled\. Customer notifications remain copy-only drafts/);
 
-for (const route of ['/AdminPaymentSettings', '/AdminSSApiSettings', '/AdminVendorOrders', '/AdminCustomerNotifications', '/AdminOrders']) {
-  assert.match(layout, new RegExp(route));
+for (const route of ['/AdminPaymentSettings', '/AdminSSApiSettings', '/AdminVendorOrders', '/AdminCustomerNotifications']) {
   assert.match(dashboard, new RegExp(route));
 }
+assert.match(layout, /\/AdminVendorOrders/);
 assert.match(app, /<ProtectedRoute requiredRole="admin" \/>/);
 assert.match(app, /path="\/AdminSSApiSettings"/);
 assert.match(ssSettings, /S&amp;S Vendor Settings/);

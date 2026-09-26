@@ -438,7 +438,8 @@ Deno.serve(async (request) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const publishableKey = getSupabasePublishableKey();
-    const serviceKey = getSupabaseServiceCredential().key;
+    const serviceCredential = getSupabaseServiceCredential();
+    const serviceKey = serviceCredential.key;
     if (!supabaseUrl || !publishableKey || !serviceKey) return respond({ error: 'Checkout is not configured.' }, 503);
     const authorization = request.headers.get('Authorization') || '';
     const userClient = createClient(supabaseUrl, publishableKey, { global: { headers: { Authorization: authorization } } });
@@ -447,7 +448,7 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
-    const admin = createClient(supabaseUrl, serviceKey);
+    let admin = createClient(supabaseUrl, serviceKey);
     if (action === 'settings_get' || action === 'settings_save') {
       const { data: isAdmin } = await userClient.rpc('is_admin');
       if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
@@ -554,8 +555,33 @@ Deno.serve(async (request) => {
       });
     }
     if (String(payload.customer_email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return respond({ error: 'Checkout email must match the signed-in account.' }, 403);
-    const { data: settings, error: settingsError } = await admin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
-    if (settingsError || !settings) return respond({ error: 'Shipping settings are unavailable.' }, 503);
+    let { data: settings, error: settingsError } = await admin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+    // Some projects expose both the current sb_secret credential and the legacy
+    // service-role JWT. If the preferred credential cannot read the protected
+    // settings row, retry once with the distinct legacy credential. This remains
+    // entirely server-side and never exposes either credential to the browser.
+    const alternateServiceKeys = [
+      Deno.env.get('SUPABASE_SECRET_KEY')?.trim(),
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim(),
+    ].filter((value, index, values): value is string => Boolean(value) && value !== serviceKey && values.indexOf(value) === index);
+    for (const alternateServiceKey of alternateServiceKeys) {
+      if (!settingsError && settings) break;
+      const alternateAdmin = createClient(supabaseUrl, alternateServiceKey);
+      const alternateResult = await alternateAdmin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+      if (!alternateResult.error && alternateResult.data) {
+        admin = alternateAdmin;
+        settings = alternateResult.data;
+        settingsError = null;
+      }
+    }
+    if (settingsError || !settings) {
+      const safeCode = settingsError?.code || 'SETTINGS_MISSING';
+      console.error('Checkout settings unavailable', {
+        code: safeCode,
+        credential_source: serviceCredential.source,
+      });
+      return respond({ error: `Shipping settings are unavailable (reference ${safeCode}).`, code: safeCode }, 503);
+    }
     const quote = await calculate(admin, payload, settings);
     if (action === 'quote') return respond({ quote, credentials: { usps_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')) } });
     if (action !== 'create_order') return respond({ error: 'Unsupported checkout action.' }, 400);

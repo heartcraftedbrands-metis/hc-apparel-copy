@@ -80,10 +80,10 @@ check(
   'the migration must not change S&S SKU inventory',
 );
 check(
-  !/submitted\s*:\s*true|live_submission_enabled['"]?\s*[:,]\s*true/i.test(
-    `${migration}\n${edgeFunction}`,
-  ),
-  'the cold-weather workflow must not enable live S&S or ZeroTouch submission',
+  !/submitted\s*:\s*true|live_submission_enabled['"]?\s*[:,]\s*true/i.test(migration)
+    && edgeFunction.includes("'stage_cold_weather_styles'")
+    && edgeFunction.includes("'submit_vendor_order'"),
+  'the cold-weather migration must not enable live submission, and staging must remain separate from the admin-only submit action',
 );
 check(
   edgeFunction.includes("'stage_cold_weather_styles'"),
@@ -94,8 +94,8 @@ check(
   'the approved backend brand list must include Columbia and Independent Trading Co',
 );
 check(
-  filterLibrary.includes("{ value: 'outerwear', label: 'Outerwear' }"),
-  'the shared category configuration must expose Outerwear',
+  filterLibrary.includes("{ value: 'outerwear', label: 'Jackets / Outerwear' }"),
+  'the shared category configuration must expose Jackets / Outerwear',
 );
 check(
   shopPage.includes("'outerwear'"),

@@ -133,6 +133,17 @@ function LayoutInner({ children }) {
                 )}
               </Button>
 
+              {!user && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+                >
+                  <Link to="/Login">Login</Link>
+                </Button>
+              )}
+
               {user && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
