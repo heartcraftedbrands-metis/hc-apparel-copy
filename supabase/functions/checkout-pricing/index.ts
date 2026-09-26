@@ -31,6 +31,37 @@ type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
 type Product = Record<string, unknown>;
 
+class CheckoutConfigurationError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'CheckoutConfigurationError';
+    this.code = code;
+  }
+}
+
+const customerShippingError = 'We’re having trouble calculating shipping. Please try again or contact HC Apparel.';
+
+const customerSafeQuote = (quote: Record<string, unknown>) => ({
+  merchandise: quote.merchandise,
+  shipping: quote.shipping,
+  tax: quote.tax,
+  total: quote.total,
+  services: quote.services,
+  needsSelection: quote.needsSelection,
+  warnings: quote.warnings,
+  components: Array.isArray(quote.components)
+    ? quote.components.map((component: Item) => ({
+      customer_charge: component.customer_charge,
+      carrier: component.carrier === 'Fallback' ? 'Standard' : component.carrier,
+      service: component.source === 'ss_activewear'
+        ? 'Standard shipping'
+        : component.service || 'Standard shipping',
+    }))
+    : [],
+});
+
 const paymentMethodDefaults: Record<string, Item> = {
   card: { label: 'Card', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
   apple_pay: { label: 'Apple Pay', enabled: true, percentage: 2.9, fixed_fee: 0.3 },
@@ -350,7 +381,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   let uspsQuotedShipping = 0;
 
   if (legs.ss_activewear.length) {
-    if (settings.ss_shipping_enabled === false) throw new Error('S&S shipping is not enabled. Please contact support@ilovehcapparel.net.');
+    if (settings.ss_shipping_enabled === false) throw new CheckoutConfigurationError('SS_SHIPPING_DISABLED', 'S&S checkout shipping is disabled.');
     const quantity = legs.ss_activewear.reduce((sum, item) => sum + safeNumber(item.quantity), 0);
     const subtotal = money(legs.ss_activewear.reduce((sum, item) => sum + safeNumber(item.price) * safeNumber(item.quantity), 0));
     const threshold = safeNumber(settings.ss_free_freight_threshold);
@@ -361,7 +392,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     else if (quantity <= 5) { base = settings.ss_tier_3_5 == null ? null : safeNumber(settings.ss_tier_3_5); rule = 'S&S fallback: 3–5 garments'; }
     else if (quantity <= 12) { base = settings.ss_tier_6_12 == null ? null : safeNumber(settings.ss_tier_6_12); rule = 'S&S fallback: 6–12 garments'; }
     else { base = settings.ss_tier_13_plus == null ? null : safeNumber(settings.ss_tier_13_plus); rule = 'S&S fallback: 13+ garments'; }
-    if (base == null) throw new Error(`Shipping could not be calculated. The ${rule} rate has not been configured.`);
+    if (base == null) throw new CheckoutConfigurationError('SS_SHIPPING_TIERS_INCOMPLETE', `${rule} is missing.`);
     const charge = money(base + safeNumber(settings.ss_shipping_buffer));
     estimatedVendorShipping += base;
     components.push({ source: 'ss_activewear', quantity, subtotal, customer_charge: charge, estimated_vendor_shipping: base, rule, exact_quote: false });
@@ -378,7 +409,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
         unitWeight = safeNumber(settings.default_product_weight_oz) * (settings.default_product_weight_unit === 'lb' ? 16 : 1);
         usedDefaultWeight = true;
       }
-      if (unitWeight <= 0) throw new Error('Shipping could not be calculated because a product weight is missing.');
+      if (unitWeight <= 0) throw new CheckoutConfigurationError('USPS_DEFAULT_WEIGHT_MISSING', 'USPS default package weight is missing for a product without shipping weight.');
       ounces += unitWeight * safeNumber(item.quantity);
     }
     if (usedDefaultWeight) warnings.push('Using default shipping weight');
@@ -388,7 +419,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
       width: safeNumber(settings.default_package_width_in) * dimensionFactor,
       height: safeNumber(settings.default_package_height_in) * dimensionFactor,
     };
-    if (!dimensions.length || !dimensions.width || !dimensions.height) throw new Error('HC Apparel package dimensions are not configured.');
+    if (!dimensions.length || !dimensions.width || !dimensions.height) throw new CheckoutConfigurationError('USPS_PACKAGE_DIMENSIONS_MISSING', 'USPS default package dimensions are incomplete.');
     const destinationZip = String((payload.shipping_address as Item)?.zip || (payload.shipping_address as Item)?.postal_code || '');
     if (!/^\d{5}(-\d{4})?$/.test(destinationZip)) throw new Error('Enter a valid destination ZIP code.');
     let rates: Item[] = [];
@@ -404,7 +435,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
       rates = [{ id: 'hc-fallback', service: 'Standard shipping', amount: safeNumber(settings.hc_fallback_rate), delivery: null }];
       warnings.push('Live USPS rates are temporarily unavailable. A fallback shipping rate has been applied.');
     }
-    if (!rates.length) throw new Error('Shipping could not be calculated. Please try again or contact support@ilovehcapparel.net.');
+    if (!rates.length) throw new CheckoutConfigurationError('USPS_RATE_AND_FALLBACK_UNAVAILABLE', 'USPS live rate unavailable and fallback shipping is disabled or incomplete.');
     rates = rates.map((rate) => ({ ...rate, amount: money(safeNumber(rate.amount) + safeNumber(settings.hc_handling_amount)) }));
     services.push(...rates);
     const selectedId = String(payload.shipping_service_id || '');
@@ -458,7 +489,12 @@ Deno.serve(async (request) => {
           console.error('Checkout settings read failed', { code: error.code });
           return respond({ error: 'Settings could not be loaded. Please try again.', code: error.code }, 500);
         }
-        return respond({ settings: data });
+        return respond({
+          settings: {
+            ...data,
+            _usps_credentials_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')),
+          },
+        });
       }
       const updates: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(payload)) {
@@ -556,6 +592,13 @@ Deno.serve(async (request) => {
     }
     if (String(payload.customer_email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return respond({ error: 'Checkout email must match the signed-in account.' }, 403);
     let { data: settings, error: settingsError } = await admin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+    if (settingsError || !settings) {
+      const scopedResult = await admin.rpc('get_checkout_pricing_settings_server');
+      if (!scopedResult.error && scopedResult.data) {
+        settings = scopedResult.data as Settings;
+        settingsError = null;
+      }
+    }
     // Some projects expose both the current sb_secret credential and the legacy
     // service-role JWT. If the preferred credential cannot read the protected
     // settings row, retry once with the distinct legacy credential. This remains
@@ -567,7 +610,11 @@ Deno.serve(async (request) => {
     for (const alternateServiceKey of alternateServiceKeys) {
       if (!settingsError && settings) break;
       const alternateAdmin = createClient(supabaseUrl, alternateServiceKey);
-      const alternateResult = await alternateAdmin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+      let alternateResult = await alternateAdmin.from('checkout_financial_settings').select('*').eq('id', 'default').single();
+      if (alternateResult.error || !alternateResult.data) {
+        const scopedAlternate = await alternateAdmin.rpc('get_checkout_pricing_settings_server');
+        alternateResult = { data: scopedAlternate.data as Settings | null, error: scopedAlternate.error };
+      }
       if (!alternateResult.error && alternateResult.data) {
         admin = alternateAdmin;
         settings = alternateResult.data;
@@ -580,10 +627,10 @@ Deno.serve(async (request) => {
         code: safeCode,
         credential_source: serviceCredential.source,
       });
-      return respond({ error: `Shipping settings are unavailable (reference ${safeCode}).`, code: safeCode }, 503);
+      return respond({ error: customerShippingError, code: 'CHECKOUT_SETTINGS_UNAVAILABLE' }, 503);
     }
     const quote = await calculate(admin, payload, settings);
-    if (action === 'quote') return respond({ quote, credentials: { usps_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')) } });
+    if (action === 'quote') return respond({ quote: customerSafeQuote(quote), credentials: { usps_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')) } });
     if (action !== 'create_order') return respond({ error: 'Unsupported checkout action.' }, 400);
     if (quote.needsSelection) return respond({ error: 'Select a shipping service before continuing.' }, 400);
     const rpcPayload = { ...payload, shipping_method: quote.components.map((component: Item) => component.service || component.rule).filter(Boolean).join(' + ') };
@@ -616,9 +663,14 @@ Deno.serve(async (request) => {
       await admin.from('orders').update({ status: 'checkout_failed', payment_status: 'checkout_failed', checkout_failure_reason: 'Shipping total could not be attached to checkout' }).eq('id', created.order_id);
       return respond({ error: 'Payment checkout could not be started. Please refresh and try again.' }, 500);
     }
-    return respond({ ...created, quote });
+    return respond({ ...created, quote: customerSafeQuote(quote) });
   } catch (error) {
-    console.error('Checkout pricing failure', { name: error instanceof Error ? error.name : 'Unknown' });
-    return respond({ error: error instanceof Error ? error.message : 'Shipping could not be calculated.' }, 400);
+    const configurationError = error instanceof CheckoutConfigurationError ? error : null;
+    console.error('Checkout pricing failure', {
+      name: error instanceof Error ? error.name : 'Unknown',
+      code: configurationError?.code || 'CHECKOUT_CALCULATION_FAILED',
+      message: configurationError?.message || 'Checkout calculation failed',
+    });
+    return respond({ error: customerShippingError, code: configurationError?.code || 'CHECKOUT_CALCULATION_FAILED' }, 400);
   }
 });
