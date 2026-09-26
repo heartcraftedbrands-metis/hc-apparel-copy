@@ -176,7 +176,90 @@ Deno.serve(async request => {
         const { error: updateError } = await client.from('ss_sku_staging').upsert(updates.slice(offset, offset + 100), { onConflict: 'id' });
         if (updateError) throw updateError;
       }
-      return reply({ products_refreshed: refreshedStyles.size, skus_refreshed: updates.length, candidate_products: targetProducts.length, skipped, api_requests: apiRequests, fetched_at: fetchedAt, products_created: 0, ss_order_submitted: false, storefront_prices_changed: false }, 200, origin);
+
+      const { data: refreshedCandidates, error: refreshedCandidateError } = await client.rpc('homepage_special_candidates');
+      if (refreshedCandidateError) throw refreshedCandidateError;
+      const targetSales = (refreshedCandidates || []).filter((candidate: Record<string, unknown>) => (
+        candidate.eligible === true && candidate.is_vendor_special === true
+        && brands.some(brand => brand.toLowerCase() === String(candidate.brand || '').trim().toLowerCase())
+      ));
+      const inventorySort = (a: Record<string, unknown>, b: Record<string, unknown>) => Number(b.inventory_qty || 0) - Number(a.inventory_qty || 0);
+      const selected: Record<string, unknown>[] = [];
+      const selectedKeys = new Set<string>();
+      const addCandidate = (candidate?: Record<string, unknown>) => {
+        if (!candidate || selected.length >= 3) return;
+        const key = `${candidate.product_id}:${candidate.sku}`;
+        if (!selectedKeys.has(key)) {
+          selected.push(candidate);
+          selectedKeys.add(key);
+        }
+      };
+      for (const preferredBrand of ['adidas', 'American Apparel', 'Columbia']) {
+        addCandidate(targetSales.filter((candidate: Record<string, unknown>) => String(candidate.brand || '').trim().toLowerCase() === preferredBrand.toLowerCase()).sort(inventorySort)[0]);
+      }
+      const remaining = targetSales.filter((candidate: Record<string, unknown>) => !selectedKeys.has(`${candidate.product_id}:${candidate.sku}`));
+      while (selected.length < 3 && remaining.length) {
+        const unusedCategory = remaining.filter((candidate: Record<string, unknown>) => !selected.some(current => String(current.category || '') === String(candidate.category || ''))).sort(inventorySort);
+        const candidate = (unusedCategory[0] || remaining.sort(inventorySort)[0]) as Record<string, unknown>;
+        addCandidate(candidate);
+        const index = remaining.findIndex(item => `${item.product_id}:${item.sku}` === `${candidate.product_id}:${candidate.sku}`);
+        if (index >= 0) remaining.splice(index, 1);
+      }
+
+      const { data: existingPromotions, error: promotionReadError } = await client.from('homepage_specials').select('*').not('promotion_slot', 'is', null);
+      if (promotionReadError) throw promotionReadError;
+      const existingByKey = new Map((existingPromotions || []).map(row => [`${row.product_id}:${row.sku}`, row]));
+      if ((existingPromotions || []).some(row => row.active)) {
+        const { error: deactivateError } = await client.from('homepage_specials').update({ active: false }).not('promotion_slot', 'is', null);
+        if (deactivateError) throw deactivateError;
+      }
+      for (let index = 0; index < selected.length; index += 1) {
+        const candidate = selected[index];
+        const key = `${candidate.product_id}:${candidate.sku}`;
+        const existing = existingByKey.get(key);
+        const canonicalBrand = String(candidate.brand || '').trim().toLowerCase() === 'adidas' ? 'adidas' : String(candidate.brand || '').trim();
+        const { error: promotionError } = await client.from('homepage_specials').upsert({
+          product_id: candidate.product_id,
+          sku: candidate.sku,
+          approved: true,
+          active: true,
+          headline: existing?.headline || null,
+          subtitle: existing?.subtitle || 'Current S&S sale style available through HC Apparel while supplies last.',
+          promo_image_url: existing?.promo_image_url || null,
+          starts_at: existing?.starts_at || fetchedAt,
+          ends_at: null,
+          display_order: index + 1,
+          promotion_slot: index + 1,
+          badge_label: `${canonicalBrand} Sale Pick`,
+          sale_field_source: 'S&S salePrice',
+          rejected_at: null,
+          approved_at: existing?.approved_at || fetchedAt,
+        }, { onConflict: 'product_id,sku' });
+        if (promotionError) throw promotionError;
+      }
+      return reply({
+        products_refreshed: refreshedStyles.size,
+        skus_refreshed: updates.length,
+        candidate_products: targetProducts.length,
+        qualifying_sale_products: targetSales.length,
+        carousel_slides: selected.map((candidate, index) => ({
+          display_order: index + 1,
+          brand: candidate.brand,
+          product: candidate.product_name,
+          style: candidate.style_number,
+          sku: candidate.sku,
+          sale_price: candidate.vendor_special_price,
+          inventory: candidate.inventory_qty,
+          hc_customer_price: candidate.public_price,
+          sale_source: candidate.sale_field_source,
+        })),
+        skipped,
+        api_requests: apiRequests,
+        fetched_at: fetchedAt,
+        products_created: 0,
+        ss_order_submitted: false,
+        storefront_prices_changed: false,
+      }, 200, origin);
     }
 
     const { data: candidates, error: candidateError } = await client.rpc('homepage_special_candidates');
