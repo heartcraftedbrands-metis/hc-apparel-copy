@@ -567,7 +567,7 @@ Deno.serve(async (request) => {
             ...data,
             _usps_credentials_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')),
             _georgia_tax_status: latestTaxRate ? {
-              last_tax_rate_update: latestTaxRate.source_updated_at,
+              last_tax_rate_update: latestTaxRate.last_tax_rate_update,
               effective_through: latestTaxRate.effective_to,
               rate_source: latestTaxRate.rate_source,
               source_url: latestTaxRate.source_url,
@@ -663,14 +663,24 @@ Deno.serve(async (request) => {
       let shippingOptionsResponse: Response;
       let shippingOptionsData: Item = {};
       let shippingOptionRates: Item[] = [];
+      let domesticError = '';
+      let optionsError = '';
       try {
         rates = await uspsDomesticRates(rateSettings, destinationZip, ounces, packageDimensions, diagnostics);
+      } catch (error) {
+        domesticError = String(error instanceof Error ? error.message : 'USPS Domestic Pricing failed').replace(/[\r\n]+/g, ' ').slice(0, 360);
+      }
+      try {
         const shippingOptionsResult = await fetchUspsShippingOptions(originZip, destinationZip, ounces, packageDimensions);
         shippingOptionsResponse = shippingOptionsResult.response;
         shippingOptionsData = shippingOptionsResult.data;
         shippingOptionRates = shippingOptionsResponse.ok ? await uspsShippingOptionRates(rateSettings, destinationZip, ounces, packageDimensions) : [];
       } catch (error) {
-        const safeMessage = String(error instanceof Error ? error.message : 'USPS rate request failed').replace(/[\r\n]+/g, ' ').slice(0, 300);
+        optionsError = String(error instanceof Error ? error.message : 'USPS Shipping Options failed').replace(/[\r\n]+/g, ' ').slice(0, 360);
+        shippingOptionsResponse = new Response(null, { status: 503 });
+      }
+      if (!rates.length && !shippingOptionRates.length) {
+        const safeMessage = [domesticError, optionsError].filter(Boolean).join(' | ').slice(0, 600) || 'USPS returned no valid rate.';
         return respond({
           error: safeMessage,
           code: dimensionsComplete ? 'USPS_RATE_TEST_FAILED' : 'USPS_WEIGHT_ONLY_RATE_FAILED',
