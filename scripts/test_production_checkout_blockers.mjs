@@ -19,13 +19,14 @@ assert.match(edge, /customerSafeQuote/);
 assert.match(edge, /quote: customerSafeQuote\(quote\)/);
 assert.doesNotMatch(edge.match(/const customerSafeQuote[\s\S]+?\n\}\);/)?.[0] || '', /vendorCost|estimatedMargin|processingMethod|estimatedVendorShipping/);
 assert.match(edge, /SS_SHIPPING_TIERS_INCOMPLETE/);
-assert.match(edge, /USPS_DEFAULT_WEIGHT_MISSING/);
-assert.match(edge, /USPS_PACKAGE_DIMENSIONS_MISSING/);
+assert.match(edge, /USPS_PRODUCT_WEIGHT_MISSING/);
+assert.match(edge, /USPS_PACKAGE_DATA_REQUIRED/);
 assert.match(edge, /USPS_RATE_AND_FALLBACK_UNAVAILABLE/);
 
 assert.match(admin, /Checkout shipping readiness/);
 assert.match(admin, /S&S checkout shipping configuration incomplete/);
-assert.match(admin, /Tax calculation is currently disabled/);
+assert.match(admin, /Georgia Sales Tax: Enabled/);
+assert.match(admin, /Destination based/);
 assert.match(admin, /USPS live rates/);
 assert.match(checkout, /Calculated before payment/);
 
