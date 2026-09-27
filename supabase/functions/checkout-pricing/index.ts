@@ -556,11 +556,12 @@ Deno.serve(async (request) => {
           console.error('Checkout settings read failed', { code: error.code });
           return respond({ error: 'Settings could not be loaded. Please try again.', code: error.code }, 500);
         }
-        const { data: taxRates } = await admin.from('georgia_sales_tax_rates')
-          .select('effective_from,effective_to,rate_source,source_url,source_updated_at')
-          .order('effective_to', { ascending: false })
-          .limit(1);
-        const latestTaxRate = Array.isArray(taxRates) ? taxRates[0] : null;
+        const { data: currentTaxRate } = await admin.rpc('get_georgia_checkout_tax_rate', {
+          destination_zip: '30303',
+          destination_city: 'Atlanta',
+          calculation_date: new Date().toISOString().slice(0, 10),
+        });
+        const latestTaxRate = currentTaxRate?.ok === true ? currentTaxRate : null;
         return respond({
           settings: {
             ...data,
@@ -658,9 +659,28 @@ Deno.serve(async (request) => {
       const token = await getUspsToken();
       const rateSettings = { origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true };
       const packageDimensions = dimensionsComplete ? { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor } : null;
-      const rates = await uspsDomesticRates(rateSettings, destinationZip, ounces, packageDimensions, diagnostics);
-      const { response: shippingOptionsResponse, data: shippingOptionsData } = await fetchUspsShippingOptions(originZip, destinationZip, ounces, packageDimensions);
-      const shippingOptionRates = shippingOptionsResponse.ok ? await uspsShippingOptionRates(rateSettings, destinationZip, ounces, packageDimensions) : [];
+      let rates: Item[] = [];
+      let shippingOptionsResponse: Response;
+      let shippingOptionsData: Item = {};
+      let shippingOptionRates: Item[] = [];
+      try {
+        rates = await uspsDomesticRates(rateSettings, destinationZip, ounces, packageDimensions, diagnostics);
+        const shippingOptionsResult = await fetchUspsShippingOptions(originZip, destinationZip, ounces, packageDimensions);
+        shippingOptionsResponse = shippingOptionsResult.response;
+        shippingOptionsData = shippingOptionsResult.data;
+        shippingOptionRates = shippingOptionsResponse.ok ? await uspsShippingOptionRates(rateSettings, destinationZip, ounces, packageDimensions) : [];
+      } catch (error) {
+        const safeMessage = String(error instanceof Error ? error.message : 'USPS rate request failed').replace(/[\r\n]+/g, ' ').slice(0, 300);
+        return respond({
+          error: safeMessage,
+          code: dimensionsComplete ? 'USPS_RATE_TEST_FAILED' : 'USPS_WEIGHT_ONLY_RATE_FAILED',
+          missing_shipping_information: dimensionsComplete ? [] : ['package length', 'package width', 'package height'],
+          package_data: { weight_oz: ounces, dimensions_supplied: dimensionsComplete },
+          creates_order: false,
+          creates_label: false,
+          creates_payment: false,
+        }, 400);
+      }
       const services = diagnostics.requests.map((request) => ({
         mail_class: request.mail_class,
         label: request.mail_class === 'USPS_GROUND_ADVANTAGE' ? 'USPS Ground Advantage' : 'USPS Priority Mail',
