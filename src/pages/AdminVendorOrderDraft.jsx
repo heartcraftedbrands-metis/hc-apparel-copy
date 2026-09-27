@@ -363,8 +363,8 @@ export default function AdminVendorOrderDraft() {
               <Summary label="Shipping charged" value={`$${Number(customerOrder.shipping_amount || 0).toFixed(2)}`} />
               <Summary label="Sales tax (not profit)" value={`$${Number(customerOrder.sales_tax_amount || 0).toFixed(2)}`} />
               <Summary label="Processing estimate" value={customerOrder.payment_processing_estimate == null ? 'Historical / unavailable' : `$${Number(customerOrder.payment_processing_estimate).toFixed(2)}`} />
-              <Summary label="Estimated vendor shipping" value={customerOrder.estimated_vendor_shipping == null ? 'Shipping cost pending' : `$${Number(customerOrder.estimated_vendor_shipping).toFixed(2)}`} />
-              <Summary label="Actual vendor shipping" value={customerOrder.actual_vendor_shipping == null ? 'Shipping cost pending' : `$${Number(customerOrder.actual_vendor_shipping).toFixed(2)}`} />
+              <Summary label="S&S fallback shipping tier" value={(customerOrder.estimated_s_and_s_shipping ?? customerOrder.estimated_vendor_shipping) == null ? 'Shipping cost pending' : `$${Number(customerOrder.estimated_s_and_s_shipping ?? customerOrder.estimated_vendor_shipping).toFixed(2)}`} />
+              <Summary label="Actual S&S shipping" value={(customerOrder.actual_s_and_s_shipping ?? customerOrder.actual_vendor_shipping) == null ? 'Shipping cost pending' : `$${Number(customerOrder.actual_s_and_s_shipping ?? customerOrder.actual_vendor_shipping).toFixed(2)}`} />
               <Summary label="Shipping variance" value={customerOrder.shipping_variance == null ? 'Pending actual freight' : `$${Number(customerOrder.shipping_variance).toFixed(2)}`} />
               <Summary label="Estimated net margin" value={customerOrder.estimated_net_margin == null ? 'Historical / unavailable' : `$${Number(customerOrder.estimated_net_margin).toFixed(2)}`} />
             </div>

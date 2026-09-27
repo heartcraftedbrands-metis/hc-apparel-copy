@@ -54,7 +54,7 @@ export const orderNetMargin = (order: Record<string, unknown>, processingCost: n
     ? Math.max(0, total - shippingRevenue - tax)
     : number(order.product_subtotal);
   const vendorGarmentCost = number(order.vendor_cost_estimate);
-  const vendorShippingCost = number(order.actual_vendor_shipping ?? order.actual_shipping_cost ?? order.estimated_vendor_shipping);
+  const vendorShippingCost = number(order.actual_s_and_s_shipping ?? order.actual_vendor_shipping ?? order.actual_shipping_cost ?? order.estimated_s_and_s_shipping ?? order.estimated_vendor_shipping);
   const printCost = number(order.printing_cost_estimate);
   const otherVendorFees = number(order.other_vendor_fees);
   return Math.round((

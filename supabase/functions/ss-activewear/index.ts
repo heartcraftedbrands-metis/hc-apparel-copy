@@ -84,6 +84,7 @@ const productFields = [
   'CustomerPrice',
   'SaleExpiration',
   'NoeRetailing',
+  'ExcludeFreeFreight',
   'PolyPackQty',
   'Qty',
   'CountryOfOrigin',
@@ -108,6 +109,14 @@ const integerValue = (value: unknown) => {
   const parsed = numberValue(value);
   return parsed === null ? null : Math.trunc(parsed);
 };
+
+const ssFreightAmount = (entry: Record<string, unknown>) => [
+  entry.shippingAmount,
+  entry.freightAmount,
+  entry.freight,
+  entry.shippingCost,
+  entry.shipping,
+].map(numberValue).find((value) => value !== null && value >= 0) ?? null;
 
 const imageUrl = (value: unknown) => {
   const path = textValue(value);
@@ -943,7 +952,7 @@ Deno.serve(async (request) => {
         .eq('brand', seasonalBrand)
         .eq('row_status', 'pending'),
       userClient.from('ss_sku_staging')
-        .select('part_number,style_name,sku,size_name,size_order,color_name,color_code,color_swatch_image,color_front_image,color_on_model_front_image,unit_weight,inventory_qty,fetched_at,map_price,piece_price,customer_price')
+        .select('part_number,style_name,sku,size_name,size_order,color_name,color_code,color_swatch_image,color_front_image,color_on_model_front_image,unit_weight,inventory_qty,fetched_at,map_price,piece_price,customer_price,raw_product')
         .eq('style_session_id', latest.import_session_id)
         .eq('brand', seasonalBrand),
       userClient.from('products').select('style_number,supplier_sku').eq('brand', seasonalBrand),
@@ -1068,6 +1077,13 @@ Deno.serve(async (request) => {
         })),
         minimum_vendor_cost: calculatedVariants.length ? Math.min(...calculatedVariants.map((variant) => variant.vendorCost)) : null,
         unit_weight: Math.max(0, ...stocked.map((row) => Number(row.unit_weight) || 0)),
+        ss_exclude_free_freight: stocked.length && stocked.every((row) => {
+          const rawProduct = row.raw_product && typeof row.raw_product === 'object' ? row.raw_product as Record<string, unknown> : {};
+          return (rawProduct.excludeFreeFreight ?? rawProduct.ExcludeFreeFreight) === false;
+        }) ? false : stocked.some((row) => {
+          const rawProduct = row.raw_product && typeof row.raw_product === 'object' ? row.raw_product as Record<string, unknown> : {};
+          return (rawProduct.excludeFreeFreight ?? rawProduct.ExcludeFreeFreight) === true;
+        }) ? true : null,
       };
     });
 
@@ -1163,6 +1179,7 @@ Deno.serve(async (request) => {
       storefront_pricing_rule_key: candidate.pricing_rule_key,
       storefront_price_applied_at: new Date().toISOString(),
       garment_weight: candidate.unit_weight ? `${candidate.unit_weight} lb` : null,
+      ss_exclude_free_freight: candidate.ss_exclude_free_freight,
       features: [candidate.base_category, 'Authenticated S&S catalog data', seasonalBrand === 'adidas' ? 'Performance apparel and accessories' : 'Fall / Winter'].filter(Boolean),
       draft_qa_status: ['Next Level', 'adidas'].includes(seasonalBrand) ? 'ready_for_admin_approval' : 'ready_for_private_qa',
       internal_notes: ['Next Level', 'adidas'].includes(seasonalBrand)
@@ -1495,6 +1512,7 @@ Deno.serve(async (request) => {
         order_date: textValue(match.orderDate),
         expected_delivery_date: textValue(match.expectedDeliveryDate),
         tracking_number: textValue(match.trackingNumber),
+        actual_shipping: ssFreightAmount(match),
       };
       const { data: saved, error: saveError } = await userClient.rpc('record_ss_order_confirmation', {
         p_draft_id: payload.draft_id,
@@ -1703,7 +1721,8 @@ Deno.serve(async (request) => {
               po_number: textValue(existing.poNumber), warehouse: textValue(existing.warehouseAbbr),
               status: textValue(existing.orderStatus), order_date: textValue(existing.orderDate),
               expected_delivery_date: textValue(existing.expectedDeliveryDate),
-              tracking_number: textValue(existing.trackingNumber), source: 'pre_submit_reconciliation',
+              tracking_number: textValue(existing.trackingNumber), actual_shipping: ssFreightAmount(existing),
+              source: 'pre_submit_reconciliation',
             };
             if (!dryRun) {
               const { error: reconcileError } = await userClient.rpc('record_ss_order_confirmation', {
@@ -1842,6 +1861,9 @@ Deno.serve(async (request) => {
         status: textValue(first.orderStatus), order_date: textValue(first.orderDate),
         expected_delivery_date: textValue(first.expectedDeliveryDate),
         tracking_number: textValue(first.trackingNumber),
+        actual_shipping: orders.map(ssFreightAmount).every((amount) => amount !== null)
+          ? orders.reduce((sum, entry) => sum + (ssFreightAmount(entry) ?? 0), 0)
+          : null,
         orders: orders.map((entry) => ({ order_number: textValue(entry.orderNumber), guid: textValue(entry.guid),
           warehouse: textValue(entry.warehouseAbbr), status: textValue(entry.orderStatus) })),
       };

@@ -75,7 +75,7 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
   const { data: order, error: orderError } = await admin
     .from('orders')
-    .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,sales_tax_amount,vendor_cost_estimate,actual_vendor_shipping,actual_shipping_cost,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,checkout_source,stripe_mode,payment_processing_estimate,pricing_snapshot')
+    .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,shipping_charged_to_customer,sales_tax_amount,vendor_cost_estimate,actual_s_and_s_shipping,actual_vendor_shipping,actual_shipping_cost,estimated_s_and_s_shipping,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,checkout_source,stripe_mode,payment_processing_estimate,pricing_snapshot')
     .eq('id', orderId)
     .maybeSingle();
   if (orderError) {

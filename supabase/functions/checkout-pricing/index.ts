@@ -27,6 +27,13 @@ const optionalPriceNumber = (value: unknown): number | null => {
 const positivePrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null && value > 0) ?? null;
 const firstPrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null) ?? null;
 
+const booleanValue = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || String(value).trim().toLowerCase() === 'true') return true;
+  if (value === 0 || String(value).trim().toLowerCase() === 'false') return false;
+  return null;
+};
+
 type Settings = Record<string, unknown>;
 type Item = Record<string, unknown>;
 type Product = Record<string, unknown>;
@@ -159,6 +166,52 @@ const variantFor = (product: Product, item: Item) => {
     );
   });
 };
+
+async function ssFreeFreightEligibility(legs: Item[]) {
+  if (legs.some((item) => (item.product as Product)?.ss_exclude_free_freight === true)) {
+    return { eligible: false, verified: true, reason: 'At least one S&S product is excluded from free freight' };
+  }
+  if (legs.every((item) => (item.product as Product)?.ss_exclude_free_freight === false)) {
+    return { eligible: true, verified: true, reason: 'Stored S&S free-freight eligibility verified' };
+  }
+
+  const skuList = [...new Set(legs.map((item) => {
+    const variant = variantFor(item.product as Product, item);
+    return String(variant?.sku || item.sku || '').trim();
+  }).filter(Boolean))];
+  const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER')?.trim();
+  const apiKey = Deno.env.get('SS_API_KEY')?.trim();
+  if (!skuList.length || !accountNumber || !apiKey) {
+    return { eligible: false, verified: false, reason: 'S&S free-freight eligibility could not be verified' };
+  }
+
+  try {
+    const url = new URL(`https://api.ssactivewear.com/v2/products/${skuList.map(encodeURIComponent).join(',')}`);
+    url.searchParams.set('fields', 'Sku,ExcludeFreeFreight');
+    url.searchParams.set('mediatype', 'json');
+    const response = await fetch(url, {
+      headers: { Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return { eligible: false, verified: false, reason: 'S&S free-freight eligibility lookup failed' };
+    const result = await response.json();
+    const rows = (Array.isArray(result) ? result : [result]) as Item[];
+    const eligibilityBySku = new Map(rows.map((row) => [
+      String(row.sku ?? row.Sku ?? '').trim().toLowerCase(),
+      booleanValue(row.excludeFreeFreight ?? row.ExcludeFreeFreight),
+    ]));
+    const exclusions = skuList.map((sku) => eligibilityBySku.get(sku.toLowerCase()));
+    if (exclusions.length !== skuList.length || exclusions.some((value) => value == null)) {
+      return { eligible: false, verified: false, reason: 'S&S returned incomplete free-freight eligibility' };
+    }
+    return exclusions.some(Boolean)
+      ? { eligible: false, verified: true, reason: 'At least one S&S SKU is excluded from free freight' }
+      : { eligible: true, verified: true, reason: 'All S&S SKUs are eligible for free freight' };
+  } catch (error) {
+    console.warn('S&S free-freight eligibility lookup unavailable', { name: error instanceof Error ? error.name : 'Unknown' });
+    return { eligible: false, verified: false, reason: 'S&S free-freight eligibility could not be verified' };
+  }
+}
 
 type UspsRateDiagnostics = { requests: Array<Record<string, unknown>> };
 
@@ -383,7 +436,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   const items = Array.isArray(payload.items) ? payload.items as Item[] : [];
   if (!items.length) throw new Error('Your cart is empty.');
   const ids = [...new Set(items.map((item) => String(item.product_id || '')).filter(Boolean))];
-  const { data: products, error } = await admin.from('products').select('id,name,price,sale_price,size_prices,vendor_cost,blank_garment_cost,print_cost_estimate,fulfillment_source,shipping_weight_oz,package_length_in,package_width_in,package_height_in,visibility,is_active').in('id', ids);
+  const { data: products, error } = await admin.from('products').select('id,name,price,sale_price,size_prices,vendor_cost,blank_garment_cost,print_cost_estimate,fulfillment_source,ss_exclude_free_freight,shipping_weight_oz,package_length_in,package_width_in,package_height_in,visibility,is_active').in('id', ids);
   if (error) throw new Error('Products could not be validated.');
   const byId = new Map((products || []).map((product: Product) => [String(product.id), product]));
   let merchandise = 0;
@@ -425,15 +478,19 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     const threshold = safeNumber(settings.ss_free_freight_threshold);
     let base: number | null = null;
     let rule = '';
-    if (threshold > 0 && subtotal >= threshold) { base = 0; rule = 'Configured S&S free-freight threshold'; }
+    const freeFreight = threshold > 0 && subtotal >= threshold
+      ? await ssFreeFreightEligibility(legs.ss_activewear)
+      : { eligible: false, verified: false, reason: 'S&S subtotal is below the free-freight threshold' };
+    if (threshold > 0 && subtotal >= threshold && freeFreight.eligible) { base = 0; rule = 'Verified S&S free freight'; }
     else if (quantity <= 2) { base = settings.ss_tier_1_2 == null ? null : safeNumber(settings.ss_tier_1_2); rule = 'S&S fallback: 1–2 garments'; }
     else if (quantity <= 5) { base = settings.ss_tier_3_5 == null ? null : safeNumber(settings.ss_tier_3_5); rule = 'S&S fallback: 3–5 garments'; }
     else if (quantity <= 12) { base = settings.ss_tier_6_12 == null ? null : safeNumber(settings.ss_tier_6_12); rule = 'S&S fallback: 6–12 garments'; }
     else { base = settings.ss_tier_13_plus == null ? null : safeNumber(settings.ss_tier_13_plus); rule = 'S&S fallback: 13+ garments'; }
+    if (base == null && quantity >= 13) throw new CheckoutConfigurationError('SS_SHIPPING_REVIEW_REQUIRED', 'Shipping for this S&S order requires review because the 13+ garment fallback is not configured.');
     if (base == null) throw new CheckoutConfigurationError('SS_SHIPPING_TIERS_INCOMPLETE', `${rule} is missing.`);
     const charge = money(base + safeNumber(settings.ss_shipping_buffer));
     estimatedVendorShipping += base;
-    components.push({ source: 'ss_activewear', quantity, subtotal, customer_charge: charge, estimated_vendor_shipping: base, rule, exact_quote: false });
+    components.push({ source: 'ss_activewear', quantity, subtotal, customer_charge: charge, estimated_vendor_shipping: base, rule, exact_quote: false, free_freight_verified: freeFreight.verified, free_freight_reason: freeFreight.reason });
   }
 
   if (legs.hc_apparel.length) {
@@ -577,9 +634,11 @@ Deno.serve(async (request) => {
         });
       }
       const updates: Record<string, unknown> = {};
+      const nullableNumberFields = new Set(['ss_tier_13_plus']);
       for (const [key, value] of Object.entries(payload)) {
         if (settingsBooleanFields.has(key) && typeof value === 'boolean') updates[key] = value;
-        if (settingsNumberFields.has(key) && value !== '' && value != null && Number.isFinite(Number(value))) updates[key] = Number(value);
+        if (settingsNumberFields.has(key) && nullableNumberFields.has(key) && (value === '' || value == null)) updates[key] = null;
+        else if (settingsNumberFields.has(key) && value !== '' && value != null && Number.isFinite(Number(value))) updates[key] = Number(value);
         if (settingsTextFields.has(key) && typeof value === 'string' && value.trim() !== '') updates[key] = value.trim();
       }
       if (payload.payment_method_costs && typeof payload.payment_method_costs === 'object' && !Array.isArray(payload.payment_method_costs)) {
@@ -791,6 +850,7 @@ Deno.serve(async (request) => {
     const { error: updateError } = await admin.from('orders').update({
       product_subtotal: quote.merchandise,
       shipping_amount: quote.shipping,
+      shipping_charged_to_customer: quote.shipping,
       sales_tax_amount: quote.tax,
       sales_tax_rate_percent: safeNumber((quote.taxDetail as Item)?.rate_percent),
       sales_tax_jurisdiction_code: (quote.taxDetail as Item)?.jurisdiction_code || null,
@@ -802,6 +862,7 @@ Deno.serve(async (request) => {
       balance_due: quote.total,
       vendor_garment_cost: quote.vendorCost,
       estimated_vendor_shipping: quote.estimatedVendorShipping,
+      estimated_s_and_s_shipping: quote.estimatedVendorShipping,
       usps_quoted_shipping: quote.uspsQuotedShipping,
       payment_processing_estimate: quote.processing,
       estimated_processing_cost: quote.processing,
@@ -828,6 +889,9 @@ Deno.serve(async (request) => {
       code: configurationError?.code || 'CHECKOUT_CALCULATION_FAILED',
       message: configurationError?.message || 'Checkout calculation failed',
     });
-    return respond({ error: customerShippingError, code: configurationError?.code || 'CHECKOUT_CALCULATION_FAILED' }, 400);
+    const safeError = configurationError?.code === 'SS_SHIPPING_REVIEW_REQUIRED'
+      ? 'Shipping for this order requires review. Please contact HC Apparel before checkout.'
+      : customerShippingError;
+    return respond({ error: safeError, code: configurationError?.code || 'CHECKOUT_CALCULATION_FAILED' }, 400);
   }
 });
