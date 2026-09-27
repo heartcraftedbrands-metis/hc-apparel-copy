@@ -344,6 +344,7 @@ export default function Checkout() {
                   <div className="flex justify-between"><span>Product subtotal</span><span>${Number(quote?.merchandise ?? merchandiseTotal).toFixed(2)}</span></div>
                   <div className="flex justify-between"><span>Shipping</span><span>{quote ? `$${Number(quote.shipping).toFixed(2)}` : 'Calculated before payment'}</span></div>
                   <div className="flex justify-between"><span>Sales tax</span><span>{quote ? `$${Number(quote.tax).toFixed(2)}` : 'Calculated before payment'}</span></div>
+                  {quote?.tax_detail?.jurisdiction_name&&<p className="text-right text-xs text-muted-foreground">{quote.tax_detail.jurisdiction_name} · {Number(quote.tax_detail.rate_percent).toFixed(2)}%</p>}
                   <div className="flex justify-between border-t pt-2 text-lg font-bold"><span>Order total</span><span>${Number(quote?.total ?? merchandiseTotal).toFixed(2)}</span></div>
                   {(quote?.warnings || []).map(warning => <p key={warning} className="text-xs text-amber-700">{warning}</p>)}
                 </div>

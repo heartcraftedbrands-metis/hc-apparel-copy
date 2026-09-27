@@ -1066,6 +1066,7 @@ export default function AdminOrderDetail() {
                     <span className="text-muted-foreground">Sales tax (not profit)</span>
                     <span className="font-semibold">${taxCollected.toFixed(2)}</span>
                   </div>
+                  {form.sales_tax_jurisdiction_name && <div className="flex justify-between text-sm"><span className="text-muted-foreground">Georgia tax jurisdiction</span><span className="text-right font-semibold">{form.sales_tax_jurisdiction_name} · {Number(form.sales_tax_rate_percent || 0).toFixed(2)}%</span></div>}
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Amount Paid</span>
                     <span className="font-semibold text-green-700">${amountPaid.toFixed(2)}</span>

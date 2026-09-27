@@ -47,6 +47,11 @@ const customerSafeQuote = (quote: Record<string, unknown>) => ({
   merchandise: quote.merchandise,
   shipping: quote.shipping,
   tax: quote.tax,
+  tax_detail: quote.taxDetail ? {
+    method: (quote.taxDetail as Item).method,
+    jurisdiction_name: (quote.taxDetail as Item).jurisdiction_name,
+    rate_percent: (quote.taxDetail as Item).rate_percent,
+  } : null,
   total: quote.total,
   services: quote.services,
   needsSelection: quote.needsSelection,
@@ -97,7 +102,7 @@ const worstPaymentCost = (charge: number, value: unknown) => Object.entries(norm
 const settingsBooleanFields = new Set([
   'processing_enabled', 'sales_tax_enabled', 'ss_shipping_enabled', 'usps_enabled',
   'usps_ground_advantage_enabled', 'usps_priority_mail_enabled', 'hc_fallback_enabled',
-  'hc_free_shipping_enabled', 'public_visitor_price_markup_enabled',
+  'hc_free_shipping_enabled', 'public_visitor_price_markup_enabled', 'georgia_sales_tax_enabled',
 ]);
 const settingsNumberFields = new Set([
   'minimum_margin_per_item', 'processing_percent', 'processing_fixed_fee',
@@ -109,7 +114,7 @@ const settingsNumberFields = new Set([
 ]);
 const settingsTextFields = new Set([
   'origin_street', 'origin_city', 'origin_state', 'origin_zip',
-  'default_product_weight_unit', 'default_package_dimension_unit',
+  'default_product_weight_unit', 'default_package_dimension_unit', 'georgia_tax_method',
 ]);
 
 let uspsToken: { value: string; expiresAt: number } | null = null;
@@ -199,16 +204,17 @@ const uspsOptionSummaries = (value: unknown) => {
   return summaries;
 };
 
-async function uspsDomesticRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>, diagnostics?: UspsRateDiagnostics) {
+async function uspsDomesticRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number> | null, diagnostics?: UspsRateDiagnostics) {
   const token = await getUspsToken();
   const pounds = Math.max(0.01, ounces / 16);
+  const dimensionFields = dimensions && dimensions.length > 0 && dimensions.width > 0 && dimensions.height > 0
+    ? { length: dimensions.length, width: dimensions.width, height: dimensions.height }
+    : {};
   const baseRequest = {
     originZIPCode: String(settings.origin_zip || '').replace(/\D/g, '').slice(0, 5),
     destinationZIPCode: destinationZip.replace(/\D/g, '').slice(0, 5),
     weight: pounds,
-    length: dimensions.length,
-    width: dimensions.width,
-    height: dimensions.height,
+    ...dimensionFields,
     processingCategory: 'MACHINABLE',
     destinationEntryFacilityType: 'NONE',
     rateIndicator: 'SP',
@@ -277,15 +283,15 @@ async function uspsDomesticRates(settings: Settings, destinationZip: string, oun
   return rates;
 }
 
-const shippingOptionsPayload = (originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number>) => ({
+const shippingOptionsPayload = (originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number> | null) => ({
   pricingOptions: [{ priceType: 'RETAIL' }],
   originZIPCode: originZip.replace(/\D/g, '').slice(0, 5),
   destinationZIPCode: destinationZip.replace(/\D/g, '').slice(0, 5),
   packageDescription: {
     weight: Math.max(0.01, ounces / 16),
-    length: dimensions.length,
-    width: dimensions.width,
-    height: dimensions.height,
+    ...(dimensions && dimensions.length > 0 && dimensions.width > 0 && dimensions.height > 0
+      ? { length: dimensions.length, width: dimensions.width, height: dimensions.height }
+      : {}),
     mailClass: 'ALL',
     extraServices: [],
     mailingDate: new Date().toISOString().slice(0, 10),
@@ -293,7 +299,7 @@ const shippingOptionsPayload = (originZip: string, destinationZip: string, ounce
   },
 });
 
-async function fetchUspsShippingOptions(originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+async function fetchUspsShippingOptions(originZip: string, destinationZip: string, ounces: number, dimensions: Record<string, number> | null) {
   const token = await getUspsToken();
   const response = await fetch('https://apis.usps.com/shipments/v3/options/search', {
     method: 'POST',
@@ -304,7 +310,7 @@ async function fetchUspsShippingOptions(originZip: string, destinationZip: strin
   return { response, data };
 }
 
-async function uspsShippingOptionRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number>) {
+async function uspsShippingOptionRates(settings: Settings, destinationZip: string, ounces: number, dimensions: Record<string, number> | null) {
   const { response, data } = await fetchUspsShippingOptions(String(settings.origin_zip || ''), destinationZip, ounces, dimensions);
   if (!response.ok) {
     const safeCode = String(data?.error?.code || data?.code || 'options_failed').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80);
@@ -339,6 +345,38 @@ async function uspsShippingOptionRates(settings: Settings, destinationZip: strin
       };
     });
   }).filter((rate: { amount: number }) => Number.isFinite(rate.amount) && rate.amount > 0);
+}
+
+async function georgiaDestinationTax(
+  admin: ReturnType<typeof createClient>,
+  payload: Record<string, unknown>,
+  settings: Settings,
+  taxableAmount: number,
+) {
+  const address = (payload.shipping_address || {}) as Item;
+  const state = String(address.state || '').trim().toUpperCase();
+  if (state !== 'GA') return { amount: 0, detail: { method: 'destination_based', state, jurisdiction_name: null, rate_percent: 0 } };
+  if (settings.georgia_sales_tax_enabled !== true) {
+    throw new CheckoutConfigurationError('GA_TAX_DISABLED', 'Georgia destination sales tax is disabled in admin settings.');
+  }
+  const zip = String(address.zip || address.postal_code || '').trim();
+  const city = String(address.city || '').trim();
+  const { data, error } = await admin.rpc('get_georgia_checkout_tax_rate', {
+    destination_zip: zip,
+    destination_city: city,
+    calculation_date: new Date().toISOString().slice(0, 10),
+  });
+  if (error) throw new CheckoutConfigurationError('GA_TAX_LOOKUP_FAILED', 'Georgia destination tax could not be verified.');
+  const detail = (data || {}) as Item;
+  if (detail.ok !== true) {
+    throw new CheckoutConfigurationError(
+      String(detail.code || 'GA_TAX_JURISDICTION_UNRESOLVED'),
+      String(detail.message || 'Georgia destination tax could not be verified.'),
+    );
+  }
+  const rate = safeNumber(detail.rate_percent);
+  if (rate <= 0) throw new CheckoutConfigurationError('GA_TAX_RATE_INVALID', 'The configured Georgia destination tax rate is invalid.');
+  return { amount: money(taxableAmount * rate / 100), detail };
 }
 
 async function calculate(admin: ReturnType<typeof createClient>, payload: Record<string, unknown>, settings: Settings) {
@@ -409,33 +447,61 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
         unitWeight = safeNumber(settings.default_product_weight_oz) * (settings.default_product_weight_unit === 'lb' ? 16 : 1);
         usedDefaultWeight = true;
       }
-      if (unitWeight <= 0) throw new CheckoutConfigurationError('USPS_DEFAULT_WEIGHT_MISSING', 'USPS default package weight is missing for a product without shipping weight.');
+      if (unitWeight <= 0) throw new CheckoutConfigurationError('USPS_PRODUCT_WEIGHT_MISSING', `Shipping weight is missing for ${String(product.name || 'an HC Apparel product')}. Add the SKU/product weight or configure a real fallback weight.`);
       ounces += unitWeight * safeNumber(item.quantity);
     }
     if (usedDefaultWeight) warnings.push('Using default shipping weight');
+    const actualDimensions = legs.hc_apparel.map((item) => {
+      const product = item.product as Product;
+      return {
+        length: safeNumber(product.package_length_in),
+        width: safeNumber(product.package_width_in),
+        height: safeNumber(product.package_height_in),
+        quantity: safeNumber(item.quantity),
+      };
+    });
+    const allProductDimensionsAvailable = actualDimensions.every((entry) => entry.length > 0 && entry.width > 0 && entry.height > 0);
     const dimensionFactor = settings.default_package_dimension_unit === 'cm' ? 1 / 2.54 : 1;
-    const dimensions = {
+    const globalDimensions = {
       length: safeNumber(settings.default_package_length_in) * dimensionFactor,
       width: safeNumber(settings.default_package_width_in) * dimensionFactor,
       height: safeNumber(settings.default_package_height_in) * dimensionFactor,
     };
-    if (!dimensions.length || !dimensions.width || !dimensions.height) throw new CheckoutConfigurationError('USPS_PACKAGE_DIMENSIONS_MISSING', 'USPS default package dimensions are incomplete.');
+    const dimensions = allProductDimensionsAvailable
+      ? {
+        length: Math.max(...actualDimensions.map((entry) => entry.length)),
+        width: Math.max(...actualDimensions.map((entry) => entry.width)),
+        height: actualDimensions.reduce((sum, entry) => sum + entry.height * entry.quantity, 0),
+      }
+      : globalDimensions.length > 0 && globalDimensions.width > 0 && globalDimensions.height > 0
+        ? globalDimensions
+        : null;
+    if (!dimensions) warnings.push('USPS request uses product/cart weight without package dimensions');
     const destinationZip = String((payload.shipping_address as Item)?.zip || (payload.shipping_address as Item)?.postal_code || '');
     if (!/^\d{5}(-\d{4})?$/.test(destinationZip)) throw new Error('Enter a valid destination ZIP code.');
     let rates: Item[] = [];
     let fallback = false;
+    let uspsFailure = '';
     if (settings.hc_free_shipping_enabled === true && safeNumber(settings.hc_free_shipping_threshold) > 0 && subtotal >= safeNumber(settings.hc_free_shipping_threshold)) {
       rates = [{ id: 'hc-free-shipping', service: 'HC Apparel free shipping', amount: 0, delivery: null }];
     } else if (settings.usps_enabled === true) {
       try { rates = await uspsShippingOptionRates(settings, destinationZip, ounces, dimensions); }
-      catch (error) { console.warn('USPS quote unavailable', { name: error instanceof Error ? error.name : 'Unknown' }); }
+      catch (error) {
+        uspsFailure = error instanceof Error ? error.message.slice(0, 220) : 'USPS request failed';
+        console.warn('USPS quote unavailable', { name: error instanceof Error ? error.name : 'Unknown', has_dimensions: Boolean(dimensions) });
+      }
     }
     if (!rates.length && settings.hc_fallback_enabled === true && settings.hc_fallback_rate != null) {
       fallback = true;
       rates = [{ id: 'hc-fallback', service: 'Standard shipping', amount: safeNumber(settings.hc_fallback_rate), delivery: null }];
       warnings.push('Live USPS rates are temporarily unavailable. A fallback shipping rate has been applied.');
     }
-    if (!rates.length) throw new CheckoutConfigurationError('USPS_RATE_AND_FALLBACK_UNAVAILABLE', 'USPS live rate unavailable and fallback shipping is disabled or incomplete.');
+    if (!rates.length) {
+      if (!dimensions && /dimension|length|width|height|package/i.test(uspsFailure)) {
+        throw new CheckoutConfigurationError('USPS_PACKAGE_DATA_REQUIRED', 'USPS requires package dimensions for this cart. Add product dimensions or an active package preset before checkout.');
+      }
+      throw new CheckoutConfigurationError('USPS_RATE_AND_FALLBACK_UNAVAILABLE', 'USPS live rate unavailable and fallback shipping is disabled or incomplete.');
+    }
     rates = rates.map((rate) => ({ ...rate, amount: money(safeNumber(rate.amount) + safeNumber(settings.hc_handling_amount)) }));
     services.push(...rates);
     const selectedId = String(payload.shipping_service_id || '');
@@ -448,7 +514,8 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
 
   const needsSelection = legs.hc_apparel.length > 0 && services.length > 1 && !components.some((component) => component.source === 'hc_apparel');
   const shipping = money(components.reduce((sum, component) => sum + safeNumber(component.customer_charge), 0));
-  const tax = settings.sales_tax_enabled === true ? money((merchandise + shipping) * safeNumber(settings.sales_tax_rate_percent) / 100) : 0;
+  const taxResult = await georgiaDestinationTax(admin, payload, settings, merchandise + shipping);
+  const tax = taxResult.amount;
   const total = money(merchandise + shipping + tax);
   const processingMethod = settings.processing_enabled === false
     ? { key: null, label: 'Disabled', percentage: 0, fixed_fee: 0, amount: 0 }
@@ -458,7 +525,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   const estimatedMargin = money(beforeShipping + shipping - estimatedVendorShipping - uspsQuotedShipping);
   const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * items.reduce((sum, item) => sum + safeNumber(item.quantity), 0));
   if (estimatedMargin < requiredMargin) throw new Error('This cart requires a pricing review before checkout. Please contact support@ilovehcapparel.net.');
-  return { merchandise, shipping, tax, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
+  return { merchandise, shipping, tax, taxDetail: taxResult.detail, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
 }
 
 Deno.serve(async (request) => {
@@ -489,10 +556,22 @@ Deno.serve(async (request) => {
           console.error('Checkout settings read failed', { code: error.code });
           return respond({ error: 'Settings could not be loaded. Please try again.', code: error.code }, 500);
         }
+        const { data: taxRates } = await admin.from('georgia_sales_tax_rates')
+          .select('effective_from,effective_to,rate_source,source_url,source_updated_at')
+          .order('effective_to', { ascending: false })
+          .limit(1);
+        const latestTaxRate = Array.isArray(taxRates) ? taxRates[0] : null;
         return respond({
           settings: {
             ...data,
             _usps_credentials_configured: Boolean(Deno.env.get('USPS_CLIENT_ID') && Deno.env.get('USPS_CLIENT_SECRET')),
+            _georgia_tax_status: latestTaxRate ? {
+              last_tax_rate_update: latestTaxRate.source_updated_at,
+              effective_through: latestTaxRate.effective_to,
+              rate_source: latestTaxRate.rate_source,
+              source_url: latestTaxRate.source_url,
+              expired: String(latestTaxRate.effective_to) < new Date().toISOString().slice(0, 10),
+            } : { expired: true },
           },
         });
       }
@@ -510,6 +589,31 @@ Deno.serve(async (request) => {
         updates.processing_percent = legacyWorst.percentage;
         updates.processing_fixed_fee = legacyWorst.fixed_fee;
       }
+      if (Array.isArray(payload.package_presets)) {
+        const normalizedPresets = payload.package_presets.map((entry, index) => {
+          const preset = entry && typeof entry === 'object' ? entry as Item : {};
+          const name = String(preset.name || '').trim();
+          const length = safeNumber(preset.length);
+          const width = safeNumber(preset.width);
+          const height = safeNumber(preset.height);
+          const emptyPackageWeight = safeNumber(preset.empty_package_weight);
+          if (!name || length <= 0 || width <= 0 || height <= 0 || emptyPackageWeight < 0) {
+            throw new CheckoutConfigurationError('PACKAGE_PRESET_INVALID', `Package preset ${index + 1} is incomplete.`);
+          }
+          return {
+            id: String(preset.id || crypto.randomUUID()),
+            name,
+            length,
+            width,
+            height,
+            empty_package_weight: emptyPackageWeight,
+            dimension_unit: preset.dimension_unit === 'cm' ? 'cm' : 'in',
+            weight_unit: preset.weight_unit === 'lb' ? 'lb' : 'oz',
+            active: preset.active !== false,
+          };
+        });
+        updates.package_presets = normalizedPresets;
+      }
       if (updates.default_product_weight_unit && !['oz', 'lb'].includes(String(updates.default_product_weight_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
       if (updates.default_package_dimension_unit && !['in', 'cm'].includes(String(updates.default_package_dimension_unit))) return respond({ error: 'Settings could not be saved. Please try again.' }, 400);
       const { data, error } = await userClient.from('checkout_financial_settings').update(updates).eq('id', 'default').select('*').single();
@@ -518,6 +622,19 @@ Deno.serve(async (request) => {
         return respond({ error: 'Settings could not be saved. Please try again.', code: error.code }, 500);
       }
       return respond({ settings: data, saved: true });
+    }
+    if (action === 'georgia_tax_test') {
+      const { data: isAdmin } = await userClient.rpc('is_admin');
+      if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
+      const state = String(payload.state || '').trim().toUpperCase();
+      if (state !== 'GA') return respond({ ok: true, state, amount: 0, rate_percent: 0, method: 'Georgia tax not applied outside Georgia', creates_order: false, creates_payment: false });
+      const { data, error } = await admin.rpc('get_georgia_checkout_tax_rate', {
+        destination_zip: String(payload.destination_zip || ''),
+        destination_city: String(payload.destination_city || ''),
+        calculation_date: new Date().toISOString().slice(0, 10),
+      });
+      if (error) return respond({ error: 'Georgia destination tax lookup failed.', code: error.code }, 400);
+      return respond({ ...(data || {}), state, creates_order: false, creates_payment: false });
     }
     if (action === 'usps_rate_test') {
       const { data: isAdmin } = await userClient.rpc('is_admin');
@@ -530,14 +647,17 @@ Deno.serve(async (request) => {
       const height = safeNumber(payload.height);
       if (!/^\d{5}$/.test(originZip)) return respond({ error: 'Enter a valid five-digit fulfillment origin ZIP.' }, 400);
       if (!/^\d{5}$/.test(destinationZip)) return respond({ error: 'Enter a valid five-digit destination ZIP.' }, 400);
-      if (weight <= 0 || length <= 0 || width <= 0 || height <= 0) return respond({ error: 'Enter a positive package weight, length, width, and height.' }, 400);
+      const dimensionsComplete = length > 0 && width > 0 && height > 0;
+      const dimensionsPartiallyEntered = [length, width, height].some((value) => value > 0) && !dimensionsComplete;
+      if (weight <= 0) return respond({ error: 'Enter a positive package weight.' }, 400);
+      if (dimensionsPartiallyEntered) return respond({ error: 'Enter all three dimensions or leave all dimensions blank for a weight-only USPS test.' }, 400);
       if (payload.ground_enabled !== true && payload.priority_enabled !== true) return respond({ error: 'Enable Ground Advantage or Priority Mail for the test.' }, 400);
       const ounces = weight * (payload.weight_unit === 'lb' ? 16 : 1);
       const dimensionFactor = payload.dimension_unit === 'cm' ? 1 / 2.54 : 1;
       const diagnostics: UspsRateDiagnostics = { requests: [] };
       const token = await getUspsToken();
       const rateSettings = { origin_zip: originZip, usps_ground_advantage_enabled: payload.ground_enabled === true, usps_priority_mail_enabled: payload.priority_enabled === true };
-      const packageDimensions = { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor };
+      const packageDimensions = dimensionsComplete ? { length: length * dimensionFactor, width: width * dimensionFactor, height: height * dimensionFactor } : null;
       const rates = await uspsDomesticRates(rateSettings, destinationZip, ounces, packageDimensions, diagnostics);
       const { response: shippingOptionsResponse, data: shippingOptionsData } = await fetchUspsShippingOptions(originZip, destinationZip, ounces, packageDimensions);
       const shippingOptionRates = shippingOptionsResponse.ok ? await uspsShippingOptionRates(rateSettings, destinationZip, ounces, packageDimensions) : [];
@@ -566,6 +686,7 @@ Deno.serve(async (request) => {
           },
         },
         fallback: { enabled: payload.fallback_enabled === true, amount: fallbackAmount, would_use: rates.length === 0 && payload.fallback_enabled === true && fallbackAmount > 0 },
+        package_data: { weight_oz: ounces, dimensions_supplied: dimensionsComplete, dimensions_in: packageDimensions },
         zero_rate_warning: zeroRateWarning,
         creates_order: false,
         creates_label: false,
@@ -641,6 +762,12 @@ Deno.serve(async (request) => {
       product_subtotal: quote.merchandise,
       shipping_amount: quote.shipping,
       sales_tax_amount: quote.tax,
+      sales_tax_rate_percent: safeNumber((quote.taxDetail as Item)?.rate_percent),
+      sales_tax_jurisdiction_code: (quote.taxDetail as Item)?.jurisdiction_code || null,
+      sales_tax_jurisdiction_name: (quote.taxDetail as Item)?.jurisdiction_name || null,
+      sales_tax_rate_source: (quote.taxDetail as Item)?.rate_source || null,
+      sales_tax_effective_from: (quote.taxDetail as Item)?.effective_from || null,
+      sales_tax_effective_to: (quote.taxDetail as Item)?.effective_to || null,
       total_amount: quote.total,
       balance_due: quote.total,
       vendor_garment_cost: quote.vendorCost,
@@ -653,7 +780,7 @@ Deno.serve(async (request) => {
       net_margin_before_shipping: quote.beforeShipping,
       estimated_net_margin: quote.estimatedMargin,
       shipping_components: quote.components,
-      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax_rate_percent: settings.sales_tax_rate_percent, payment_method_costs: normalizePaymentMethods(settings.payment_method_costs), worst_case_processing: quote.processingMethod },
+      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax: quote.taxDetail, payment_method_costs: normalizePaymentMethods(settings.payment_method_costs), worst_case_processing: quote.processingMethod },
       shipping_carrier: service?.carrier || (quote.components.length === 1 ? 'S&S fallback' : 'Mixed'),
       shipping_service: service?.service || null,
       shipping_quote_at: new Date().toISOString(),

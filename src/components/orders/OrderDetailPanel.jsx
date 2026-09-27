@@ -311,6 +311,7 @@ export default function OrderDetailPanel({ order: initialOrder, onClose, onUpdat
                           <div>
                             <p className="text-xs text-muted-foreground">Sales Tax (not profit)</p>
                             <p className="font-semibold">${taxCollected.toFixed(2)}</p>
+                            {order.sales_tax_jurisdiction_name && <p className="text-xs text-muted-foreground">{order.sales_tax_jurisdiction_name} · {Number(order.sales_tax_rate_percent || 0).toFixed(2)}%</p>}
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Print / Customization</p>
