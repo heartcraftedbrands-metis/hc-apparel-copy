@@ -22,7 +22,6 @@ export default function NavigationTracker() {
                 const id = new URLSearchParams(location.search).get('id');
                 if (id) void trackMarketingEvent('product_view', { id }, 'product_detail');
             }
-            if (location.pathname.toLowerCase() === '/checkout') void trackMarketingEvent('checkout_started', null, 'checkout');
             if (location.pathname.toLowerCase().startsWith('/brand/')) void trackMarketingEvent('brand_view', null, location.pathname);
             if (location.pathname.toLowerCase() === '/shopgarments') void trackMarketingEvent('category_view', null, new URLSearchParams(location.search).get('category') || 'all_garments');
         }

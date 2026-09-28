@@ -100,9 +100,9 @@ export async function loadPublicPixels() {
   return settings;
 }
 
-async function logInternalEvent(eventName, product, source) {
+async function logInternalEvent(eventName, product, source, context = {}) {
   try {
-    const { error } = await supabase.rpc('log_marketing_event_v2', {
+    const { error } = await supabase.rpc('log_marketing_event_v3', {
       p_event_name: eventName,
       p_product_id: product?.id || null,
       p_product_name: product?.name || null,
@@ -110,6 +110,7 @@ async function logInternalEvent(eventName, product, source) {
       p_path: typeof window === 'undefined' ? null : `${window.location.pathname}${window.location.search}`.slice(0, 500),
       p_attribution: getMarketingAttribution(),
       p_dedupe_key: null,
+      p_context: context,
     });
     if (error) console.warn('Internal marketing event failed:', error.code || 'unknown');
   } catch {
@@ -130,7 +131,7 @@ export async function attributeMarketingPurchase(orderId) {
   }
 }
 
-export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true, internalOnly = false } = {}) {
+export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true, internalOnly = false, context = {} } = {}) {
   const privateRoute = isPrivateMarketingRoute();
   if (privateRoute && !internalOnly) return;
   const settings = privateRoute ? await getMarketingSettings() : await loadPublicPixels();
@@ -140,7 +141,7 @@ export async function trackMarketingEvent(eventName, product = null, source = nu
     name: String(product.name || '').slice(0, 180),
   };
   if (logInternal && settings.internal_analytics_enabled) {
-    void logInternalEvent(eventName, cleanProduct, source);
+    void logInternalEvent(eventName, cleanProduct, source, context);
   }
   if (privateRoute) return;
   if (settings.ga4_measurement_id && typeof window.gtag === 'function') {

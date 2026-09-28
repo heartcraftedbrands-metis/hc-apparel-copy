@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, LockKeyhole, PackageCheck } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -80,6 +80,18 @@ export default function Checkout() {
   const [quote, setQuote] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [shippingServiceId, setShippingServiceId] = useState('');
+  const checkoutTracked = useRef(false);
+
+  useEffect(() => {
+    if (checkoutTracked.current || !cart.length) return;
+    checkoutTracked.current = true;
+    void trackMarketingEvent('checkout_started', null, 'checkout', {
+      context: {
+        product_ids: [...new Set(cart.map(item => String(item.product_id || item.id || '')).filter(Boolean))],
+        cart_quantity: cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+      },
+    });
+  }, [cart]);
 
   const cartErrors = useMemo(() => validateCheckoutCart(cart), [cart]);
   const merchandiseTotal = useMemo(
