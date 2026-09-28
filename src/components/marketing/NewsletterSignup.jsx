@@ -25,7 +25,7 @@ export default function NewsletterSignup({ source = 'home' }) {
       });
       if (invokeError || !data?.saved) throw new Error(data?.error || 'Signup could not be saved.');
       if (data.sync_status !== 'pending_double_opt_in') {
-        void trackMarketingEvent('newsletter_signup', null, source, { logInternal: false });
+        void trackMarketingEvent('email_subscribed', null, source);
       }
       setResult(data.sync_status === 'pending_double_opt_in' ? 'Signup saved. Confirmation is required before joining the Brevo list.' : 'Thanks for joining HC Apparel updates!');
       setEmail(''); setFirstName(''); setInterests([]); setConsent(false);

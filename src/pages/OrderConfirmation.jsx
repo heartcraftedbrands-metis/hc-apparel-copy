@@ -12,6 +12,7 @@ import {
   isCheckoutPending,
   markCheckoutCompleted,
 } from '@/lib/checkoutCompletion';
+import { attributeMarketingPurchase } from '@/lib/marketingAnalytics';
 
 
 export default function OrderConfirmation() {
@@ -72,6 +73,10 @@ export default function OrderConfirmation() {
 
     return () => { active = false; };
   }, [cartCleared, cartReady, clearCart, order?.payment_status, orderId, verifiedPaidOrderId]);
+
+  useEffect(() => {
+    if (orderId && order?.payment_status === 'paid') void attributeMarketingPurchase(orderId);
+  }, [order?.payment_status, orderId]);
 
   const { data: paymentSettings } = useQuery({
     queryKey: ['payment-settings'],

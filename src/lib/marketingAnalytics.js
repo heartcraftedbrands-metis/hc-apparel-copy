@@ -11,6 +11,21 @@ export const isPrivateMarketingRoute = (pathname = window.location.pathname) =>
   privatePaths.some(path => pathname.toLowerCase().startsWith(path));
 
 const safePageLocation = () => `${window.location.origin}${window.location.pathname}`;
+const attributionKey = 'hc_marketing_attribution';
+const attributionFields = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+
+export function getMarketingAttribution() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const incoming = Object.fromEntries(attributionFields.map(key => [key, String(params.get(key) || '').trim().slice(0, 120)]).filter(([, value]) => value));
+    if (incoming.utm_campaign) window.sessionStorage.setItem(attributionKey, JSON.stringify(incoming));
+    const stored = JSON.parse(window.sessionStorage.getItem(attributionKey) || '{}');
+    return Object.fromEntries(attributionFields.map(key => [key, String(stored[key] || '').trim().slice(0, 120)]).filter(([, value]) => value));
+  } catch {
+    return {};
+  }
+}
 
 export async function getMarketingSettings() {
   if (publicSettings) return publicSettings;
@@ -87,15 +102,31 @@ export async function loadPublicPixels() {
 
 async function logInternalEvent(eventName, product, source) {
   try {
-    const { error } = await supabase.rpc('log_marketing_event', {
+    const { error } = await supabase.rpc('log_marketing_event_v2', {
       p_event_name: eventName,
       p_product_id: product?.id || null,
       p_product_name: product?.name || null,
       p_source: source || null,
+      p_path: typeof window === 'undefined' ? null : `${window.location.pathname}${window.location.search}`.slice(0, 500),
+      p_attribution: getMarketingAttribution(),
+      p_dedupe_key: null,
     });
     if (error) console.warn('Internal marketing event failed:', error.code || 'unknown');
   } catch {
     console.warn('Internal marketing event failed.');
+  }
+}
+
+export async function attributeMarketingPurchase(orderId) {
+  if (!orderId) return;
+  try {
+    const { error } = await supabase.rpc('attribute_marketing_purchase', {
+      p_order_id: orderId,
+      p_attribution: getMarketingAttribution(),
+    });
+    if (error) console.warn('Purchase attribution failed:', error.code || 'unknown');
+  } catch {
+    console.warn('Purchase attribution failed.');
   }
 }
 
