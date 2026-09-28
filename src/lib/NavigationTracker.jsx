@@ -20,9 +20,11 @@ export default function NavigationTracker() {
             void trackMarketingEvent('page_view', null, location.pathname);
             if (location.pathname.toLowerCase() === '/productdetail' && new URLSearchParams(location.search).get('preview') !== 'draft') {
                 const id = new URLSearchParams(location.search).get('id');
-                if (id) void trackMarketingEvent('view_product', { id }, 'product_detail');
+                if (id) void trackMarketingEvent('product_view', { id }, 'product_detail');
             }
-            if (location.pathname.toLowerCase() === '/checkout') void trackMarketingEvent('begin_checkout', null, 'checkout');
+            if (location.pathname.toLowerCase() === '/checkout') void trackMarketingEvent('checkout_started', null, 'checkout');
+            if (location.pathname.toLowerCase().startsWith('/brand/')) void trackMarketingEvent('brand_view', null, location.pathname);
+            if (location.pathname.toLowerCase() === '/shopgarments') void trackMarketingEvent('category_view', null, new URLSearchParams(location.search).get('category') || 'all_garments');
         }
     }, [location.pathname, location.search]);
 

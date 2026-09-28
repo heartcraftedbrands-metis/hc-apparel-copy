@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Archive, BarChart3, CalendarDays, ChevronDown, ChevronRight, Clock,
   DollarSign, FileText, Inbox, Mail, MessageSquare, Package, Settings,
-  ShoppingBag, Sparkles, Store, Truck, User,
+  ShoppingBag, Sparkles, Store, Truck, User, Megaphone,
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
@@ -67,6 +67,7 @@ export default function AdminDashboard() {
     { to: '/AdminGarmentCatalog', label: 'Garment Catalog', desc: 'Manage products, brands, pricing, visibility, and product QA.', icon: <Archive /> },
   ];
   const marketingCards = [
+    { to: '/AdminMarketingCenter', label: 'Marketing Center', desc: 'Organic-first plan, tasks, content, SEO, and performance.', icon: <Megaphone /> },
     { to: '/AdminSocialMediaStudio', label: 'Social Media Studio', desc: 'Create and schedule HC Apparel social content.', icon: <Sparkles /> },
     { to: '/AdminEmailMarketingSettings', label: 'Email Marketing', desc: 'Manage Brevo settings and subscriber sync.', icon: <Mail /> },
     { to: '/AdminMarketingAnalytics', label: 'Marketing Analytics', desc: 'Review public marketing events and conversion activity.', icon: <BarChart3 /> },

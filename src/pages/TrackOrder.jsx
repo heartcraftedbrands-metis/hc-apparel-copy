@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Truck, Package, Clock, Mail, ShoppingBag, ExternalLink, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 // ── Status mapping ──────────────────────────────────────────────────────────
 
@@ -143,6 +144,7 @@ export default function TrackOrder() {
       setError('Please enter both your order number and email address.');
       return;
     }
+    void trackMarketingEvent('track_order_used', null, 'track_order');
     setLoading(true);
     setError('');
     setOrder(null);

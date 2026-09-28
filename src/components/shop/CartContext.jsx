@@ -108,6 +108,8 @@ export function CartProvider({ children }) {
   const removeItem = useCallback((itemKey) => {
     setCart(current => {
       const newCart = current.filter(i => getCartItemKey(i) !== itemKey);
+      const removed = current.find(i => getCartItemKey(i) === itemKey);
+      if (removed) trackMarketingEvent('remove_from_cart', { id: removed.id || removed.product_id, name: removed.name || removed.product_name }, 'cart');
       persist(newCart, cartRecord);
       return newCart;
     });

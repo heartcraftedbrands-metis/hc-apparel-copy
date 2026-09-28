@@ -4,6 +4,7 @@ import { Loader2, LogIn, Mail } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { authRedirect, destinationAfterAuth, friendlyAuthError } from '@/lib/customerAuth';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +34,7 @@ export default function Login() {
       setError(friendlyAuthError(signInError));
       return;
     }
+    void trackMarketingEvent('login', null, 'customer_login', { internalOnly: true });
     navigate(destinationAfterAuth(), { replace: true });
   };
 

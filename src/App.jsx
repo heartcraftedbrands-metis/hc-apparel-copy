@@ -82,6 +82,7 @@ import AdminSocialMediaStudio from './pages/AdminSocialMediaStudio';
 import AdminEmailMarketingSettings from './pages/AdminEmailMarketingSettings';
 import AdminSubscribers from './pages/AdminSubscribers';
 import AdminMarketingAnalytics from './pages/AdminMarketingAnalytics';
+import AdminMarketingCenter from './pages/AdminMarketingCenter';
 import AdminHomepageSpecials from './pages/AdminHomepageSpecials';
 import AdminProductivityDashboard from './pages/AdminProductivityDashboard';
 import AdminCalendarSettings from './pages/AdminCalendarSettings';
@@ -144,6 +145,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />
       <Route path="/AdminSubscribers" element={<LayoutWrapper currentPageName="AdminSubscribers"><AdminSubscribers /></LayoutWrapper>} />
+      <Route path="/AdminMarketingCenter" element={<LayoutWrapper currentPageName="AdminMarketingCenter"><AdminMarketingCenter /></LayoutWrapper>} />
       <Route path="/AdminMarketingAnalytics" element={<LayoutWrapper currentPageName="AdminMarketingAnalytics"><AdminMarketingAnalytics /></LayoutWrapper>} />
       <Route path="/AdminHomepageSpecials" element={<LayoutWrapper currentPageName="AdminHomepageSpecials"><AdminHomepageSpecials /></LayoutWrapper>} />
       <Route path="/AdminProductivityDashboard" element={<LayoutWrapper currentPageName="AdminProductivityDashboard"><AdminProductivityDashboard /></LayoutWrapper>} />

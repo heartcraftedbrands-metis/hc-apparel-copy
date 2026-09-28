@@ -99,10 +99,11 @@ async function logInternalEvent(eventName, product, source) {
   }
 }
 
-export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true } = {}) {
-  if (isPrivateMarketingRoute()) return;
-  const settings = await loadPublicPixels();
-  if (isPrivateMarketingRoute()) return;
+export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true, internalOnly = false } = {}) {
+  const privateRoute = isPrivateMarketingRoute();
+  if (privateRoute && !internalOnly) return;
+  const settings = privateRoute ? await getMarketingSettings() : await loadPublicPixels();
+  if (isPrivateMarketingRoute() && !internalOnly) return;
   const cleanProduct = product && {
     id: String(product.id || '').slice(0, 100),
     name: String(product.name || '').slice(0, 180),
@@ -110,6 +111,7 @@ export async function trackMarketingEvent(eventName, product = null, source = nu
   if (logInternal && settings.internal_analytics_enabled) {
     void logInternalEvent(eventName, cleanProduct, source);
   }
+  if (privateRoute) return;
   if (settings.ga4_measurement_id && typeof window.gtag === 'function') {
     window.gtag('event', eventName, {
       page_location: safePageLocation(),

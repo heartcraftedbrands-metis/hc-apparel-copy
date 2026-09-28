@@ -29,7 +29,8 @@
     "test:production-checkout-blockers": "node scripts/test_production_checkout_blockers.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
-    "test:ss-shipping": "node scripts/test_ss_shipping_fallbacks.mjs"
+    "test:ss-shipping": "node scripts/test_ss_shipping_fallbacks.mjs",
+    "test:marketing-center": "node scripts/test_marketing_center.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.39",

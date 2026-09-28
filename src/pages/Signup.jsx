@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { authRedirect, destinationAfterAuth, friendlyAuthError } from '@/lib/customerAuth';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +55,7 @@ export default function Signup() {
       setError('An account with this email already exists. Please sign in or reset your password.');
       return;
     }
+    void trackMarketingEvent('account_signup', null, 'customer_signup');
     if (!data?.session) {
       setNotice('Account confirmation email sent. Please check your inbox. Check your email to confirm your HC Apparel account.');
       return;

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/api/supabaseClient';
 import { getPublicProductName } from '@/lib/productDisplayName';
 import { useCustomerPricing } from '@/lib/useCustomerPricing';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 const money = value => `$${Number(value).toFixed(2)}`;
 const productUrl = item => `/ProductDetail?id=${encodeURIComponent(item.product_id)}`;
@@ -15,7 +16,7 @@ function PriceAndAction({ item, isAuthenticated, large = false }) {
       <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#6a735c]">HC Apparel Customer Price</p>
       <p className={`mt-1 font-black tracking-tight text-[#26351f] ${large ? 'text-4xl sm:text-5xl' : 'text-3xl'}`}>{money(item.price)}</p>
       {!isAuthenticated && <p className="mt-2 max-w-sm text-xs leading-relaxed text-[#586251]">Sign in or create an account to get this price.</p>}
-      <Link to={productUrl(item)} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#d89a00] font-black text-[#182312] shadow-md transition hover:-translate-y-0.5 hover:bg-[#efb11a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#26351f] ${large ? 'px-7 py-4 text-base' : 'px-5 py-3 text-sm'}`}>
+      <Link to={productUrl(item)} onClick={()=>trackMarketingEvent('sale_promo_clicked',{id:item.product_id,name:item.name},'homepage_sale_picks')} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#d89a00] font-black text-[#182312] shadow-md transition hover:-translate-y-0.5 hover:bg-[#efb11a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#26351f] ${large ? 'px-7 py-4 text-base' : 'px-5 py-3 text-sm'}`}>
         Shop Deal <ArrowRight className="h-4 w-4" />
       </Link>
     </div>
@@ -26,7 +27,7 @@ function Spotlight({ item, isAuthenticated }) {
   const name = getPublicProductName(item);
   return (
     <article className="overflow-hidden rounded-[1.75rem] border border-white/15 bg-white shadow-2xl lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-      <Link to={productUrl(item)} className="group relative block min-h-[340px] overflow-hidden bg-gradient-to-br from-[#f9f7f0] via-white to-[#e4ddc9] sm:min-h-[460px] lg:min-h-[540px]">
+      <Link to={productUrl(item)} onClick={()=>trackMarketingEvent('sale_promo_clicked',{id:item.product_id,name:item.name},'homepage_sale_picks')} className="group relative block min-h-[340px] overflow-hidden bg-gradient-to-br from-[#f9f7f0] via-white to-[#e4ddc9] sm:min-h-[460px] lg:min-h-[540px]">
         <div className="absolute left-5 top-5 z-10 rounded-full bg-[#c9232d] px-4 py-2 text-xs font-black uppercase tracking-[0.15em] text-white shadow-lg sm:left-7 sm:top-7">Limited-time S&amp;S sale</div>
         <img src={item.image_url} alt={name} className="absolute inset-0 h-full w-full object-contain p-8 transition duration-500 group-hover:scale-[1.03] sm:p-12 lg:p-14" loading="eager" />
       </Link>

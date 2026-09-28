@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays, Megaphone } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
@@ -20,6 +20,7 @@ import BottomTabBar from "./components/mobile/BottomTabBar";
 import MobileHeader from "./components/mobile/MobileHeader";
 import RouteTransition from "./components/mobile/RouteTransition";
 import DeleteAccountModal from "./components/mobile/DeleteAccountModal";
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 const NAV_LINKS = [
   { to: '/ShopGarments', label: 'Shop Garments' },
@@ -41,6 +42,7 @@ function LayoutInner({ children }) {
 
   const handleHeaderSearch = (e) => {
     if (e.key === 'Enter' && headerSearch.trim()) {
+      void trackMarketingEvent('search_used', null, 'header_search');
       navigate(`/ShopGarments?q=${encodeURIComponent(headerSearch.trim())}`);
       setHeaderSearch('');
     }
@@ -164,6 +166,7 @@ function LayoutInner({ children }) {
                         <Link to="/AdminGarmentCatalog"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Garment Catalog</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Marketing</DropdownMenuLabel>
+                        <Link to="/AdminMarketingCenter"><DropdownMenuItem><Megaphone className="w-4 h-4 mr-2" />Marketing Center</DropdownMenuItem></Link>
                         <Link to="/AdminSocialMediaStudio"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Social Media Studio</DropdownMenuItem></Link>
                         <Link to="/AdminEmailMarketingSettings"><DropdownMenuItem><Mail className="w-4 h-4 mr-2" />Email Marketing</DropdownMenuItem></Link>
                         <Link to="/AdminMarketingAnalytics"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Marketing Analytics</DropdownMenuItem></Link>

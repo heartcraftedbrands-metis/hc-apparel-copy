@@ -18,6 +18,7 @@ import {
   validateCheckoutCustomer,
 } from '@/lib/smallOrderCheckout';
 import { markCheckoutPending } from '@/lib/checkoutCompletion';
+import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { checkoutErrorMessage, CHECKOUT_CONNECT, PAYMENT_UNAVAILABLE, SIGN_IN_AGAIN } from '@/lib/checkoutErrors';
 
 const emptyAddress = {
@@ -122,6 +123,7 @@ export default function Checkout() {
         const response = await base44.functions.invoke('checkout-pricing', { action: 'quote', payload: { ...payload, shipping_service_id: shippingServiceId } });
         if (active) {
           setQuote(response.data?.quote || null);
+          if (response.data?.quote) void trackMarketingEvent('shipping_quote_success', null, 'checkout');
           setPrepareError('');
           const services = response.data?.quote?.services || [];
           if (!shippingServiceId && services.length === 1) setShippingServiceId(services[0].id);
