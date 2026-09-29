@@ -33,6 +33,10 @@ for(const pair of ["'tiktok','organic_social'","'x','organic_social'","'pinteres
 assert.match(socialMigration,/Create first TikTok product video/);assert.match(socialMigration,/Adapt approved TikTok video for YouTube Shorts/);assert.match(socialMigration,/Create X sports and team apparel post/);
 assert.match(page,/Social Accounts/);assert.match(page,/Published account/);assert.match(page,/marketing_social_accounts/);assert.match(page,/socialAccounts=\{d\.accounts\}/);
 assert.match(page,/tab==='Content Calendar'&&<ContentCalendar/);
+assert.match(page,/\{key:'social-content',label:'Social Content'\},\s*\{key:'content-calendar',label:'Content Calendar'\},\s*\{key:'email-marketing',label:'Email Marketing'\}/);
+assert.match(page,/data-tab-key=\{x\.key\}/);assert.match(page,/lg:flex-wrap/);assert.match(page,/Scroll tabs/);
+for(const text of ["Today's Content",'7-Day Content Calendar','Day / Date','Platform / Account','Content title / Product','Open / Review'])assert.match(page,new RegExp(text.replace(/[']/g,"\\'")));
+for(const filter of ['TikTok','X','Pinterest','LinkedIn','YouTube Shorts','Google Business','Email','SEO / GEO','Local Outreach'])assert.match(page,new RegExp(`filters=\\[[^\\]]*${filter.replace('/','\\/')}`));
 assert.match(weekly,/platformAttribution/);assert.match(weekly,/activeSocial/);assert.doesNotMatch(weekly,/const defaults=\['Instagram','Facebook'/);
 assert.doesNotMatch(socialMigration,/insert into public\.marketing_campaigns/i);
 assert.doesNotMatch(page,/publish\(|sendEmail|checkout\.sessions|api\.ssactivewear|USPS_CLIENT_SECRET|STRIPE_/i);
