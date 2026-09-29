@@ -37,6 +37,7 @@ const checklistFields = [
   ['cta_reviewed', 'CTA reviewed'],
 ];
 const statuses = ['Idea', 'Draft', 'Ready to Publish', 'Published', 'Archived', 'Needs Update'];
+const activeRecommendationPlatforms = new Set(['TikTok','X','Pinterest','LinkedIn','YouTube Shorts','Google Business','Email','SEO / Organic Search','Local Outreach']);
 const money = value => `$${Number(value || 0).toFixed(2)}`;
 const tracked = value => value === null ? 'Not tracked yet' : Number(value).toLocaleString();
 const sourceLabel = event => {
@@ -154,12 +155,13 @@ export default function WeeklyOrganicReview({ events, orders, products, drafts, 
 
   const funnel = [['Visit',summary.visitors],['Product View',summary.productViews],['Account Signup',summary.signups],['Add to Cart',summary.carts],['Checkout Started',summary.checkouts],['Purchase',summary.purchases]];
   const insights = [];
-  const topChannel=[...channels].filter(row=>row.available&&row.productViews>0).sort((a,b)=>b.productViews-a.productViews)[0];
+  const recommendationChannels=channels.filter(row=>activeRecommendationPlatforms.has(row.name));
+  const topChannel=[...recommendationChannels].filter(row=>row.available&&row.productViews>0).sort((a,b)=>b.productViews-a.productViews)[0];
   if(topChannel)insights.push(`${topChannel.name} drove the most attributed product views in this review window.`);
   const viewedNoCart=[...productStats].filter(row=>row.views>0&&!row.carts).sort((a,b)=>b.views-a.views)[0];
   if(viewedNoCart)insights.push(`${viewedNoCart.brand} ${viewedNoCart.style} received product views but no tracked cart additions.`);
   if(summary.checkouts>0&&summary.purchases===0)insights.push('Customers reached checkout, but no tracked purchase was completed in this window.');
-  const converting=[...channels].filter(row=>row.available&&row.visitors>0&&row.purchases>0).sort((a,b)=>(b.purchases/b.visitors)-(a.purchases/a.visitors));
+  const converting=[...recommendationChannels].filter(row=>row.available&&row.visitors>0&&row.purchases>0).sort((a,b)=>(b.purchases/b.visitors)-(a.purchases/a.visitors));
   if(converting.length)insights.push(`${converting[0].name} produced the strongest tracked visit-to-purchase rate in this window.`);
 
   const weightedProducts=[...productStats].sort((a,b)=>(b.purchases*100+b.checkouts*30+b.carts*10+b.views)-(a.purchases*100+a.checkouts*30+a.carts*10+a.views));
@@ -187,7 +189,7 @@ export default function WeeklyOrganicReview({ events, orders, products, drafts, 
       for(const sale of sales||[]){const product=liveMap.get(String(sale.product_id));if(product&&!candidates.some(item=>item.id===product.id))candidates.push({...product,isCurrentSale:true});}
       for(const product of live||[]){if(candidates.length>=7)break;if(!candidates.some(item=>item.id===product.id))candidates.push(product);}
       if(!candidates.length)throw new Error('No public, in-stock products are available for next-week drafts.');
-      const activeSocial=new Set(socialAccounts.filter(account=>account.status==='Active').map(account=>account.platform));
+      const activeSocial=new Set(socialAccounts.filter(account=>account.status==='Active'&&activeRecommendationPlatforms.has(account.platform)).map(account=>account.platform));
       const allowed=new Set([...activeSocial,'Google Business','Email','SEO / Organic Search','Local Outreach']);
       const rankedChannels=[...channels].filter(row=>row.available&&allowed.has(row.name)).sort((a,b)=>(b.productViews+b.carts*3+b.checkouts*5+b.purchases*10)-(a.productViews+a.carts*3+a.checkouts*5+a.purchases*10)).map(row=>row.name);
       const defaults=['TikTok','X','Pinterest','Google Business','Email','SEO / Organic Search','Local Outreach'].filter(name=>allowed.has(name));
@@ -223,7 +225,7 @@ export default function WeeklyOrganicReview({ events, orders, products, drafts, 
     <Section title="Product Performance" subtitle="Customer-safe product information only; vendor cost is not included."><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{groups.map(([title,rows])=><article key={title} className="rounded-xl border p-3"><h3 className="font-black">{title}</h3>{rows.length?<ol className="mt-2 space-y-2 text-sm">{rows.slice(0,5).map(row=><li key={row.id}><b>{row.name}</b><span className="block text-xs text-muted-foreground">{row.brand} · {row.style} · {row.price==null?'Price unavailable':money(row.price)}</span><span className="block text-xs">{row.status}</span></li>)}</ol>:<p className="mt-2 text-sm text-muted-foreground">Not tracked yet.</p>}</article>)}</div></Section>
     <Section title="Reliable Funnel" subtitle="Conversions and drop-offs compare events from this same baseline-safe measurement window."><div className="grid gap-2">{funnel.map(([label,value],index)=><div key={label} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border p-3"><div><b>{label}</b><p className="text-xs text-muted-foreground">Conversion: {index?rate(value,funnel[index-1][1]):'Starting stage'} · Drop-off: {index?drop(value,funnel[index-1][1]):'Not applicable'}</p></div><strong>{value.toLocaleString()}</strong></div>)}</div></Section>
     <div className="grid gap-5 lg:grid-cols-2"><Section title="Weekly Insights" subtitle="Only conclusions supported by tracked data are shown.">{insights.length?<ul className="space-y-2">{insights.map(text=><li key={text} className="rounded-lg bg-muted/50 p-3 text-sm">{text}</li>)}</ul>:<p className="text-sm text-muted-foreground">Not enough data yet.</p>}</Section><Section title="Recommended Next Week" subtitle="Organic-only ideas; no storefront or campaign changes occur.">{recommendations.length?<div className="space-y-3">{recommendations.map(item=><article key={item.title} className="rounded-lg border p-3"><b>{item.title}</b><p className="text-xs text-muted-foreground">{item.channel} · CTA: {item.cta}</p><p className="mt-1 text-sm">{item.reason}</p></article>)}</div>:<p className="text-sm text-muted-foreground">Not enough data yet.</p>}<Button className="mt-4" onClick={prepareNextWeek} disabled={preparing}><CalendarPlus className="mr-2 h-4 w-4"/>{preparing?'Revalidating live products…':'Prepare Next Week'}</Button><p className="mt-2 text-xs text-muted-foreground">Creates up to seven Draft records in this campaign after checking current public status, stock, price, image, link, and current Sale Pick eligibility. It never publishes.</p></Section></div>
-    <Section title="Approval Checklist & Content Results" subtitle="Ready to Publish is a manual review state only. Platform engagement is stored separately from HC Apparel website analytics."><div className="grid gap-3 lg:grid-cols-2">{campaignDrafts.filter(item=>!['Archived'].includes(item.status)).map(draft=><ApprovalCard key={`${draft.id}-${draft.updated_at}`} draft={draft} onReload={onReload} onNotice={onNotice} onError={onError}/>)}</div></Section>
+    <Section title="Approval Checklist & Content Results" subtitle="Ready to Publish is a manual review state only. Inactive-channel history is excluded from current approval work."><div className="grid gap-3 lg:grid-cols-2">{campaignDrafts.filter(item=>item.active_schedule!==false&&!['Archived'].includes(item.status)&&activeRecommendationPlatforms.has(item.platform==='SEO / GEO'?'SEO / Organic Search':item.platform)).map(draft=><ApprovalCard key={`${draft.id}-${draft.updated_at}`} draft={draft} onReload={onReload} onNotice={onNotice} onError={onError}/>)}</div></Section>
     <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm"><p className="flex items-center gap-2 font-black text-green-900"><CheckCircle2 className="h-4 w-4"/>$0 organic guardrail active</p><p className="mt-1 text-green-800">Paid advertising remains disabled. Recommendations focus on organic posting, SEO, Google Business, email, local outreach, product selection, content quality, and conversion improvements.</p></div>
   </div>;
 }
