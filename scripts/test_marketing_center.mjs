@@ -41,6 +41,7 @@ assert.match(metaScheduleMigration,/original_platform/);assert.match(metaSchedul
 for(const filter of ['TikTok','X','Pinterest','LinkedIn','YouTube Shorts','Google Business','Email','SEO / GEO','Local Outreach'])assert.match(page,new RegExp(`filters=\\[[^\\]]*${filter.replace('/','\\/')}`));
 assert.match(weekly,/platformAttribution/);assert.match(weekly,/activeSocial/);assert.doesNotMatch(weekly,/const defaults=\['Instagram','Facebook'/);
 assert.match(weekly,/activeRecommendationPlatforms/);assert.match(weekly,/account.status==='Active'&&activeRecommendationPlatforms.has/);
+assert.match(weekly,/currentChannels=channels\.filter/);assert.match(weekly,/Current active channels only/);
 assert.doesNotMatch(socialMigration,/insert into public\.marketing_campaigns/i);
 assert.doesNotMatch(page,/publish\(|sendEmail|checkout\.sessions|api\.ssactivewear|USPS_CLIENT_SECRET|STRIPE_/i);
 assert.doesNotMatch(weekly,/sendEmail|checkout\.sessions|api\.ssactivewear|USPS_CLIENT_SECRET|STRIPE_|paid_advertising_enabled\s*=\s*true/i);
