@@ -12,6 +12,7 @@ const catalogImage = read('src/components/home/CatalogEditorialImage.jsx');
 const catalogImageHelper = read('src/lib/homeCatalogImages.js');
 const home = read('src/pages/Home.jsx');
 const layout = read('src/Layout.jsx');
+const { selectBrandProduct } = await import('../src/lib/homeCatalogImages.js');
 
 assert.ok(hero.includes('Affordable Apparel Blanks for Brands, Teams &amp; Creators'), 'hero uses the approved affordable apparel headline');
 assert.ok(!hero.includes('Made Simple'), 'hero no longer says Made Simple');
@@ -22,7 +23,9 @@ assert.ok(hero.includes('to="/ShopGarments"'), 'Shop Blanks links to the public 
 assert.ok(hero.includes('Bulk Quote 50+'), 'secondary CTA remains Bulk Quote 50+');
 assert.ok(hero.includes('to="/RequestQuote"'), 'bulk quote CTA links to the quote page');
 assert.ok(hero.includes('Upload your artwork'), 'custom printing is retained as secondary support text');
-assert.ok(brands.includes('Columbia') && brands.includes('Shaka Wear') && brands.includes('Champion'), 'required blank brands remain featured');
+assert.ok(brands.includes("name: 'adidas'") && brands.includes("name: 'Berne'") && brands.includes("name: 'American Apparel'"), 'lower featured section uses the approved adidas, Berne, and American Apparel order');
+assert.ok(!brands.includes("name: 'Columbia'") && !brands.includes("name: 'Shaka Wear'") && !brands.includes("name: 'Champion'"), 'lower featured section no longer repeats the hero brands');
+assert.ok(brands.includes("preferredStyles: ['A230']") && brands.includes("preferredStyles: ['CH416']") && brands.includes("preferredStyles: ['RF496']"), 'lower cards prefer approved live catalog styles');
 assert.ok(home.includes('<HomeFeaturedBrands products={publicProducts} />'), 'featured brand collections render with public catalog products');
 assert.ok(hero.includes('lg:grid-cols-2'), 'desktop hero uses a true two-column split');
 assert.ok(hero.includes('data-testid="hero-visual-panel"'), 'hero includes a dedicated visual panel');
@@ -70,6 +73,7 @@ for (const route of [
 assert.ok(home.includes("queryKey: ['home-editorial-products']"), 'homepage loads the approved catalog once for all editorial visuals');
 assert.ok(categories.includes('selectCatalogProduct'), 'category cards select images from public catalog products');
 assert.ok(brands.includes('selectBrandProduct'), 'featured brand cards select matching catalog images');
+assert.ok(catalogImageHelper.includes('isCatalogProductInStock'), 'featured brand cards require positive catalog inventory');
 assert.ok(catalogImageHelper.includes('placeholder|no[-_ ]?image'), 'placeholder image URLs are rejected');
 assert.ok(catalogImage.includes('onError={() => setFailed(true)}'), 'broken category and brand images fall back safely');
 assert.ok(catalogImage.includes('linear-gradient(145deg,#637145'), 'missing images use the approved olive editorial fallback');
@@ -79,9 +83,17 @@ assert.ok(!categories.includes('emoji'), 'category cards do not use emoji placeh
 assert.ok(brands.includes('Shop {brand.name} Blanks'), 'brand cards keep the approved brand-specific CTA wording');
 assert.ok(!categories.includes('The Blank Edit'), 'the removed category eyebrow copy stays removed');
 assert.ok(!categories.includes('Quality apparel blanks, curated by silhouette and purpose.'), 'the removed category supporting sentence stays removed');
+const catalogFixtures = [
+  { id: 'adidas-fallback', brand: 'adidas', style_number: 'A430', stock: 8, image_url: 'https://cdn.example/adidas-fallback.jpg' },
+  { id: 'adidas-preferred-oos', brand: 'adidas', style_number: 'A230', stock: 0, image_url: 'https://cdn.example/adidas-a230.jpg' },
+  { id: 'berne-fallback', brand: 'Berne', style_number: 'CH414', stock: 9, image_url: 'https://cdn.example/berne-ch414.jpg' },
+  { id: 'berne-preferred', brand: 'Berne', style_number: 'CH416', stock: 12, image_url: 'https://cdn.example/berne-ch416.jpg' },
+];
+assert.equal(selectBrandProduct(catalogFixtures, 'adidas', { preferredStyles: ['A230'] })?.id, 'adidas-fallback', 'out-of-stock preferred products fall back to an in-stock brand product');
+assert.equal(selectBrandProduct(catalogFixtures, 'Berne', { preferredStyles: ['CH416'] })?.id, 'berne-preferred', 'available preferred styles are selected for the brand card');
 assert.ok(
   layout.includes('border-primary-foreground/40 bg-transparent text-primary-foreground'),
   'the desktop Login control remains visible against the olive header',
 );
 
-console.log('Homepage blank-first editorial checks passed (55 assertions).');
+console.log('Homepage blank-first editorial checks passed.');

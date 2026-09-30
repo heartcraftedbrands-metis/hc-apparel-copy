@@ -7,29 +7,32 @@ import { getCatalogProductImage, selectBrandProduct } from '@/lib/homeCatalogIma
 
 const FEATURED_BRANDS = [
   {
-    name: 'Columbia',
-    description: 'Outdoor-ready fleece, jackets and cold-weather essentials with a technical edge.',
-    href: '/brand/columbia',
-    eyebrow: 'Outdoor layers',
+    name: 'adidas',
+    description: 'Performance polos, athletic layers and everyday essentials for teams, businesses and active wear.',
+    href: '/brand/adidas',
+    eyebrow: 'Performance essentials',
+    preferredStyles: ['A230'],
   },
   {
-    name: 'Shaka Wear',
-    description: 'Heavyweight streetwear blanks with structure, presence and an unmistakable fit.',
-    href: '/brand/shaka-wear',
-    eyebrow: 'Heavyweight icons',
+    name: 'Berne',
+    description: 'Dependable chore coats, jackets and workwear layers made for cooler days and demanding jobs.',
+    href: '/brand/berne',
+    eyebrow: 'Dependable workwear',
+    preferredStyles: ['CH416'],
   },
   {
-    name: 'Champion',
-    description: 'Athletic fleece, hoodies and everyday essentials rooted in sport heritage.',
-    href: '/brand/champion',
-    eyebrow: 'Sport heritage',
+    name: 'American Apparel',
+    description: 'Modern long sleeves, fleece and versatile layering basics with a clean everyday look.',
+    href: '/brand/american-apparel',
+    eyebrow: 'Modern layers',
+    preferredStyles: ['RF496'],
   },
 ];
 
 export default function HomeFeaturedBrands({ products = [] }) {
   const brands = useMemo(() => FEATURED_BRANDS.map(brand => ({
     ...brand,
-    product: selectBrandProduct(products, brand.name),
+    product: selectBrandProduct(products, brand.name, { preferredStyles: brand.preferredStyles }),
   })), [products]);
 
   return (
@@ -56,7 +59,7 @@ export default function HomeFeaturedBrands({ products = [] }) {
               <div className="relative aspect-[5/4] overflow-hidden border-b border-black/5">
                 <CatalogEditorialImage
                   src={getCatalogProductImage(brand.product)}
-                  alt={`${brand.name} apparel blanks from the HC Apparel catalog`}
+                  alt={brand.product?.name || `${brand.name} apparel blanks from the HC Apparel catalog`}
                   className="object-contain p-3 transition duration-700 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#263518]/20 to-transparent" />

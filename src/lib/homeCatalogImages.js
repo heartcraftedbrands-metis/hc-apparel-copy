@@ -24,6 +24,12 @@ export function getCatalogProductImage(product) {
 
 const normalize = value => String(value || '').trim().toLowerCase();
 
+export function isCatalogProductInStock(product) {
+  if (Number(product?.stock) > 0) return true;
+  return Array.isArray(product?.size_prices)
+    && product.size_prices.some(variant => Number(variant?.inventory) > 0);
+}
+
 export function selectCatalogProduct(products, {
   category = 'all',
   preferredBrands = [],
@@ -48,10 +54,21 @@ export function selectCatalogProduct(products, {
     .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.product || null;
 }
 
-export function selectBrandProduct(products, brand) {
+export function selectBrandProduct(products, brand, { preferredStyles = [] } = {}) {
   const requestedBrand = normalize(brand);
-  return (products || []).find(product => (
-    normalize(getProductBrand(product)) === requestedBrand
-    && getCatalogProductImage(product)
-  )) || null;
+  const preferred = preferredStyles.map(normalize);
+  return (products || [])
+    .filter(product => normalize(getProductBrand(product)) === requestedBrand)
+    .filter(isCatalogProductInStock)
+    .filter(product => getCatalogProductImage(product))
+    .map((product, index) => {
+      const style = normalize(product?.style_number || product?.supplier_sku);
+      const preferredIndex = preferred.indexOf(style);
+      return {
+        product,
+        score: preferredIndex === -1 ? 0 : preferred.length - preferredIndex,
+        index,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.product || null;
 }
