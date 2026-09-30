@@ -4,7 +4,7 @@ const KNOWN_BRANDS = [
   'American Apparel', 'Bella + Canvas', 'Comfort Colors', 'Independent Trading Co.',
   'Independent Trading Co', 'Lane Seven', 'Next Level', 'Rabbit Skins', 'Shaka Wear',
   'Champion', 'Columbia', 'Gildan', 'Hanes', 'Jerzees', 'Oakley', 'Tultex', 'Yupoong',
-  'Flexfit', 'adidas',
+  'Flexfit', 'adidas', 'Berne',
 ];
 
 const KNOWN_STYLE_NAMES = {
@@ -76,7 +76,7 @@ const cleanStoredNameTitle = (product, brand) => {
   if (!raw || hasInternalProductCopy(raw)) return '';
   const title = stripLeadingVendorReference(raw, brand);
   if (!title || /^[-_./\d\s]+$/.test(title)) return '';
-  return /\b(?:t-?shirt|tee|hoodie|hooded|sweatshirt|fleece|jacket|anorak|shirt|vest|tank|hat|cap|beanie|bag|long sleeve|crewneck|polo|shorts|pants|joggers|leggings|pullover|quarter-?zip|windbreaker|thermal)\b/i.test(title)
+  return /\b(?:t-?shirt|tee|hoodie|hooded|sweatshirt|fleece|jacket|coat|anorak|shirt|vest|tank|hat|cap|beanie|bag|long sleeve|crewneck|polo|shorts|pants|joggers|leggings|bib|overall|coverall|pullover|quarter-?zip|windbreaker|thermal)\b/i.test(title)
     ? title
     : '';
 };

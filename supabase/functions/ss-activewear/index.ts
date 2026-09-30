@@ -249,7 +249,7 @@ function berneMerchScore(style: Record<string, unknown> & { canonicalBrand: stri
 function bernePrimary(textValueInput: unknown) {
   const text = String(textValueInput || '').toLowerCase();
   if (/(bib|overall|coverall|work.?pant|utility.?pant|jean)/.test(text)) return 'pants';
-  if (/(hat|cap|beanie|headwear)/.test(text)) return 'hats';
+  if (/(\bhat\b|\bcap\b|beanie|headwear)/.test(text)) return 'hats';
   if (/(shirt.?jacket|shirtjac|jacket|coat|outerwear|vest|parka|bomber|windbreaker)/.test(text)) return 'outerwear';
   return nextLevelPrimary(text);
 }
@@ -993,7 +993,7 @@ Deno.serve(async (request) => {
         .select('part_number,style_name,sku,size_name,size_order,color_name,color_code,color_swatch_image,color_front_image,color_on_model_front_image,unit_weight,inventory_qty,fetched_at,map_price,piece_price,customer_price,raw_product')
         .eq('style_session_id', latest.import_session_id)
         .eq('brand', seasonalBrand),
-      userClient.from('products').select('style_number,supplier_sku').eq('brand', seasonalBrand),
+      userClient.from('products').select('style_number,supplier_sku,visibility,is_active').eq('brand', seasonalBrand),
       userClient.from('storefront_pricing_rules')
         .select('rule_key,cost_multiplier,fixed_allowance,minimum_margin_percent,storefront_margin_buffer')
         .eq('is_active', true),
@@ -1128,7 +1128,9 @@ Deno.serve(async (request) => {
     });
 
     const winterCandidates = candidates.filter((candidate) => Boolean(candidate.primary_type));
-    const readyCandidates = winterCandidates.filter((candidate) => candidate.ready_for_private_import).slice(0, seasonalBrand === 'adidas' ? 30 : 20);
+    const existingPublicCount = (existingResult.data || []).filter((product) => product.visibility === 'public' && product.is_active === true).length;
+    const publicationTarget = seasonalBrand === 'Berne' ? Math.max(0, 20 - existingPublicCount) : seasonalBrand === 'adidas' ? 30 : 20;
+    const readyCandidates = winterCandidates.filter((candidate) => candidate.ready_for_private_import).slice(0, publicationTarget);
     const safeReport = (candidate: typeof candidates[number]) => ({
       part_number: candidate.part_number,
       style_name: candidate.style_name,
@@ -1171,11 +1173,24 @@ Deno.serve(async (request) => {
         products: winterCandidates.map(safeReport),
       }, 409);
     }
-    if (seasonalBrand === 'Berne' && readyCandidates.length < 20) {
+    if (seasonalBrand === 'Berne' && readyCandidates.length < publicationTarget) {
       return json(request, {
-        error: `Only ${readyCandidates.length} Berne products passed current image, inventory, SKU, size/color, margin, and pricing checks; 20 are required before publication.`,
+        error: `Only ${readyCandidates.length} additional Berne products passed current image, inventory, SKU, size/color, margin, and pricing checks; ${publicationTarget} are required to reach 20 live products.`,
         products: winterCandidates.map(safeReport),
       }, 409);
+    }
+    if (seasonalBrand === 'Berne' && publicationTarget === 0) {
+      return json(request, {
+        brand: seasonalBrand,
+        reviewed: winterCandidates.length,
+        published: 0,
+        products: [],
+        live_products: existingPublicCount,
+        message: 'Berne already has 20 live products. No duplicate products were created.',
+        storefront_changed: false,
+        ss_order_submitted: false,
+        zerotouch_submitted: false,
+      });
     }
     const productRows = readyCandidates.map((candidate) => ({
       id: crypto.randomUUID(),
