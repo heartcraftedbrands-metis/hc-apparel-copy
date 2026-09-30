@@ -25,6 +25,7 @@
     "test:qa-separation": "node scripts/test_qa_admin_separation.mjs",
     "test:product-display-names": "node scripts/test_product_display_names.mjs",
     "test:adidas-catalog": "node scripts/test_adidas_catalog_import.mjs",
+    "test:berne-catalog": "node scripts/test_berne_catalog_import.mjs",
     "test:map-reference-only": "node scripts/test_map_reference_only.mjs",
     "test:production-checkout-blockers": "node scripts/test_production_checkout_blockers.mjs",
     "typecheck": "tsc -p ./jsconfig.json",

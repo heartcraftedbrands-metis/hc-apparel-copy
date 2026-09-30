@@ -15,6 +15,7 @@ export const SS_ACTIVEWEAR_BRANDS = [
   'American Apparel',
   'Tultex',
   'Columbia',
+  'Berne',
   'Independent Trading Co',
   'Port & Company',
 ];
