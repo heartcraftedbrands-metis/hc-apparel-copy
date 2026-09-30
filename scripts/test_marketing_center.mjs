@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 const [page,calendar,weekly,migration,baselineMigration,campaignMigration,contentMigration,weeklyMigration,socialMigration,metaScheduleMigration,artworkMigration,analytics,confirmation,newsletter,tracker,cart,checkout,app,dashboard,layout]=await Promise.all([
  readFile(new URL('../src/pages/AdminMarketingCenter.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/MarketingContentCalendar.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/WeeklyOrganicReview.jsx',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280001_build_organic_marketing_center.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280002_establish_marketing_analytics_baseline.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280003_create_first_organic_marketing_campaign.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280004_prepare_organic_launch_content_packs.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280005_add_weekly_organic_marketing_review.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290001_update_marketing_social_accounts.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290002_remove_inactive_meta_from_calendar.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290003_add_mobile_marketing_artwork_drafts.sql',import.meta.url),'utf8'),readFile(new URL('../src/lib/marketingAnalytics.js',import.meta.url),'utf8'),readFile(new URL('../src/pages/OrderConfirmation.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/NewsletterSignup.jsx',import.meta.url),'utf8'),readFile(new URL('../src/lib/NavigationTracker.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/shop/CartContext.jsx',import.meta.url),'utf8'),readFile(new URL('../src/pages/Checkout.jsx',import.meta.url),'utf8'),readFile(new URL('../src/App.jsx',import.meta.url),'utf8'),readFile(new URL('../src/pages/AdminDashboard.jsx',import.meta.url),'utf8'),readFile(new URL('../src/Layout.jsx',import.meta.url),'utf8')]);
+const jacketsMigration=await readFile(new URL('../supabase/migrations/202609290006_add_jackets_without_hoods_marketing_drafts.sql',import.meta.url),'utf8');
+const jacketsArtwork=await readFile(new URL('../public/marketing/hc-apparel-organic-launch/jackets-without-hoods.jpg',import.meta.url));
 for(const tab of ['Overview','Marketing Plan','Action Plan','Performance','Weekly Review','Content Calendar','SEO & GEO','Social Content','Email Marketing','Google Business','Competitors','Settings'])assert.match(page,new RegExp(tab.replace(/[&]/g,'&')));
 assert.match(migration,/monthly_paid_budget numeric\(12,2\) not null default 0/);
 assert.match(migration,/marketing_settings_paid_budget_guard/);
@@ -44,6 +47,13 @@ for(const key of ['outerwear_puffers_pinterest','outerwear_puffers_x','outerwear
 for(const action of ['Upload / replace artwork','Download Image','Copy Caption','Mark as posted'])assert.match(calendar,new RegExp(action));
 assert.match(calendar,/localStorage/);assert.match(calendar,/beforeunload/);assert.match(calendar,/object-contain/);assert.match(calendar,/type="file"/);
 assert.match(artworkMigration,/status='Draft'/);assert.match(artworkMigration,/image_alt_text/);assert.match(artworkMigration,/media_storage_path/);assert.match(artworkMigration,/ShopGarments\?type=outerwear/);
+for(const key of ['jackets_without_hoods_tiktok','jackets_without_hoods_pinterest'])assert.match(jacketsMigration,new RegExp(key));
+for(const platform of ["'TikTok'","'Pinterest'"])assert.match(jacketsMigration,new RegExp(platform));
+assert.match(jacketsMigration,/ShopGarments\?type=outerwear/);
+assert.match(jacketsMigration,/CH416, which is not currently published/);
+assert.match(jacketsMigration,/status='Draft'/);
+assert.doesNotMatch(jacketsMigration,/status='Published'|paid_advertising_enabled\s*=\s*true|insert into public\.marketing_campaigns/i);
+assert.equal(createHash('sha256').update(jacketsArtwork).digest('hex'),'99696a7fca223eab7e26d0c0f3ca0746c9d4330fdd399981676ff4c137cf7a06');
 assert.match(weekly,/activeRecommendationPlatforms/);assert.match(weekly,/account.status==='Active'&&activeRecommendationPlatforms.has/);
 assert.match(weekly,/currentChannels=channels\.filter/);assert.match(weekly,/Current active channels only/);
 assert.doesNotMatch(socialMigration,/insert into public\.marketing_campaigns/i);
