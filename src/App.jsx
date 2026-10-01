@@ -27,6 +27,7 @@ import LoginPage from './pages/Login';
 import SignupPage from './pages/Signup';
 import ResetPasswordPage from './pages/ResetPassword';
 import RequestOrderHelpPage from './pages/RequestOrderHelp';
+import PrivacyPolicyPage from './pages/PrivacyPolicy';
 
 // Admin pages
 import AdminDashboard from './pages/AdminDashboard';
@@ -137,6 +138,7 @@ const AuthenticatedApp = () => {
       <Route path="/Login" element={<LayoutWrapper currentPageName="Login"><LoginPage /></LayoutWrapper>} />
       <Route path="/Signup" element={<LayoutWrapper currentPageName="Signup"><SignupPage /></LayoutWrapper>} />
       <Route path="/ResetPassword" element={<LayoutWrapper currentPageName="ResetPassword"><ResetPasswordPage /></LayoutWrapper>} />
+      <Route path="/PrivacyPolicy" element={<LayoutWrapper currentPageName="PrivacyPolicy"><PrivacyPolicyPage /></LayoutWrapper>} />
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}

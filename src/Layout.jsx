@@ -202,6 +202,12 @@ function LayoutInner({ children }) {
       <DeleteAccountModal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} />
       <BottomTabBar />
 
+      <footer className="border-t border-primary-foreground/10 bg-primary px-4 py-5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-center text-xs text-primary-foreground/70 md:hidden">
+        <Link to="/PrivacyPolicy" className="inline-flex min-h-11 items-center px-3 font-medium underline-offset-4 hover:text-primary-foreground hover:underline">
+          Privacy Policy
+        </Link>
+      </footer>
+
       {/* Footer */}
       <footer className="hidden md:block bg-primary text-primary-foreground mt-16" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="container mx-auto px-4 py-12">
@@ -232,6 +238,7 @@ function LayoutInner({ children }) {
                 <li><Link to="/About" className="hover:text-primary-foreground transition-colors">About HC Apparel</Link></li>
                 <li><Link to="/FAQ" className="hover:text-primary-foreground transition-colors">FAQ</Link></li>
                 <li><Link to="/Contact" className="hover:text-primary-foreground transition-colors">Contact</Link></li>
+                <li><Link to="/PrivacyPolicy" className="hover:text-primary-foreground transition-colors">Privacy Policy</Link></li>
               </ul>
             </div>
             <div>
