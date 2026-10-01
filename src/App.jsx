@@ -3,7 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -28,6 +28,7 @@ import SignupPage from './pages/Signup';
 import ResetPasswordPage from './pages/ResetPassword';
 import RequestOrderHelpPage from './pages/RequestOrderHelp';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
+import { STOREFRONT_FEATURES } from './config/storefrontFeatures';
 
 // Admin pages
 import AdminDashboard from './pages/AdminDashboard';
@@ -122,7 +123,12 @@ const AuthenticatedApp = () => {
       {/* Public store */}
       <Route path="/ShopGarments" element={<LayoutWrapper currentPageName="ShopGarments"><ShopGarmentsPage /></LayoutWrapper>} />
       <Route path="/brand/:slug" element={<LayoutWrapper currentPageName="ShopGarments"><BrandPage /></LayoutWrapper>} />
-      <Route path="/CustomPrinting" element={<LayoutWrapper currentPageName="CustomPrinting"><CustomPrintingPage /></LayoutWrapper>} />
+      <Route
+        path="/CustomPrinting"
+        element={STOREFRONT_FEATURES.customPrinting
+          ? <LayoutWrapper currentPageName="CustomPrinting"><CustomPrintingPage /></LayoutWrapper>
+          : <Navigate to="/ShopGarments" replace />}
+      />
       <Route path="/PrintSupport" element={<LayoutWrapper currentPageName="PrintSupport"><PrintSupportPage /></LayoutWrapper>} />
       <Route path="/About" element={<LayoutWrapper currentPageName="About"><AboutPage /></LayoutWrapper>} />
       <Route path="/FAQ" element={<LayoutWrapper currentPageName="FAQ"><FAQPage /></LayoutWrapper>} />

@@ -21,10 +21,11 @@ import MobileHeader from "./components/mobile/MobileHeader";
 import RouteTransition from "./components/mobile/RouteTransition";
 import DeleteAccountModal from "./components/mobile/DeleteAccountModal";
 import { trackMarketingEvent } from '@/lib/marketingAnalytics';
+import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 
 const NAV_LINKS = [
   { to: '/ShopGarments', label: 'Shop Garments' },
-  { to: '/CustomPrinting', label: 'Custom Printing' },
+  ...(STOREFRONT_FEATURES.customPrinting ? [{ to: '/CustomPrinting', label: 'Custom Printing' }] : []),
   { to: '/PrintSupport', label: 'Print Support' },
   { to: '/RequestQuote', label: 'Bulk Quote 50+' },
   { to: '/About', label: 'About' },
@@ -226,7 +227,7 @@ function LayoutInner({ children }) {
               <h4 className="font-bold text-sm uppercase tracking-wider mb-3 text-accent">Shop</h4>
               <ul className="space-y-2 text-sm text-primary-foreground/70">
                 <li><Link to="/ShopGarments" className="hover:text-primary-foreground transition-colors">All Garments</Link></li>
-                <li><Link to="/CustomPrinting" className="hover:text-primary-foreground transition-colors">Custom Printing</Link></li>
+                {STOREFRONT_FEATURES.customPrinting && <li><Link to="/CustomPrinting" className="hover:text-primary-foreground transition-colors">Custom Printing</Link></li>}
                 <li><Link to="/PrintSupport" className="hover:text-primary-foreground transition-colors">Print Support</Link></li>
                 <li><Link to="/RequestQuote" className="hover:text-primary-foreground transition-colors">Bulk Quote 50+</Link></li>
                 <li><Link to="/TrackOrder" className="hover:text-primary-foreground transition-colors">Track Order</Link></li>

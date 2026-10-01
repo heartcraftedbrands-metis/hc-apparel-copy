@@ -4,6 +4,7 @@ import { ArrowUpRight } from 'lucide-react';
 
 import CatalogEditorialImage from './CatalogEditorialImage';
 import { getCatalogProductImage, selectCatalogProduct } from '@/lib/homeCatalogImages';
+import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 
 const CATEGORIES = [
   {
@@ -95,7 +96,7 @@ const CATEGORIES = [
     layout: 'sm:col-span-2 lg:col-span-12',
     secondary: true,
   },
-];
+].filter(category => category.link !== '/CustomPrinting' || STOREFRONT_FEATURES.customPrinting);
 
 export default function HomeFeaturedCategories({ products = [] }) {
   const cards = useMemo(() => CATEGORIES.map(category => ({

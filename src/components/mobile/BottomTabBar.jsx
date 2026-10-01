@@ -3,11 +3,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, ShoppingBag, Printer, User, ShoppingCart } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useCart } from '@/components/shop/CartContext';
+import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 
 const TABS = [
   { label: 'Home',    icon: Home,        path: '/' },
   { label: 'Shop',    icon: ShoppingBag, path: '/ShopGarments' },
-  { label: 'Print',   icon: Printer,     path: '/CustomPrinting' },
+  ...(STOREFRONT_FEATURES.customPrinting ? [{ label: 'Print', icon: Printer, path: '/CustomPrinting' }] : []),
   { label: 'Profile', icon: User,        path: '/Profile' },
 ];
 
