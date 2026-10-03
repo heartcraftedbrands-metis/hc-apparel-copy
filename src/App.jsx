@@ -92,6 +92,7 @@ import AdminGoogleCalendar from './pages/AdminGoogleCalendar';
 import AdminTeamProductivity from './pages/AdminTeamProductivity';
 import AdminQuarterlyTaxCenter from './pages/AdminQuarterlyTaxCenter';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
+import AdminDesignStudio from './pages/AdminDesignStudio';
 
 const { Layout } = pagesConfig;
 
@@ -149,6 +150,7 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}
       <Route path="/AdminDashboard" element={<LayoutWrapper currentPageName="AdminDashboard"><AdminDashboard /></LayoutWrapper>} />
+      <Route path="/AdminDesignStudio" element={<LayoutWrapper currentPageName="AdminDesignStudio"><AdminDesignStudio /></LayoutWrapper>} />
       <Route path="/AdminBrandPages" element={<LayoutWrapper currentPageName="AdminBrandPages"><AdminBrandPages /></LayoutWrapper>} />
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />

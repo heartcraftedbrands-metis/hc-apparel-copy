@@ -1,0 +1,365 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const allowedOrigins = new Set([
+  'http://localhost:5173', 'http://127.0.0.1:5173',
+  'http://localhost:4173', 'http://127.0.0.1:4173',
+  'https://hc-apparel-copy.vercel.app',
+  'https://ilovehcapparel.net', 'https://www.ilovehcapparel.net',
+]);
+
+type StudioError = Error & { status?: number; code?: string };
+const fail = (message: string, status = 400, code = 'invalid_request'): never => {
+  const error = new Error(message) as StudioError;
+  error.status = status;
+  error.code = code;
+  throw error;
+};
+const env = (name: string) => Deno.env.get(name)?.trim() || '';
+const safeText = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
+const reply = (body: unknown, status: number, origin: string) => new Response(JSON.stringify(body), {
+  status,
+  headers: {
+    'content-type': 'application/json',
+    'access-control-allow-origin': allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net',
+    'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
+    'access-control-allow-methods': 'POST, OPTIONS',
+  },
+});
+
+function decodeBase64(value: string) {
+  try {
+    const raw = atob(value);
+    return Uint8Array.from(raw, char => char.charCodeAt(0));
+  } catch { return fail('The uploaded file could not be decoded.'); }
+}
+
+function fileKind(bytes: Uint8Array) {
+  if (bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) return 'png';
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return 'jpg';
+  const prefix = new TextDecoder().decode(bytes.slice(0, Math.min(bytes.length, 1024))).trim().toLowerCase();
+  if (prefix.startsWith('<svg') || (prefix.startsWith('<?xml') && prefix.includes('<svg'))) return 'svg';
+  return fail('Artwork must be a valid PNG, JPG/JPEG, or SVG file.');
+}
+
+function pngDimensions(bytes: Uint8Array) {
+  if (bytes.length < 24) fail('The PNG is incomplete.');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+function jpegDimensions(bytes: Uint8Array) {
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) { offset += 1; continue; }
+    const marker = bytes[offset + 1];
+    const length = (bytes[offset + 2] << 8) + bytes[offset + 3];
+    if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
+      return { height: (bytes[offset + 5] << 8) + bytes[offset + 6], width: (bytes[offset + 7] << 8) + bytes[offset + 8] };
+    }
+    if (!length) break;
+    offset += length + 2;
+  }
+  return fail('The JPEG dimensions could not be decoded.');
+}
+
+function sanitizeSvg(bytes: Uint8Array) {
+  let svg = new TextDecoder().decode(bytes);
+  if (/<\s*(script|foreignObject|iframe|object|embed|audio|video)|\son[a-z]+\s*=|(?:href|xlink:href)\s*=\s*["']\s*(?:https?:|data:|javascript:)/i.test(svg)) {
+    fail('The SVG contains scripts, event handlers, embedded content, or external references and cannot be used.');
+  }
+  svg = svg.replace(/<\?xml[^>]*>/gi, '').replace(/<!doctype[^>]*>/gi, '').trim();
+  const root = svg.match(/<svg\b([^>]*)>/i)?.[1] || '';
+  const width = Number(root.match(/\bwidth=["']([0-9.]+)/i)?.[1] || 0);
+  const height = Number(root.match(/\bheight=["']([0-9.]+)/i)?.[1] || 0);
+  const viewBoxValues = root.match(/\bviewBox=["']([^"']+)["']/i)?.[1]
+    ?.trim().split(/[ ,]+/).map(Number) || [];
+  const decodedWidth = width || Number(viewBoxValues[2] || 0);
+  const decodedHeight = height || Number(viewBoxValues[3] || 0);
+  if (!decodedWidth || !decodedHeight) fail('SVG artwork needs numeric width/height or a valid viewBox.');
+  return { bytes: new TextEncoder().encode(svg), width: Math.round(decodedWidth), height: Math.round(decodedHeight) };
+}
+
+async function sha256(bytes: Uint8Array) {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
+    .map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function visitImageElements(document: Record<string, unknown>, callback: (element: Record<string, unknown>) => void) {
+  const placements = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
+  for (const elements of Object.values(placements)) for (const value of elements || []) {
+    const element = value as Record<string, unknown>;
+    if (element.type === 'image' && element.assetId) callback(element);
+  }
+}
+
+async function storedDocumentCopy(document: Record<string, unknown>) {
+  const copy = structuredClone(document);
+  visitImageElements(copy, element => { delete element.previewUrl; });
+  return copy;
+}
+
+async function hydrateDocumentAssets(service: ReturnType<typeof createClient>, document: Record<string, unknown>, userId: string, isAdmin: boolean) {
+  const copy = structuredClone(document);
+  const ids: string[] = [];
+  visitImageElements(copy, element => ids.push(String(element.assetId)));
+  if (!ids.length) return copy;
+  let query = service.from('design_assets').select('id,owner_user_id,storage_path').in('id', ids);
+  if (!isAdmin) query = query.eq('owner_user_id', userId);
+  const { data } = await query;
+  const signed = new Map<string, string>();
+  await Promise.all((data || []).map(async asset => {
+    const { data: url } = await service.storage.from('customer-files').createSignedUrl(asset.storage_path, 3600);
+    if (url?.signedUrl) signed.set(asset.id, url.signedUrl);
+  }));
+  visitImageElements(copy, element => { element.previewUrl = signed.get(String(element.assetId)) || ''; });
+  return copy;
+}
+
+function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[]) {
+  const warnings: Record<string, unknown>[] = [];
+  const placements = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
+  if (!safeText(document.productId, 100)) warnings.push({ code: 'product_missing', level: 'blocker', message: 'Choose an eligible garment.' });
+  if (!safeText(document.color, 200) || !safeText(document.size, 100)) warnings.push({ code: 'variant_missing', level: 'blocker', message: 'Choose a color and size.' });
+  if (!Object.values(placements).some(items => Array.isArray(items) && items.length)) warnings.push({ code: 'artwork_missing', level: 'blocker', message: 'Add a design element.' });
+  for (const [placement, rawElements] of Object.entries(placements)) {
+    if (!Array.isArray(rawElements) || !rawElements.length) continue;
+    const area = areas.find(item => item.placement === placement && item.enabled && item.verified);
+    if (!area || !Number(area.width_in) || !Number(area.height_in)) {
+      warnings.push({ code: 'print_area_unverified', level: 'blocker', placement, message: 'Verified physical print dimensions are required.' });
+      continue;
+    }
+    for (const value of rawElements) {
+      const element = value as Record<string, unknown>;
+      const x = Number(element.x), y = Number(element.y), width = Number(element.width), height = Number(element.height);
+      if (![x,y,width,height].every(Number.isFinite) || x < 0 || y < 0 || x + width > 100 || y + height > 100) {
+        warnings.push({ code: 'outside_print_area', level: 'blocker', placement, element_id: element.id, message: 'Artwork extends outside the printable area.' });
+      }
+      if (element.type === 'image' && Number(element.pixelWidth) > 0) {
+        const dpi = Math.round(Number(element.pixelWidth) / Math.max(.01, (width / 100) * Number(area.width_in)));
+        if (dpi < Number(area.min_dpi || 150)) warnings.push({ code: 'low_resolution', level: 'warning', placement, element_id: element.id, dpi, message: `Artwork is about ${dpi} DPI at this size.` });
+      }
+    }
+  }
+  return warnings;
+}
+
+async function printifyRequest(path: string, init: RequestInit = {}) {
+  const token = env('PRINTIFY_API_TOKEN');
+  if (!token) fail('Printify is not connected. Add PRINTIFY_API_TOKEN to Supabase Edge Function secrets after creating a scoped Personal Access Token.', 503, 'printify_not_connected');
+  const response = await fetch(`https://api.printify.com/v1/${path.replace(/^\//, '')}`, {
+    ...init,
+    headers: { authorization: `Bearer ${token}`, 'user-agent': 'HC-Apparel-Design-Studio/1.0', 'content-type': 'application/json', ...(init.headers || {}) },
+    signal: AbortSignal.timeout(25000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) fail(response.status === 401 ? 'Printify rejected the configured token.' : `Printify request failed (${response.status}).`, 502, 'printify_request_failed');
+  return body;
+}
+
+Deno.serve(async request => {
+  const origin = request.headers.get('origin') || '';
+  if (request.method === 'OPTIONS') return reply({}, 200, origin);
+  try {
+    const supabaseUrl = env('SUPABASE_URL');
+    const anonKey = env('SUPABASE_ANON_KEY');
+    const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !anonKey || !serviceKey) fail('Design Studio server configuration is incomplete.', 503, 'server_config_missing');
+    const auth = createClient(supabaseUrl, anonKey, { global: { headers: { authorization: request.headers.get('authorization') || '' } } });
+    const service = createClient(supabaseUrl, serviceKey);
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user) fail('Sign in to use the Design Studio.', 401, 'auth_required');
+    const { data: profile } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    const isAdmin = profile?.role === 'admin';
+    const payload = await request.json().catch(() => ({}));
+    const action = safeText(payload.action, 80);
+
+    if (action === 'status') {
+      const [{ data: settings }, { data: printify }] = await Promise.all([
+        service.from('design_studio_settings').select('*').eq('id', true).single(),
+        service.from('printify_integration_settings').select('*').eq('id', true).single(),
+      ]);
+      if (!isAdmin && !settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
+      let printifyConnection = { configured: false, verified: false, shop_count: 0, safe_error: '' };
+      if (env('PRINTIFY_API_TOKEN')) {
+        try {
+          const shops = await printifyRequest('shops.json');
+          printifyConnection = { configured: true, verified: true, shop_count: Array.isArray(shops) ? shops.length : 0, safe_error: '' };
+          await service.from('printify_integration_settings').update({ connection_status: 'connected', catalog_read_enabled: true, last_verified_at: new Date().toISOString(), last_safe_error: null }).eq('id', true);
+        } catch (error) {
+          printifyConnection = { configured: true, verified: false, shop_count: 0, safe_error: (error as Error).message };
+        }
+      }
+      return reply({ settings, printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
+    }
+
+    if (!isAdmin) {
+      const { data: settings } = await service.from('design_studio_settings').select('public_studio_enabled').eq('id', true).single();
+      if (!settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
+    }
+
+    if (action === 'upload') {
+      const originalName = safeText(payload.filename, 180).replace(/[^A-Za-z0-9._ -]/g, '-');
+      const rawBytes = decodeBase64(String(payload.data || ''));
+      const { data: settings } = await service.from('design_studio_settings').select('max_upload_bytes').eq('id', true).single();
+      if (!rawBytes.length || rawBytes.length > Number(settings?.max_upload_bytes || 15728640)) fail(`Artwork must be smaller than ${Math.round(Number(settings?.max_upload_bytes || 15728640) / 1048576)} MB.`);
+      const kind = fileKind(rawBytes);
+      let bytes = rawBytes;
+      let dimensions;
+      if (kind === 'png') dimensions = pngDimensions(bytes);
+      else if (kind === 'jpg') dimensions = jpegDimensions(bytes);
+      else {
+        const sanitized = sanitizeSvg(bytes); bytes = sanitized.bytes; dimensions = sanitized;
+      }
+      if (dimensions.width > 30000 || dimensions.height > 30000) fail('Artwork dimensions may not exceed 30,000 × 30,000 pixels.');
+      const digest = await sha256(bytes);
+      const ext = kind === 'jpg' ? 'jpg' : kind;
+      const mime = kind === 'png' ? 'image/png' : kind === 'jpg' ? 'image/jpeg' : 'image/svg+xml';
+      const path = `design-studio/${user.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await service.storage.from('customer-files').upload(path, bytes, { contentType: mime, upsert: false });
+      if (uploadError) fail('Artwork could not be stored privately.', 500, 'storage_failed');
+      const { data: asset, error: assetError } = await service.from('design_assets').insert({
+        owner_user_id: user.id, design_id: payload.design_id || null, storage_path: path,
+        original_filename: originalName || `artwork.${ext}`, mime_type: mime, byte_size: bytes.length,
+        pixel_width: dimensions.width, pixel_height: dimensions.height, sha256: digest, svg_sanitized: kind === 'svg',
+      }).select('*').single();
+      if (assetError) { await service.storage.from('customer-files').remove([path]); fail('Artwork metadata could not be saved.', 500); }
+      const { data: signed } = await service.storage.from('customer-files').createSignedUrl(path, 3600);
+      return reply({ asset, preview_url: signed?.signedUrl, server_validated: true }, 200, origin);
+    }
+
+    if (action === 'signed_asset_url') {
+      const { data: asset } = await service.from('design_assets').select('owner_user_id,storage_path').eq('id', safeText(payload.asset_id, 80)).single();
+      if (!asset || (asset.owner_user_id !== user.id && !isAdmin)) fail('Artwork is not available.', 404);
+      const { data } = await service.storage.from('customer-files').createSignedUrl(asset.storage_path, 3600);
+      return reply({ url: data?.signedUrl || '' }, 200, origin);
+    }
+
+    if (action === 'save') {
+      const document = payload.document as Record<string, unknown>;
+      if (!document || typeof document !== 'object') fail('A design document is required.');
+      const productId = safeText(document.productId, 100);
+      const { data: product } = await service.from('products').select('*').eq('id', productId).maybeSingle();
+      if (!product || product.visibility !== 'public' || !product.is_active) fail('The selected garment is not currently eligible.');
+      const productText = `${product.brand || ''} ${product.name || ''}`.toLowerCase();
+      if (productText.includes('columbia') || productText.includes('champion') || product.customization_restricted === true || product.customization_eligible === false) {
+        fail('This product is restricted from Design Studio customization.');
+      }
+      const color = safeText(document.color, 160);
+      const size = safeText(document.size, 80);
+      const variants = Array.isArray(product.size_prices) ? product.size_prices : [];
+      const selectedVariant = variants.find((item: Record<string, unknown>) => String(item.size || '') === `${color} / ${size}` || (String(item.color || '') === color && String(item.size || '') === size));
+      if (variants.length && (!selectedVariant || Number(selectedVariant.inventory ?? 0) <= 0)) fail('The selected catalog variant is not currently available.');
+      const route = safeText(document.productionRoute || 'hc_transfer_press', 80);
+      const { data: areas } = await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route);
+      const warnings = validateDocument(document, areas || []);
+      const persistedDocument = await storedDocumentCopy(document);
+      const record = {
+        owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId,
+        variant_sku: safeText(document.productSku, 160) || null, selected_color: safeText(document.color, 160) || null,
+        selected_size: safeText(document.size, 80) || null, quantity: Math.max(1, Number(document.quantity) || 1),
+        production_route: route, print_method: safeText(document.printMethod || 'dtf', 80), document: persistedDocument,
+        validation: warnings, autosaved_at: new Date().toISOString(), status: payload.explicit ? 'saved' : 'draft',
+        ...(payload.explicit ? { saved_at: new Date().toISOString() } : {}),
+      };
+      let saved;
+      if (payload.design_id) {
+        const { data: existing } = await service.from('design_documents').select('owner_user_id,status').eq('id', payload.design_id).maybeSingle();
+        if (!existing || (existing.owner_user_id !== user.id && !isAdmin)) fail('Design not found.', 404);
+        if (existing.status === 'ordered') fail('Ordered designs cannot be changed. Duplicate it instead.');
+        const result = await service.from('design_documents').update({ ...record, updated_at: new Date().toISOString() }).eq('id', payload.design_id).select('*').single();
+        if (result.error) fail('Design could not be saved.', 500); saved = result.data;
+      } else {
+        const result = await service.from('design_documents').insert(record).select('*').single();
+        if (result.error) fail('Design could not be created.', 500); saved = result.data;
+      }
+      let version = null;
+      if (payload.explicit) {
+        const { count } = await service.from('design_versions').select('*', { count: 'exact', head: true }).eq('design_id', saved.id);
+        const checksum = await sha256(new TextEncoder().encode(JSON.stringify(persistedDocument)));
+        const result = await service.from('design_versions').insert({
+          design_id: saved.id, owner_user_id: saved.owner_user_id, version_number: Number(count || 0) + 1,
+          document_snapshot: persistedDocument, production_spec_snapshot: { print_areas: areas || [], route, print_method: record.print_method },
+          validation_snapshot: warnings, checksum,
+        }).select('id,version_number,checksum,created_at').single();
+        if (result.error) fail('The design saved, but its immutable version could not be created.', 500); version = result.data;
+      }
+      const referencedAssetIds: string[] = [];
+      visitImageElements(document, element => referencedAssetIds.push(String(element.assetId)));
+      if (referencedAssetIds.length) await service.from('design_assets').update({ design_id: saved.id }).eq('owner_user_id', user.id).in('id', referencedAssetIds);
+      return reply({ design: saved, version, warnings }, 200, origin);
+    }
+
+    if (action === 'list') {
+      let query = service.from('design_documents').select('id,name,status,product_id,selected_color,selected_size,quantity,production_route,validation,updated_at,saved_at,owner_user_id').order('updated_at', { ascending: false }).limit(100);
+      if (!isAdmin) query = query.eq('owner_user_id', user.id);
+      const { data, error } = await query;
+      if (error) fail('Designs could not be loaded.', 500);
+      return reply({ designs: data || [] }, 200, origin);
+    }
+
+    if (action === 'load') {
+      const { data } = await service.from('design_documents').select('*').eq('id', safeText(payload.design_id, 80)).maybeSingle();
+      if (!data || (data.owner_user_id !== user.id && !isAdmin)) fail('Design not found.', 404);
+      data.document = await hydrateDocumentAssets(service, data.document || {}, user.id, isAdmin);
+      return reply({ design: data }, 200, origin);
+    }
+
+    if (action === 'catalog_blueprints') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const catalog = await printifyRequest(`catalog/blueprints.json${payload.page ? `?page=${Number(payload.page)}` : ''}`);
+      return reply({ catalog }, 200, origin);
+    }
+
+    if (action === 'catalog_variants') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const blueprint = encodeURIComponent(safeText(payload.blueprint_id, 30));
+      const provider = encodeURIComponent(safeText(payload.print_provider_id, 30));
+      const variants = await printifyRequest(`catalog/blueprints/${blueprint}/print_providers/${provider}/variants.json`);
+      return reply({ variants }, 200, origin);
+    }
+
+    if (action === 'shipping_quote') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const { data: mapping } = await service.from('design_provider_mappings').select('*').eq('id', safeText(payload.mapping_id, 80)).eq('provider', 'printify').eq('compatible', true).single();
+      if (!mapping?.provider_shop_id || !mapping?.provider_variant_id) fail('A verified Printify product/variant mapping is required.');
+      const address = payload.address_to || {};
+      if (!safeText(address.country, 2) || !safeText(address.zip, 20)) fail('A destination country and postal code are required.');
+      const lineItem = mapping.provider_product_id
+        ? { product_id: mapping.provider_product_id, variant_id: Number(mapping.provider_variant_id), quantity: Math.max(1, Number(payload.quantity) || 1) }
+        : { blueprint_id: Number(mapping.provider_blueprint_id), print_provider_id: Number(mapping.provider_print_provider_id), variant_id: Number(mapping.provider_variant_id), quantity: Math.max(1, Number(payload.quantity) || 1) };
+      const quote = await printifyRequest(`shops/${encodeURIComponent(mapping.provider_shop_id)}/orders/shipping.json`, { method: 'POST', body: JSON.stringify({ line_items: [lineItem], address_to: address }) });
+      return reply({ quote, currency: 'USD', live: true }, 200, origin);
+    }
+
+    if (action === 'prepare_job') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const { data: version } = await service.from('design_versions').select('*').eq('id', safeText(payload.design_version_id, 80)).single();
+      if (!version) fail('Saved design version not found.', 404);
+      const blockers = (version.validation_snapshot || []).filter((item: Record<string, unknown>) => item.level === 'blocker');
+      if (blockers.length) fail('Resolve all artwork and print-area blockers before production preparation.');
+      const { data: job, error } = await service.from('design_production_jobs').insert({
+        design_version_id: version.id, production_route: safeText(payload.production_route, 80),
+        status: 'review_required', costs_complete: false,
+      }).select('*').single();
+      if (error) fail('Production review job could not be prepared.', 500);
+      return reply({ job, submitted: false }, 200, origin);
+    }
+
+    if (action === 'submit_printify') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const { data: settings } = await service.from('design_studio_settings').select('live_vendor_submission_enabled').eq('id', true).single();
+      const { data: integration } = await service.from('printify_integration_settings').select('order_submission_enabled').eq('id', true).single();
+      if (!settings?.live_vendor_submission_enabled || !integration?.order_submission_enabled) fail('Printify order submission is disabled.', 403, 'submission_disabled');
+      const { data: job } = await service.from('design_production_jobs').select('*').eq('id', safeText(payload.job_id, 80)).single();
+      if (!job?.payment_verified_at || !job?.artwork_approved_at || !payload.confirm_submission) fail('Verified payment, approved artwork, and explicit submission confirmation are required.');
+      if (job.provider_order_id) return reply({ submitted: true, duplicate_prevented: true, provider_order_id: job.provider_order_id }, 200, origin);
+      fail('Submission payload preparation is intentionally unavailable until a compatible mapping and connected Printify shop have passed admin QA.', 409, 'mapping_qa_required');
+    }
+
+    return fail('Unknown Design Studio action.', 404);
+  } catch (error) {
+    const safe = error as StudioError;
+    console.error('[design-studio]', JSON.stringify({ name: safe.name, message: safe.message, code: safe.code || '', status: safe.status || 500 }));
+    return reply({ error: safe.message || 'Design Studio request failed.', code: safe.code || 'server_error' }, safe.status || 500, origin);
+  }
+});
