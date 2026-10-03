@@ -418,7 +418,7 @@ export default function AdminOrderDetail() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Section title="Customer and order" icon={User} adminOnly>
+          <Section title="Customer and order" icon={<User className="h-4 w-4" />} adminOnly>
             <div className="space-y-2 text-sm">
               <p><span className="font-semibold">Customer:</span> {form.customer_name || '—'}</p>
               <p><span className="font-semibold">Email:</span> {form.customer_email || '—'}</p>
@@ -427,7 +427,7 @@ export default function AdminOrderDetail() {
               <p><span className="font-semibold">Fulfillment:</span> {form.fulfillment_status?.replace(/_/g, ' ') || '—'}</p>
             </div>
           </Section>
-          <Section title="Preserved payment history" icon={DollarSign} adminOnly>
+          <Section title="Preserved payment history" icon={<DollarSign className="h-4 w-4" />} adminOnly>
             <div className="space-y-2 text-sm">
               <p><span className="font-semibold">Payment status:</span> {form.payment_status?.replace(/_/g, ' ') || '—'}</p>
               <p><span className="font-semibold">Order total:</span> ${Number(form.total_amount || 0).toFixed(2)}</p>
@@ -451,7 +451,7 @@ export default function AdminOrderDetail() {
           </div>
         )}
 
-        <Section title="Archived items" icon={Package} adminOnly>
+        <Section title="Archived items" icon={<Package className="h-4 w-4" />} adminOnly>
           <div className="space-y-3">
             {(form.order_items || []).map((item, index) => (
               <div key={`${item.sku || item.product_id || 'item'}-${index}`} className="rounded-lg border bg-white p-3 text-sm">
