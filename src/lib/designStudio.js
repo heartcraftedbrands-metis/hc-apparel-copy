@@ -14,6 +14,16 @@ export const ACTIVE_PRODUCTION_ROUTES = [
   ['hc_in_house', 'Future HC in-house production'],
 ];
 
+export const DECORATION_METHODS = [
+  ['dtf', 'DTF'],
+  ['soft_vinyl', 'Soft Vinyl'],
+  ['puff_vinyl', 'Puff Vinyl'],
+  ['glitter_vinyl', 'Glitter Vinyl'],
+  ['flock_vinyl', 'Flock Vinyl'],
+  ['embroidery', 'Embroidery'],
+  ['dtg', 'DTG'],
+];
+
 export const STUDIO_FONTS = [
   'Arial', 'Georgia', 'Trebuchet MS', 'Verdana', 'Courier New', 'Times New Roman',
 ];
@@ -27,6 +37,7 @@ export const createStudioDocument = (overrides = {}) => ({
   productStyle: '',
   garmentType: '',
   productSku: '',
+  variantId: '',
   productImage: '',
   mockupViews: {},
   color: '',
@@ -34,6 +45,7 @@ export const createStudioDocument = (overrides = {}) => ({
   quantity: 1,
   productionRoute: 'hc_transfer_press',
   printMethod: 'dtf',
+  decorationMethod: 'dtf',
   activePlacement: 'front',
   placements: Object.fromEntries(DESIGN_PLACEMENTS.map(([key]) => [key, []])),
   updatedAt: new Date().toISOString(),
@@ -78,6 +90,40 @@ export const effectiveDpi = (element, printArea) => {
   const physicalWidth = Math.max(0.01, (Number(element.width) / 100) * Number(printArea.width_in));
   return Math.round(Number(element.pixelWidth) / physicalWidth);
 };
+
+export function artworkQualityReport(element, printArea = null, targetPpi = 300) {
+  if (element?.type !== 'image') return null;
+  const isVector = element.fileKind === 'svg' || element.mimeType === 'image/svg+xml';
+  if (isVector && !element.containsEmbeddedRaster) {
+    return {
+      state: 'vector', label: 'Vector artwork', effectivePpi: null,
+      message: 'Vector paths scale without raster-resolution loss. Vinyl cutting and embroidery readiness still require separate production review.',
+    };
+  }
+  const pixelsWide = Number(element.pixelWidth || 0);
+  const pixelsHigh = Number(element.pixelHeight || 0);
+  const calibratedWidth = printArea?.verified && Number(printArea.width_in) > 0
+    ? (Number(element.width || 0) / 100) * Number(printArea.width_in) : 0;
+  const calibratedHeight = printArea?.verified && Number(printArea.height_in) > 0
+    ? (Number(element.height || 0) / 100) * Number(printArea.height_in) : 0;
+  const intendedWidth = calibratedWidth || Number(element.intendedWidthIn || 0);
+  const intendedHeight = calibratedHeight || Number(element.intendedHeightIn || 0);
+  const maxWidth = pixelsWide > 0 ? pixelsWide / Number(targetPpi || 300) : null;
+  const maxHeight = pixelsHigh > 0 ? pixelsHigh / Number(targetPpi || 300) : null;
+  if (!pixelsWide || !pixelsHigh) return { state: 'unknown', label: 'Resolution unavailable', effectivePpi: null, maxWidth, maxHeight, intendedWidth, intendedHeight };
+  if (!intendedWidth || !intendedHeight) {
+    return { state: 'needs_size', label: 'Enter print size to check quality', effectivePpi: null, maxWidth, maxHeight, intendedWidth, intendedHeight };
+  }
+  const effectivePpi = Math.floor(Math.min(pixelsWide / intendedWidth, pixelsHigh / intendedHeight));
+  return {
+    state: effectivePpi >= Number(targetPpi || 300) ? 'good' : 'low',
+    label: effectivePpi >= Number(targetPpi || 300) ? 'Good resolution' : 'Low resolution',
+    effectivePpi, maxWidth, maxHeight, intendedWidth, intendedHeight,
+    message: effectivePpi >= Number(targetPpi || 300)
+      ? `About ${effectivePpi} PPI at the intended print size.`
+      : `About ${effectivePpi} PPI at the intended print size. Upscaling does not restore missing detail.`,
+  };
+}
 
 export function validatePlacement(elements, printArea) {
   const warnings = [];
@@ -141,23 +187,38 @@ export function calculateStudioPricing({ route, garmentRetail = 0, printingCharg
   };
 }
 
-export function calculatePrintingCharge(document, configs = []) {
+export function calculatePrintingCharge(document, configs = [], packages = []) {
   if (document?.productionRoute === 'printify') return { unit: 0, configured: true, placements: [] };
   const usedPlacements = Object.entries(document?.placements || {})
     .filter(([, elements]) => (elements || []).some(element => element.visible !== false))
     .map(([placement]) => placement);
-  const matches = usedPlacements.map(placement => {
+  const method = document?.decorationMethod || document?.printMethod;
+  const remaining = new Set(usedPlacements);
+  const packageMatches = (packages || []).filter(item => item.active !== false && item.method_key === method)
+    .map(item => ({ ...item, placementList: Array.isArray(item.placements) ? item.placements : [] }))
+    .filter(item => item.placementList.length > 1 && item.placementList.every(placement => remaining.has(placement)))
+    .sort((a, b) => b.placementList.length - a.placementList.length);
+  const appliedPackages = [];
+  for (const item of packageMatches) {
+    if (!item.placementList.every(placement => remaining.has(placement))) continue;
+    item.placementList.forEach(placement => remaining.delete(placement));
+    appliedPackages.push(item);
+  }
+  const remainingPlacements = usedPlacements.filter(placement => remaining.has(placement));
+  const matches = remainingPlacements.map(placement => {
     const candidates = (configs || []).filter(item => item.active
       && item.production_route === document?.productionRoute
       && (!item.product_id || item.product_id === document?.productId)
-      && (!item.print_method || item.print_method === document?.printMethod)
+      && (!item.print_method || item.print_method === method)
       && item.placement === placement);
     return candidates.sort((a, b) => Number(Boolean(b.product_id)) - Number(Boolean(a.product_id)))[0] || null;
   });
   return {
-    unit: matches.reduce((sum, item) => sum + Number(item?.service_price || 0), 0),
+    unit: appliedPackages.reduce((sum, item) => sum + Number(item.service_price || 0), 0)
+      + matches.reduce((sum, item) => sum + Number(item?.service_price || 0), 0),
     configured: usedPlacements.length > 0 && matches.every(item => item && item.service_price !== null && item.service_price !== undefined),
-    placements: usedPlacements.map((placement, index) => ({ placement, config: matches[index] })),
+    placements: remainingPlacements.map((placement, index) => ({ placement, config: matches[index] })),
+    packages: appliedPackages,
   };
 }
 

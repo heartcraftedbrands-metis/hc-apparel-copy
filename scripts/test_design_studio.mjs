@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
+  artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
   isRestrictedCustomizationProduct, makeElement, normalizedFileKind,
   validateDesign, validatePlacement,
 } from '../src/lib/designStudio.js';
@@ -20,6 +20,15 @@ assert.deepEqual(validatePlacement(document.placements.front, area), [], 'valid 
 assert.ok(validatePlacement([{ ...document.placements.front[0], x: 80 }], area).some(item => item.code === 'outside_print_area'), 'out-of-bounds artwork blocks production');
 assert.ok(validatePlacement(document.placements.front, { ...area, verified: false }).some(item => item.code === 'print_area_unverified'), 'unverified physical area blocks production');
 assert.deepEqual(validateDesign(document, [area]), [], 'complete design passes configured checks');
+const quality = artworkQualityReport({ type: 'image', pixelWidth: 1800, pixelHeight: 1800, intendedWidthIn: 12, intendedHeightIn: 12 }, null, 300);
+assert.equal(quality.effectivePpi, 150, 'quality report uses actual pixels divided by intended physical size');
+assert.equal(quality.state, 'low', '1800px at 12 inches is low at a 300 PPI target');
+assert.equal(quality.maxWidth, 6, 'quality report gives the non-upscaled 300 PPI maximum width');
+const packaged = calculatePrintingCharge({ ...document, decorationMethod: 'dtf', productionRoute: 'hc_transfer_press', placements: { front: [makeElement('text')], back: [makeElement('text')] } }, [
+  { active: true, production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: 19.99 },
+], [{ active: true, method_key: 'dtf', placements: ['front', 'back'], service_price: 34.99 }]);
+assert.equal(packaged.unit, 34.99, 'saved front/back package price prevents double-counting individual placements');
+assert.equal(packaged.configured, true, 'package covers both placements');
 
 const hc = calculateStudioPricing({ route: 'hc_transfer_press', garmentRetail: 8, printingCharge: 12, quantity: 2, supplierProductionCost: 8, packaging: 1, fees: 2 });
 assert.equal(hc.customerMerchandise, 40, 'HC route shows garment and printing separately');
@@ -58,6 +67,7 @@ const migration = fs.readFileSync(new URL('../supabase/migrations/202610030006_b
 const repairMigration = fs.readFileSync(new URL('../supabase/migrations/202610030007_finish_design_studio_mobile.sql', import.meta.url), 'utf8');
 const permissionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030008_design_studio_service_role_permissions.sql', import.meta.url), 'utf8');
 const archiveMigration = fs.readFileSync(new URL('../supabase/migrations/202610030009_archive_design_studio_qa_fixtures.sql', import.meta.url), 'utf8');
+const mobileActionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030012_repair_design_studio_mobile_actions.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -65,6 +75,9 @@ assert.match(migration, /design_versions_immutable/, 'saved versions are databas
 assert.match(repairMigration, /design_mockup_mappings/, 'real product view mappings are persisted securely');
 assert.match(permissionMigration, /grant select, insert, update on public\.design_documents to service_role/, 'server-side private design persistence has an explicit narrow database grant');
 assert.match(archiveMigration, /purge_expired_design_studio_test_archives/, 'confirmed Design Studio fixtures follow the six-month purge policy');
+assert.match(mobileActionMigration, /design_preview_cart_items/, 'preview cart entries persist server-side instead of browser-local only');
+assert.match(mobileActionMigration, /design_decoration_methods/, 'customer methods and internal routes are configured separately');
+assert.match(mobileActionMigration, /default_raster_ppi[^;]+default 300/s, 'raster quality target defaults to configurable 300 PPI');
 assert.match(migration, /order_design_snapshots_immutable/, 'ordered snapshots are database-immutable');
 assert.match(migration, /public_studio_enabled boolean not null default false/, 'public studio starts disabled');
 assert.match(migration, /live_vendor_submission_enabled boolean not null default false/, 'vendor submission starts disabled');
@@ -83,7 +96,11 @@ const page = fs.readFileSync(new URL('../src/pages/AdminDesignStudio.jsx', impor
 assert.match(page, /Choose Garment/, 'garment selection is visible before the canvas');
 assert.match(page, /isStudioEligibleProduct/, 'catalog selection uses the shared T-shirt, hoodie, and crewneck eligibility rules');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
-assert.match(page, /admin_preview_only:\s*true/, 'cart attachment stays isolated from public checkout');
+assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
+assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
+assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
+assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
+assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');
 assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/, 'Design Studio sends the active HC session explicitly to its server API');
 assert.match(page, /JSON\.stringify\(document\) === savedJsonRef\.current/, 'a stale autosave timer exits after an explicit save');
 

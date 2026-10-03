@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, Check, Circle, Cloud, Download, Eye, Layers,
-  LockKeyhole, Plus, Redo2, Save, Search, Shirt, Square, Star, Type, Undo2, Upload, X,
+  AlertTriangle, ArrowLeft, Check, CheckCircle2, Circle, Cloud, Download, Eye, Layers,
+  LockKeyhole, Plus, Redo2, Save, Search, Shirt, ShoppingCart, Square, Star, Trash2, Type, Undo2, Upload, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/api/supabaseClient';
@@ -12,8 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import {
-  ACTIVE_PRODUCTION_ROUTES, DESIGN_PLACEMENTS, STUDIO_FONTS,
-  calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
+  ACTIVE_PRODUCTION_ROUTES, DECORATION_METHODS, DESIGN_PLACEMENTS, STUDIO_FONTS,
+  artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
   makeElement, updatePlacement, validateDesign,
 } from '@/lib/designStudio';
 import { getCustomizationColors, getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
@@ -25,7 +25,7 @@ import {
 } from '@/lib/designStudioCatalog';
 
 const BRAND = { plum: '#4b1236', gold: '#b58d2a', green: '#4f6b45', linen: '#f7f3ea' };
-const TABS = [['studio', 'Studio'], ['designs', 'Saved Designs'], ['review', 'Production Review'], ['areas', 'Print Areas'], ['vendors', 'Pricing & Vendors'], ['settings', 'Settings']];
+const TABS = [['studio', 'Studio'], ['designs', 'Saved Designs'], ['cart', 'Preview Cart'], ['review', 'Production Review'], ['areas', 'Print Areas'], ['vendors', 'Pricing & Methods'], ['settings', 'Settings']];
 
 async function invoke(action, payload = {}) {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -150,7 +150,7 @@ function AddPanel({ onText, onShape, onTemplate, onUpload, busy }) {
   </div>;
 }
 
-function VariantPanel({ products, product, document, onProduct, onField, loading, error, onRetry, onDone }) {
+function VariantPanel({ products, product, document, methods, onProduct, onField, onMethod, loading, error, onRetry, onDone }) {
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [brand, setBrand] = useState('all');
@@ -166,8 +166,9 @@ function VariantPanel({ products, product, document, onProduct, onField, loading
   });
   const chosenVariant = product ? findCustomizationVariant(product, document.color, document.size) : null;
   const summary = product ? getStudioProductSummary(product) : null;
+  const selectedMethod = methods.find(item => item.method_key === (document.decorationMethod || document.printMethod)) || null;
   return <div className="space-y-4">
-    <div><h3 className="font-bold text-[#4b1236]">Choose Garment</h3><p className="text-xs text-muted-foreground">Live published T-shirts, hoodies, and crewnecks. Restricted brands stay excluded.</p></div>
+    <div><h3 className="font-bold text-[#4b1236]">Choose Garment</h3><p className="text-xs text-muted-foreground">Live published T-shirts, pullover hoodies, zip hoodies, and crewnecks. Restricted brands stay excluded.</p></div>
     <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search product, brand, or style" className="h-11 pl-9" /></div>
     <div className="flex gap-2 overflow-x-auto pb-1">{STUDIO_GARMENT_TYPES.map(([value, label]) => <button type="button" key={value} onClick={() => setType(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${type === value ? 'bg-[#4b1236] text-white' : 'border bg-white text-[#4b1236]'}`}>{label}</button>)}</div>
     <Field label="Brand"><select value={brand} onChange={event => setBrand(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm"><option value="all">All eligible brands</option>{brands.map(value => <option key={value}>{value}</option>)}</select></Field>
@@ -175,13 +176,14 @@ function VariantPanel({ products, product, document, onProduct, onField, loading
     {error && <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Garments could not be loaded.</p><p className="mt-1 text-xs">{error}</p><Button size="sm" variant="outline" className="mt-3 bg-white" onClick={onRetry}>Try again</Button></div>}
     {!loading && !error && <div className="max-h-[42dvh] space-y-2 overflow-y-auto pr-1 lg:max-h-[360px]">{filtered.map(item => {
       const itemSummary = getStudioProductSummary(item);
-      return <button type="button" key={item.id} onClick={() => onProduct(item.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left transition ${document.productId === item.id ? 'border-[#b58d2a] bg-[#f7f3ea] ring-1 ring-[#b58d2a]' : 'bg-white hover:border-[#b58d2a]/60'}`}><img src={displayImage(item.image_url)} alt="" className="h-20 w-16 shrink-0 rounded-lg bg-white object-contain" /><span className="min-w-0 flex-1"><span className="block text-[11px] font-bold uppercase tracking-wide text-[#4f6b45]">{itemSummary.typeLabel} · {itemSummary.brand}</span><span className="mt-1 block text-sm font-semibold text-[#4b1236]">{itemSummary.name}</span><span className="mt-1 block text-xs text-muted-foreground">{itemSummary.style ? `Style ${itemSummary.style} · ` : ''}${Number(item.price || 0).toFixed(2)} · {Number(item.stock || 0).toLocaleString()} units across variants</span></span></button>;
+      return <button type="button" key={item.id} onClick={() => onProduct(item.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left transition ${document.productId === item.id ? 'border-[#b58d2a] bg-[#f7f3ea] ring-1 ring-[#b58d2a]' : 'bg-white hover:border-[#b58d2a]/60'}`}><img src={displayImage(item.image_url)} alt="" className="h-20 w-16 shrink-0 rounded-lg bg-white object-contain" /><span className="min-w-0 flex-1"><span className="block text-[11px] font-bold uppercase tracking-wide text-[#4f6b45]">{itemSummary.typeLabel} · {itemSummary.brand}</span><span className="mt-1 block text-sm font-semibold text-[#4b1236]">{itemSummary.name}</span><span className="mt-1 block text-xs text-muted-foreground">{itemSummary.style ? `Style ${itemSummary.style}` : 'Style unavailable'}</span><span className="mt-1 block text-xs"><strong>Price:</strong> ${Number(item.price || 0).toFixed(2)} <span className="text-muted-foreground">·</span> <strong>Stock:</strong> {Number(item.stock || 0).toLocaleString()} units across variants</span></span></button>;
     })}{!filtered.length && <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">No eligible in-stock garments match these filters. Try All eligible or another brand.</div>}</div>}
-    {product && <div className="rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3"><div className="flex gap-3"><img src={document.productImage || displayImage(product.image_url)} alt={summary.name} className="h-24 w-20 shrink-0 rounded-lg bg-white object-contain" /><div className="min-w-0"><p className="text-xs font-bold uppercase text-[#4f6b45]">Selected {summary.typeLabel}</p><p className="text-sm font-bold text-[#4b1236]">{summary.name}</p><p className="mt-1 text-xs text-muted-foreground">{summary.brand}{summary.style ? ` · ${summary.style}` : ''}</p>{chosenVariant && <p className="mt-1 text-xs font-semibold">{chosenVariant.sku ? `SKU ${chosenVariant.sku} · ` : ''}${chosenVariant.inventory == null ? 'Inventory reported by catalog' : `${chosenVariant.inventory} available`}</p>}</div></div></div>}
+    {product && <div className="rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3"><div className="flex gap-3"><img src={document.productImage || displayImage(product.image_url)} alt={summary.name} className="h-24 w-20 shrink-0 rounded-lg bg-white object-contain" /><div className="min-w-0"><p className="text-xs font-bold uppercase text-[#4f6b45]">Selected {summary.typeLabel}</p><p className="text-sm font-bold text-[#4b1236]">{summary.name}</p><p className="mt-1 text-xs text-muted-foreground">{summary.brand}{summary.style ? ` · ${summary.style}` : ''}</p>{chosenVariant && <div className="mt-2 space-y-1 text-xs"><p><strong>SKU:</strong> {chosenVariant.sku || 'Not provided'}</p><p><strong>Price:</strong> ${productPrice(product, chosenVariant).toFixed(2)}</p><p><strong>Stock:</strong> {chosenVariant.inventory == null ? 'Catalog did not provide a variant quantity' : `${Number(chosenVariant.inventory).toLocaleString()} available`}</p></div>}</div></div></div>}
     <Field label="Color"><select value={document.color} onChange={event => onField('color', event.target.value)} disabled={!product} className="h-11 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-50"><option value="">Choose color</option>{colors.map(value => <option key={value}>{value}</option>)}</select></Field>
     <Field label="Size"><select value={document.size} onChange={event => onField('size', event.target.value)} disabled={!document.color} className="h-11 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-50"><option value="">Choose size</option>{sizes.map(value => <option key={value}>{value}</option>)}</select></Field>
     <Field label="Quantity"><Input type="number" min="1" value={document.quantity} onChange={event => onField('quantity', Math.max(1, Number(event.target.value) || 1))} /></Field>
-    <Field label="Production route"><select value={document.productionRoute} onChange={event => onField('productionRoute', event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm">{ACTIVE_PRODUCTION_ROUTES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+    <Field label="Print / Decoration Method"><select value={document.decorationMethod || document.printMethod || 'dtf'} onChange={event => onMethod(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm">{methods.map(item => <option key={item.method_key} value={item.method_key} disabled={!item.available}>{item.customer_label}{item.available ? '' : ` — ${item.availability_label}`}</option>)}</select></Field>
+    {selectedMethod && <p className={`rounded-xl border p-3 text-xs ${selectedMethod.available ? 'border-green-300 bg-green-50 text-green-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><strong>{selectedMethod.customer_label}:</strong> {selectedMethod.available ? 'Available for configured garments and placements.' : selectedMethod.availability_label}. {selectedMethod.limits_note || ''}</p>}
     {onDone && <Button type="button" className="h-11 w-full bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={onDone} disabled={!document.productId}>Use selected garment</Button>}
   </div>;
 }
@@ -195,6 +197,11 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
     if (target < 0 || target >= next.length) return next;
     [next[index], next[target]] = [next[target], next[index]]; return next;
   }));
+  const remove = layer => {
+    const ids = layer.groupId ? layers.filter(item => item.groupId === layer.groupId).map(item => item.id) : [layer.id];
+    setDocument(updatePlacement(document, placement, items => items.filter(item => !ids.includes(item.id))));
+    setSelectedIds(current => current.filter(id => !ids.includes(id)));
+  };
   return <div className="space-y-3">
     <div><h3 className="font-bold text-[#4b1236]">Layers</h3><p className="text-xs text-muted-foreground">Top rows print above lower rows.</p></div>
     {!layers.length && <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">No layers on this placement.</p>}
@@ -203,17 +210,19 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
       return <div key={layer.id} className={`rounded-xl border p-3 ${selectedIds.includes(layer.id) ? 'border-[#b58d2a] bg-[#f7f3ea]' : 'bg-white'}`}>
         <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={() => setSelectedIds([layer.id])}>{layer.name}</button>
         <div className="mt-2 flex flex-wrap gap-1">
-          <Button size="sm" variant="ghost" onClick={() => patch(layer.id, { visible: !layer.visible })}>{layer.visible ? <Eye className="h-4 w-4" /> : <X className="h-4 w-4" />}<span className="sr-only">Toggle visibility</span></Button>
-          <Button size="sm" variant="ghost" onClick={() => patch(layer.id, { locked: !layer.locked })}><LockKeyhole className={`h-4 w-4 ${layer.locked ? 'text-[#4b1236]' : 'opacity-40'}`} /><span className="sr-only">Toggle lock</span></Button>
-          <Button size="sm" variant="ghost" onClick={() => move(index, 1)}>↑</Button><Button size="sm" variant="ghost" onClick={() => move(index, -1)}>↓</Button>
+          <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`} onClick={() => patch(layer.id, { visible: !layer.visible })}>{layer.visible ? <Eye className="h-4 w-4" /> : <X className="h-4 w-4" />}</Button>
+          <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`${layer.locked ? 'Unlock' : 'Lock'} ${layer.name}`} onClick={() => patch(layer.id, { locked: !layer.locked })}><LockKeyhole className={`h-4 w-4 ${layer.locked ? 'text-[#4b1236]' : 'opacity-40'}`} /></Button>
+          <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`Move ${layer.name} forward`} onClick={() => move(index, 1)}>↑</Button><Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`Move ${layer.name} backward`} onClick={() => move(index, -1)}>↓</Button>
+          <Button size="sm" variant="destructive" className="min-h-11 min-w-11" aria-label={`Delete ${layer.name}`} onClick={() => remove(layer)}><Trash2 className="h-4 w-4" /></Button>
         </div>
       </div>;
     })}
   </div>;
 }
 
-function EditorFields({ selected, patchSelected }) {
+function EditorFields({ selected, patchSelected, printArea, targetPpi = 300 }) {
   if (!selected) return null;
+  const quality = artworkQualityReport(selected, printArea, targetPpi);
   return <Card className="border-[#d8c9b7]"><CardHeader className="pb-2"><CardTitle className="text-base text-[#4b1236]">Selected layer</CardTitle></CardHeader><CardContent className="space-y-3">
     <Field label="Layer name"><Input value={selected.name} onChange={event => patchSelected({ name: event.target.value })} /></Field>
     {selected.type === 'text' && <>
@@ -222,6 +231,13 @@ function EditorFields({ selected, patchSelected }) {
       <Field label={`Curve: ${selected.curve || 0}`}><input type="range" min="-50" max="50" value={selected.curve || 0} onChange={event => patchSelected({ curve: Number(event.target.value) })} className="w-full" /></Field>
     </>}
     {(selected.type === 'text' || selected.type === 'shape') && <Field label="Color"><Input type="color" value={selected.fill || BRAND.plum} onChange={event => patchSelected({ fill: event.target.value })} className="h-10 p-1" /></Field>}
+    {selected.type === 'image' && <div className="space-y-3 rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3 text-xs">
+      <div><p className="font-bold text-[#4b1236]">Artwork quality</p><p>{(selected.fileKind || selected.mimeType || 'File').toString().toUpperCase()} · {Number(selected.pixelWidth || 0).toLocaleString()} × {Number(selected.pixelHeight || 0).toLocaleString()} px</p><p>Transparency: {selected.hasTransparency === true ? 'Yes' : selected.hasTransparency === false ? 'No' : 'Not reported'}{selected.resolutionX ? ` · File metadata: ${Math.round(selected.resolutionX)} PPI` : ' · Resolution metadata not present'}</p></div>
+      {!printArea?.verified && <div className="grid grid-cols-2 gap-2"><Field label="Intended width (in)"><Input type="number" min="0.1" step="0.1" value={selected.intendedWidthIn || ''} onChange={event => patchSelected({ intendedWidthIn: Number(event.target.value) || null })} /></Field><Field label="Intended height (in)"><Input type="number" min="0.1" step="0.1" value={selected.intendedHeightIn || ''} onChange={event => patchSelected({ intendedHeightIn: Number(event.target.value) || null })} /></Field></div>}
+      <div className={`rounded-lg p-3 font-semibold ${quality?.state === 'good' || quality?.state === 'vector' ? 'bg-green-100 text-green-900' : quality?.state === 'low' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}><p>{quality?.label}</p>{quality?.message && <p className="mt-1 font-normal">{quality.message}</p>}{quality?.maxWidth && <p className="mt-1 font-normal">Recommended maximum at {targetPpi} PPI: {quality.maxWidth.toFixed(2)} × {quality.maxHeight.toFixed(2)} in.</p>}</div>
+      {selected.containsEmbeddedRaster && <p className="text-amber-800">This SVG contains raster imagery. Its embedded pixels need separate resolution review.</p>}
+      <p className="text-muted-foreground">Resolution quality does not prove vinyl-cutting suitability or embroidery digitization readiness. The original upload is preserved.</p>
+    </div>}
   </CardContent></Card>;
 }
 
@@ -239,6 +255,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [designId, setDesignId] = useState('');
   const [version, setVersion] = useState(null);
   const [designs, setDesigns] = useState([]);
+  const [previewCart, setPreviewCart] = useState([]);
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [saveState, setSaveState] = useState('Not saved');
@@ -251,12 +268,14 @@ export default function AdminDesignStudio({ customerMode = false }) {
 
   const product = products.find(item => item.id === document.productId) || null;
   const variant = product ? findCustomizationVariant(product, document.color, document.size) : null;
-  const relevantAreas = printAreas.filter(item => item.production_route === document.productionRoute && item.print_method === document.printMethod && item.enabled && (item.product_size === '*' || item.product_size === document.size));
+  const methodKey = document.decorationMethod || document.printMethod || 'dtf';
+  const methods = status?.decoration_methods?.length ? status.decoration_methods : DECORATION_METHODS.map(([method_key, customer_label], index) => ({ method_key, customer_label, available: index === 0, availability_label: index === 0 ? 'Available' : 'Coming soon', production_route: 'hc_transfer_press' }));
+  const relevantAreas = printAreas.filter(item => item.production_route === document.productionRoute && item.print_method === methodKey && item.enabled && (item.product_size === '*' || item.product_size === document.size));
   const activeArea = [...relevantAreas].sort((a, b) => Number(b.product_size === document.size) - Number(a.product_size === document.size)).find(item => item.placement === document.activePlacement);
   const warnings = useMemo(() => validateDesign(document, relevantAreas), [document, relevantAreas]);
   const selected = (document.placements?.[document.activePlacement] || []).find(item => selectedIds.includes(item.id));
   const pricingConfigs = status?.pricing_configs || [];
-  const printing = calculatePrintingCharge(document, pricingConfigs);
+  const printing = calculatePrintingCharge(document, pricingConfigs, status?.pricing_packages || []);
   const printingCharge = printing.configured ? printing.unit : 0;
   const pricing = calculateStudioPricing({ route: document.productionRoute, garmentRetail: productPrice(product, variant), printingCharge, quantity: document.quantity });
   const views = useMemo(() => buildMockupViews(product, document.color, document.size, mockupMappings), [product, document.color, document.size, mockupMappings]);
@@ -282,7 +301,8 @@ export default function AdminDesignStudio({ customerMode = false }) {
   }, []);
   const loadDesigns = useCallback(async () => { const data = await invoke('list'); setDesigns(data.designs || []); }, []);
   const loadStatus = useCallback(async () => { const data = await invoke('status'); setStatus(data); }, []);
-  useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus()]).catch(error => toast.error(error.message)); }, [loadDesigns, loadProducts, loadStatus]);
+  const loadPreviewCart = useCallback(async () => { if (customerMode) return; const data = await invoke('list_preview_cart'); setPreviewCart(data.items || []); }, [customerMode]);
+  useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus(), loadPreviewCart()]).catch(error => { setSaveState(`Load failed · ${error.message}`); toast.error(error.message); }); }, [loadDesigns, loadPreviewCart, loadProducts, loadStatus]);
   useEffect(() => {
     if (!document.productId) { setPrintAreas([]); setMockupMappings([]); return; }
     Promise.all([
@@ -294,10 +314,11 @@ export default function AdminDesignStudio({ customerMode = false }) {
   useEffect(() => {
     const changed = JSON.stringify(document) !== savedJsonRef.current;
     if (!changed) return undefined;
+    setVersion(null);
     setSaveState('Unsaved changes');
     const timer = setTimeout(async () => {
       if (JSON.stringify(document) === savedJsonRef.current) return;
-      if (!document.productId || !designId) return;
+      if (!designId) return;
       setSaveState('Autosaving…');
       try {
         const result = await invoke('save', { design_id: designId, document, explicit: false });
@@ -328,15 +349,22 @@ export default function AdminDesignStudio({ customerMode = false }) {
       changes.size = '';
       changes.productImage = displayImage(selectedVariant?.image_url || product?.image_url || '');
       changes.productSku = selectedVariant?.sku || product?.style_number || '';
+      changes.variantId = selectedVariant?.variant_id || '';
       changes.mockupViews = buildMockupViews(product, value, '', mockupMappings);
     }
     if (key === 'size') {
       const selectedVariant = findCustomizationVariant(product, document.color, value);
       changes.productImage = displayImage(selectedVariant?.image_url || document.productImage || product?.image_url || '');
       changes.productSku = selectedVariant?.sku || product?.style_number || '';
+      changes.variantId = selectedVariant?.variant_id || '';
       changes.mockupViews = buildMockupViews(product, document.color, value, mockupMappings);
     }
     setDocument({ ...document, ...changes, updatedAt: new Date().toISOString() });
+  };
+  const onMethod = value => {
+    const method = methods.find(item => item.method_key === value);
+    if (!method?.available) { setSaveState(`${method?.customer_label || value} is not available yet.`); return; }
+    setDocument({ ...document, decorationMethod: value, printMethod: value, productionRoute: method.production_route || 'hc_transfer_press', updatedAt: new Date().toISOString() });
   };
   const addElement = element => {
     setDocument(updatePlacement(document, document.activePlacement, items => [...items, element]));
@@ -355,24 +383,27 @@ export default function AdminDesignStudio({ customerMode = false }) {
     setBusy('upload');
     try {
       const data = await invoke('upload', { filename: file.name, data: await readFile(file), design_id: designId || null });
-      addElement(makeElement('image', { name: file.name, assetId: data.asset.id, storagePath: data.asset.storage_path, previewUrl: data.preview_url, pixelWidth: data.asset.pixel_width, pixelHeight: data.asset.pixel_height }));
+      addElement(makeElement('image', { name: file.name, assetId: data.asset.id, storagePath: data.asset.storage_path, previewUrl: data.preview_url, pixelWidth: data.asset.pixel_width, pixelHeight: data.asset.pixel_height, fileKind: data.asset.file_kind, mimeType: data.asset.mime_type, hasTransparency: data.asset.has_transparency, resolutionX: data.asset.resolution_x_ppi, resolutionY: data.asset.resolution_y_ppi, containsEmbeddedRaster: data.asset.contains_embedded_raster, intendedWidthIn: null, intendedHeightIn: null }));
       toast.success('Artwork validated and stored privately.');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); event.target.value = ''; }
   };
-  const save = async () => {
-    if (!document.productId) return toast.error('Choose a garment first.');
-    setBusy('save'); setSaveState('Saving…');
+  const persistDesign = async ({ createVersion = false } = {}) => {
+    setBusy(createVersion ? 'version' : 'save'); setSaveState(createVersion ? 'Saving a stable version…' : 'Saving draft…');
     try {
-      const result = await invoke('save', { design_id: designId || null, document, explicit: true });
-      setDesignId(result.design.id); setVersion(result.version); savedJsonRef.current = JSON.stringify(document);
-      setSaveState(`Saved · version ${result.version.version_number}`); await loadDesigns();
-      toast.success('Editable design and immutable version saved.');
+      const result = await invoke('save', { design_id: designId || null, document, explicit: true, create_version: createVersion });
+      setDesignId(result.design.id); if (result.version) setVersion(result.version); savedJsonRef.current = JSON.stringify(document);
+      setSaveState(result.version ? `Saved · stable version ${result.version.version_number}` : 'Draft saved to HC Apparel'); await loadDesigns();
+      toast.success(result.version ? `Stable version ${result.version.version_number} saved.` : 'Design draft saved.');
+      return result;
     } catch (error) {
       const message = error.message || 'Design Studio request failed.';
       setSaveState(`Save failed · ${message}`);
       toast.error(message);
+      throw error;
     } finally { setBusy(''); }
   };
+  const save = () => persistDesign({ createVersion: false }).catch(() => null);
+  const saveVersion = () => persistDesign({ createVersion: true }).catch(() => null);
   const openDesign = async id => {
     if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('You have unsaved Design Studio changes. Open another design and discard them?')) return;
     setBusy('load'); try {
@@ -386,14 +417,24 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('Start a new design and discard the unsaved changes?')) return;
     const blank = createStudioDocument(); dispatch({ type: 'replace', value: blank }); savedJsonRef.current = JSON.stringify(blank); setDesignId(''); setVersion(null); setSelectedIds([]); setSaveState('Not saved');
   };
-  const attachPreviewCart = () => {
-    if (!version) return toast.error('Save an immutable version first.');
-    if (warnings.some(item => item.level === 'blocker')) return toast.error('Resolve production blockers before attaching this design.');
-    if (!printing.configured) return toast.error('A saved printing service price is required before attaching this configured design.');
-    if (Number(document.quantity) >= 50) return toast.error('Orders of 50 or more use the existing Bulk Quote workflow.');
-    const items = JSON.parse(localStorage.getItem('hc_design_preview_cart') || '[]');
-    items.push({ id: crypto.randomUUID(), design_id: designId, design_version_id: version.id, design_checksum: version.checksum, product_id: document.productId, product_name: document.productName, variant_sku: variant?.sku || document.productSku, color: document.color, size: document.size, quantity: document.quantity, garment_unit_price: productPrice(product, variant), printing_unit_price: printing.unit, merchandise_total: pricing.customerMerchandise, production_route: document.productionRoute, immutable_design_snapshot: true, admin_preview_only: true });
-    localStorage.setItem('hc_design_preview_cart', JSON.stringify(items)); toast.success('Attached to the isolated admin preview cart. Public custom checkout remains off.');
+  const attachPreviewCart = async () => {
+    setBusy('cart'); setSaveState('Saving a stable version for preview cart…');
+    try {
+      let savedVersion = version;
+      if (!savedVersion || JSON.stringify(document) !== savedJsonRef.current) {
+        const saved = await persistDesign({ createVersion: true });
+        savedVersion = saved.version;
+      }
+      setBusy('cart'); setSaveState('Attaching to isolated preview cart…');
+      const result = await invoke('attach_preview_cart', { design_version_id: savedVersion.id });
+      await loadPreviewCart();
+      setSaveState(result.item.checkout_ready ? 'Attached · checkout-ready preview' : 'Attached · preview needs configuration');
+      toast.success(result.duplicate_prevented ? 'Preview cart entry refreshed; no duplicate was created.' : 'Attached to the isolated admin preview cart.');
+      setTab('cart');
+    } catch (error) {
+      const message = error.message || 'The design could not be attached to the preview cart.';
+      setSaveState(`Preview cart failed · ${message}`); toast.error(message);
+    } finally { setBusy(''); }
   };
   const exportPackage = async () => {
     if (!version) return toast.error('Save an immutable version first.');
@@ -448,17 +489,39 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (result.error) return toast.error(result.error.message);
     await loadStatus(); toast.success('Secure Design Studio printing price saved. Existing invoices and historical orders were not changed.');
   };
+  const saveDecorationMethod = async (event, methodKeyValue) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const { error } = await supabase.from('design_decoration_methods').update({
+      available: values.available === 'true', availability_label: values.availability_label,
+      production_route: values.production_route, limits_note: values.limits_note || null,
+      compatible_garment_types: String(values.compatible_garment_types || '').split(',').map(value => value.trim()).filter(Boolean),
+      compatible_placements: String(values.compatible_placements || '').split(',').map(value => value.trim()).filter(Boolean),
+      updated_at: new Date().toISOString(),
+    }).eq('method_key', methodKeyValue);
+    if (error) return toast.error(error.message);
+    await loadStatus(); toast.success(`${values.customer_label} method settings saved.`);
+  };
+  const saveRasterTarget = async event => {
+    event.preventDefault();
+    const target = Number(new FormData(event.currentTarget).get('default_raster_ppi'));
+    if (target < 72 || target > 1200) return toast.error('Raster target must be between 72 and 1200 PPI.');
+    const { error } = await supabase.from('design_studio_settings').update({ default_raster_ppi: target, updated_at: new Date().toISOString() }).eq('id', true);
+    if (error) return toast.error(error.message);
+    await loadStatus(); toast.success('Artwork quality target saved.');
+  };
 
   const visibleTabs = customerMode ? TABS.filter(([key]) => ['studio', 'designs'].includes(key)) : TABS;
   const sidePanels = {
     add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} />,
-    variants: <VariantPanel products={products} product={product} document={document} onProduct={onProduct} onField={onField} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel('')} />,
+    variants: <VariantPanel products={products} product={product} document={document} methods={methods} onProduct={onProduct} onField={onField} onMethod={onMethod} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel('')} />,
     layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />,
   };
 
   return <div className="min-h-screen bg-[#f7f3ea]/60 pb-40 lg:pb-8">
     <header className="border-b border-[#b58d2a]/30 bg-[#4b1236] text-white"><div className="mx-auto max-w-[1500px] px-4 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to={customerMode ? '/ShopGarments' : '/AdminDashboard'}><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">{customerMode ? 'Create and save your apparel design' : 'Admin preview · custom checkout is not public'}</p></div></div><div className="flex items-center gap-2"><span className="hidden text-xs text-white/70 sm:inline">{saveState}</span><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className="bg-[#b58d2a] text-white hover:bg-[#99761f]" onClick={save} disabled={busy === 'save'}><Save className="mr-2 h-4 w-4" />Save</Button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to={customerMode ? '/ShopGarments' : '/AdminDashboard'}><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">{customerMode ? 'Create and save your apparel design' : 'Admin preview · custom checkout is not public'}</p></div></div><div className="flex items-center gap-2"><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className="min-w-[104px] bg-[#b58d2a] text-white hover:bg-[#99761f]" onClick={save} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'save' ? 'Saving…' : 'Save'}</Button></div></div>
+      <p role="status" aria-live="polite" className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${/failed|unavailable/i.test(saveState) ? 'bg-red-950/50 text-red-100' : /saving|attaching/i.test(saveState) ? 'bg-white/15 text-white' : 'bg-white/10 text-white/90'}`}>{saveState}</p>
       <nav className="mt-4 flex gap-1 overflow-x-auto pb-1" aria-label={customerMode ? 'Design Studio sections' : 'Design Studio admin sections'}>{visibleTabs.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${tab === key ? 'bg-white text-[#4b1236]' : 'bg-white/10 text-white hover:bg-white/20'}`}>{label}</button>)}</nav>
     </div></header>
 
@@ -488,16 +551,18 @@ export default function AdminDesignStudio({ customerMode = false }) {
           <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} />
           <p className="text-center text-xs text-muted-foreground">The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.</p>
         </div>
-        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} /></aside>
+        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} targetPpi={status?.settings?.default_raster_ppi || 300} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="space-y-2">{warnings.length ? warnings.map((warning, index) => <div key={`${warning.code}-${index}`} className={`flex gap-2 rounded-xl border p-3 text-sm ${warning.level === 'blocker' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning.message}</div>) : <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Design checks pass for the configured placement data.</div>}</div>
-        <Card className="min-w-0 md:min-w-[260px]"><CardContent className="p-4 text-sm"><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between gap-3"><span>Garment × {document.quantity}</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between gap-3"><span>Printing × {document.quantity}</span><span>{document.productionRoute === 'printify' ? 'Included in HC retail' : printing.configured ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise</span><span>${pricing.customerMerchandise.toFixed(2)}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. Saved printing prices cover only the configured placement services; no placement package is counted twice.</p></CardContent></Card>
+        <Card className="min-w-0 md:min-w-[260px]"><CardContent className="p-4 text-sm"><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between gap-3"><span>Known garment amount × {document.quantity}</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between gap-3"><span>Printing × {document.quantity}</span><span>{printing.configured ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise estimate</span><span>{printing.configured ? `$${pricing.customerMerchandise.toFixed(2)}` : 'Incomplete'}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. When printing is unconfigured, the garment amount is not presented as a complete merchandise total. Saved package prices prevent double-counting front/back or both-sleeve combinations.</p></CardContent></Card>
       </section>
-        <div className="mt-4 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={exportPackage} disabled={busy === 'export'}><Download className="mr-2 h-4 w-4" />Download production package</Button><Button variant="outline" onClick={attachPreviewCart}>Attach to preview cart</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={save}><Save className="mr-2 h-4 w-4" />Save version</Button></div>
+        <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={exportPackage} disabled={Boolean(busy)}><Download className="mr-2 h-4 w-4" />Download production package</Button><Button variant="outline" onClick={attachPreviewCart} disabled={Boolean(busy)}><ShoppingCart className="mr-2 h-4 w-4" />{busy === 'cart' ? 'Attaching…' : 'Attach to preview cart'}</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={saveVersion} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'version' ? 'Saving version…' : 'Save Version'}</Button></div>
     </main>}
 
     {tab === 'designs' && <main className="mx-auto max-w-6xl p-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{designs.map(item => <Card key={item.id}><CardHeader><CardTitle className="text-base">{item.name}</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p>{item.selected_color || 'No color'} · {item.selected_size || 'No size'} · Qty {item.quantity}</p><p className="text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</p><div className="flex items-center justify-between"><span className="rounded-full bg-muted px-2 py-1 text-xs">{item.status}</span><Button size="sm" onClick={() => openDesign(item.id)} disabled={busy === 'load'}>Open</Button></div></CardContent></Card>)}{!designs.length && <p className="text-sm text-muted-foreground">No saved designs yet.</p>}</div></main>}
+
+    {tab === 'cart' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle className="flex items-center gap-2 text-[#4b1236]"><ShoppingCart className="h-5 w-5" />Isolated admin preview cart</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">These entries are durable server-side previews only. They cannot enter public checkout or production while required configuration is missing.</p></CardContent></Card><div className="grid gap-3 md:grid-cols-2">{previewCart.map(item => <Card key={item.id}><CardContent className="space-y-3 p-4"><div className="flex gap-3">{item.thumbnail_url && <img src={displayImage(item.thumbnail_url)} alt="" className="h-24 w-20 rounded-lg border bg-white object-contain" />}<div><p className="font-bold text-[#4b1236]">{item.product_name || 'Garment not selected'}</p><p className="text-xs text-muted-foreground">{item.selected_color || 'Color pending'} · {item.selected_size || 'Size pending'} · Qty {item.quantity}</p><p className="text-xs">Method: {(methods.find(value => value.method_key === item.decoration_method)?.customer_label) || item.decoration_method}</p></div></div><div className={`rounded-lg p-3 text-sm ${item.checkout_ready ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}><p className="flex items-center gap-2 font-bold">{item.checkout_ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}{item.checkout_ready ? 'Checkout-ready preview' : 'Not checkout-ready'}</p>{!item.pricing_complete && <p className="mt-1">Known garment amount: {item.garment_unit_price == null ? 'pending' : `$${Number(item.garment_unit_price).toFixed(2)} each`}. Printing estimate is incomplete.</p>}{(item.blockers || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">{item.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul>}</div><div className="flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">Stable version · {item.design_checksum?.slice(0, 10)}</p><Button size="sm" onClick={() => openDesign(item.design_id)}>Open design</Button></div></CardContent></Card>)}{!previewCart.length && <p className="text-sm text-muted-foreground">No designs are attached yet.</p>}</div></main>}
 
     {tab === 'review' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Production review</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Review saved designs, immutable versions, print warnings, variants, route, and costs here. A production job cannot be prepared while a blocker remains. Vendor submission additionally requires verified payment, artwork approval, and explicit admin confirmation.</p><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr className="border-b"><th className="p-2">Design</th><th>Route</th><th>Variant</th><th>Issues</th><th>Action</th></tr></thead><tbody>{designs.map(item => <tr key={item.id} className="border-b"><td className="p-2 font-semibold">{item.name}</td><td>{item.production_route}</td><td>{item.selected_color} / {item.selected_size}</td><td>{(item.validation || []).length || 'None'}</td><td><Button size="sm" variant="outline" onClick={() => openDesign(item.id)}>Review</Button></td></tr>)}</tbody></table></div></CardContent></Card></main>}
 
@@ -526,11 +591,12 @@ export default function AdminDesignStudio({ customerMode = false }) {
     </form></CardContent></Card></main>}
 
     {tab === 'vendors' && <main className="mx-auto max-w-6xl space-y-4 p-4"><div className="grid gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle className="flex items-center gap-2"><Cloud className="h-5 w-5" />Printify backup</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p className="font-semibold">Status: <span className={status?.printify?.verified ? 'text-green-700' : 'text-amber-700'}>{status?.printify?.verified ? 'Connected' : 'Deferred · not required'}</span></p><p className="text-muted-foreground">{status?.printify?.verified ? `${status.printify.shop_count} API shop(s) visible. Catalog reads are available; submission remains disabled.` : 'Printify API work is deferred. Missing credentials do not block garment selection, designing, saving, previewing, HC pricing, or vendor-neutral production exports.'}</p><p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">Printify remains a disabled backup route. No HC garment, variant, print method, placement, quote, or order is substituted or submitted.</p></CardContent></Card><Card><CardHeader><CardTitle>Cost models stay separate</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p><strong>HC blank + printing:</strong> website garment retail plus saved printing charges; internal blank, transfer, labor, packaging, fees, and shipping remain separate.</p><p><strong>Printify finished garment:</strong> HC-controlled retail; provider production already includes garment/printing, so no HC blank or transfer/press cost is added.</p><p className="text-muted-foreground">The October 3 screenshot amounts are stored as a dated, non-live reference only and are never used as pricing or quotes.</p></CardContent></Card></div>
-      <Card><CardHeader><CardTitle>Secure HC printing service prices</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">These server-side prices are separate from garment retail, shipping, and tax. Product-specific values override general values. Saving here never changes invoice-specific overrides or historical order prices.</p><form onSubmit={savePricing} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Card><CardHeader><CardTitle>Print / decoration method availability</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">Customers choose a method, never a fulfillment vendor. Availability, garment and placement limits, prices, and internal routing stay here in Super Admin.</p><div className="grid gap-3 lg:grid-cols-2">{methods.map(method => <form key={method.method_key} onSubmit={event => saveDecorationMethod(event, method.method_key)} className="space-y-3 rounded-xl border p-4"><input type="hidden" name="customer_label" value={method.customer_label} /><div className="flex items-center justify-between"><strong className="text-[#4b1236]">{method.customer_label}</strong><span className={`rounded-full px-2 py-1 text-xs ${method.available ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>{method.available ? 'Available' : method.availability_label}</span></div><Field label="Customer availability"><select name="available" defaultValue={String(method.available)} className="h-10 w-full rounded-md border bg-white px-3"><option value="true">Available</option><option value="false">Unavailable</option></select></Field><Field label="Unavailable label"><Input name="availability_label" defaultValue={method.availability_label} /></Field><Field label="Internal production route"><select name="production_route" defaultValue={method.production_route} className="h-10 w-full rounded-md border bg-white px-3">{ACTIVE_PRODUCTION_ROUTES.map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></Field><Field label="Compatible garment types" hint="Comma-separated internal keys."><Input name="compatible_garment_types" defaultValue={(method.compatible_garment_types || []).join(', ')} /></Field><Field label="Compatible placements" hint="Comma-separated internal keys."><Input name="compatible_placements" defaultValue={(method.compatible_placements || []).join(', ')} /></Field><Field label="Method limits and setup note"><Input name="limits_note" defaultValue={method.limits_note || ''} /></Field><Button type="submit" variant="outline">Save method settings</Button></form>)}</div></CardContent></Card>
+      <Card><CardHeader><CardTitle>Secure HC printing service prices</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">These server-side prices are separate from garment retail, shipping, and tax. Existing Heart Command Center DTF price points are shared here for studio pricing. Product-specific values override general values. Saving here never changes invoice-specific overrides or historical order prices.</p><form onSubmit={savePricing} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Product scope" hint="Leave as All eligible garments for a true universal service price."><select value={pricingForm.product_id} onChange={event => setPricingForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">All eligible garments</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)}</option>)}</select></Field>
         <Field label="Production route"><select value={pricingForm.production_route} onChange={event => setPricingForm(value => ({ ...value, production_route: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3">{ACTIVE_PRODUCTION_ROUTES.filter(([key]) => key !== 'printify').map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
         <Field label="Placement"><select value={pricingForm.placement} onChange={event => setPricingForm(value => ({ ...value, placement: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3">{DESIGN_PLACEMENTS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
-        <Field label="Print method"><Input value={pricingForm.print_method} onChange={event => setPricingForm(value => ({ ...value, print_method: event.target.value }))} /></Field>
+        <Field label="Print method"><select value={pricingForm.print_method} onChange={event => setPricingForm(value => ({ ...value, print_method: event.target.value, production_route: methods.find(item => item.method_key === event.target.value)?.production_route || value.production_route }))} className="h-10 w-full rounded-md border bg-white px-3">{methods.map(method => <option key={method.method_key} value={method.method_key}>{method.customer_label}{method.available ? '' : ` — ${method.availability_label}`}</option>)}</select></Field>
         <Field label="Customer service price"><Input type="number" min="0" step=".01" value={pricingForm.service_price} onChange={event => setPricingForm(value => ({ ...value, service_price: event.target.value }))} /></Field>
         <Field label="Transfer cost"><Input type="number" min="0" step=".01" value={pricingForm.transfer_cost} onChange={event => setPricingForm(value => ({ ...value, transfer_cost: event.target.value }))} /></Field>
         <Field label="Pressing labor cost"><Input type="number" min="0" step=".01" value={pricingForm.pressing_labor_cost} onChange={event => setPricingForm(value => ({ ...value, pressing_labor_cost: event.target.value }))} /></Field>
@@ -541,11 +607,11 @@ export default function AdminDesignStudio({ customerMode = false }) {
       </form></CardContent></Card>
     </main>}
 
-    {tab === 'settings' && <main className="mx-auto max-w-4xl p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card></main>}
+    {tab === 'settings' && <main className="mx-auto max-w-4xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (PPI)" hint="Used for quality feedback; file metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="72" max="1200" defaultValue={status?.settings?.default_raster_ppi || 300} /></Field><Button type="submit">Save target</Button></form></CardContent></Card></main>}
 
     {tab === 'studio' && <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] lg:hidden">
-      {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} /></div>}</SheetContent></Sheet>)}
-      <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save}><Save className="h-5 w-5" />Save</Button>
+      {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} targetPpi={status?.settings?.default_raster_ppi || 300} /></div>}</SheetContent></Sheet>)}
+      <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : 'Save'}</Button>
     </div>}
   </div>;
 }

@@ -58,6 +58,7 @@ const parseVariant = (entry) => {
   if (!size) return null;
   const numericPrice = Number(entry?.price);
   return {
+    variant_id: String(entry?.variant_id ?? entry?.id ?? entry?.sku ?? '').trim(),
     color: safeColorName(
       separator === -1 ? (entry?.color_name || entry?.color) : raw.slice(0, separator),
     ),

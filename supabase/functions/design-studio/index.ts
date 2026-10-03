@@ -47,6 +47,28 @@ function pngDimensions(bytes: Uint8Array) {
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
+function pngMetadata(bytes: Uint8Array) {
+  const dimensions = pngDimensions(bytes);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const colorType = bytes[25];
+  let hasTransparency = colorType === 4 || colorType === 6;
+  let resolutionX: number | null = null;
+  let resolutionY: number | null = null;
+  let offset = 8;
+  while (offset + 12 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const type = new TextDecoder().decode(bytes.slice(offset + 4, offset + 8));
+    if (type === 'tRNS') hasTransparency = true;
+    if (type === 'pHYs' && length >= 9 && bytes[offset + 16] === 1) {
+      resolutionX = Math.round(view.getUint32(offset + 8) * 0.0254);
+      resolutionY = Math.round(view.getUint32(offset + 12) * 0.0254);
+    }
+    offset += length + 12;
+    if (type === 'IEND') break;
+  }
+  return { ...dimensions, hasTransparency, resolutionX, resolutionY, containsEmbeddedRaster: false };
+}
+
 function jpegDimensions(bytes: Uint8Array) {
   let offset = 2;
   while (offset + 9 < bytes.length) {
@@ -62,9 +84,35 @@ function jpegDimensions(bytes: Uint8Array) {
   return fail('The JPEG dimensions could not be decoded.');
 }
 
+
+function jpegMetadata(bytes: Uint8Array) {
+  const dimensions = jpegDimensions(bytes);
+  let resolutionX: number | null = null;
+  let resolutionY: number | null = null;
+  let offset = 2;
+  while (offset + 14 < bytes.length) {
+    if (bytes[offset] !== 0xff) { offset += 1; continue; }
+    const marker = bytes[offset + 1];
+    const length = (bytes[offset + 2] << 8) + bytes[offset + 3];
+    if (marker === 0xe0 && new TextDecoder().decode(bytes.slice(offset + 4, offset + 9)) === 'JFIF\0') {
+      const unit = bytes[offset + 9];
+      const x = (bytes[offset + 10] << 8) + bytes[offset + 11];
+      const y = (bytes[offset + 12] << 8) + bytes[offset + 13];
+      if (unit === 1) { resolutionX = x; resolutionY = y; }
+      if (unit === 2) { resolutionX = Math.round(x * 2.54); resolutionY = Math.round(y * 2.54); }
+      break;
+    }
+    if (!length) break;
+    offset += length + 2;
+  }
+  return { ...dimensions, hasTransparency: false, resolutionX, resolutionY, containsEmbeddedRaster: false };
+}
+
 function sanitizeSvg(bytes: Uint8Array) {
   let svg = new TextDecoder().decode(bytes);
-  if (/<\s*(script|foreignObject|iframe|object|embed|audio|video)|\son[a-z]+\s*=|(?:href|xlink:href)\s*=\s*["']\s*(?:https?:|data:|javascript:)/i.test(svg)) {
+  const externalOrUnsafeHref = /(?:href|xlink:href)\s*=\s*["']\s*(?:https?:|javascript:)/i.test(svg);
+  const unsafeDataHref = /(?:href|xlink:href)\s*=\s*["']\s*data:(?!image\/(?:png|jpeg);base64,)/i.test(svg);
+  if (/<\s*(script|foreignObject|iframe|object|embed|audio|video)|\son[a-z]+\s*=/i.test(svg) || externalOrUnsafeHref || unsafeDataHref) {
     fail('The SVG contains scripts, event handlers, embedded content, or external references and cannot be used.');
   }
   svg = svg.replace(/<\?xml[^>]*>/gi, '').replace(/<!doctype[^>]*>/gi, '').trim();
@@ -76,7 +124,7 @@ function sanitizeSvg(bytes: Uint8Array) {
   const decodedWidth = width || Number(viewBoxValues[2] || 0);
   const decodedHeight = height || Number(viewBoxValues[3] || 0);
   if (!decodedWidth || !decodedHeight) fail('SVG artwork needs numeric width/height or a valid viewBox.');
-  return { bytes: new TextEncoder().encode(svg), width: Math.round(decodedWidth), height: Math.round(decodedHeight) };
+  return { bytes: new TextEncoder().encode(svg), width: Math.round(decodedWidth), height: Math.round(decodedHeight), hasTransparency: true, resolutionX: null, resolutionY: null, containsEmbeddedRaster: /<image\b/i.test(svg) };
 }
 
 async function sha256(bytes: Uint8Array) {
@@ -178,10 +226,12 @@ Deno.serve(async request => {
     const action = safeText(payload.action, 80);
 
     if (action === 'status') {
-      const [{ data: settings }, { data: printify }, { data: pricingConfigs }] = await Promise.all([
+      const [{ data: settings }, { data: printify }, { data: pricingConfigs }, { data: decorationMethods }, { data: pricingPackages }] = await Promise.all([
         service.from('design_studio_settings').select('*').eq('id', true).single(),
         service.from('printify_integration_settings').select('*').eq('id', true).single(),
         service.from('design_pricing_config').select('*').eq('active', true).order('effective_at', { ascending: false }),
+        service.from('design_decoration_methods').select('*').order('customer_label'),
+        service.from('design_pricing_packages').select('*').eq('active', true).order('effective_at', { ascending: false }),
       ]);
       if (!isAdmin && !settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
       let printifyConnection = { configured: false, verified: false, shop_count: 0, safe_error: '' };
@@ -194,7 +244,7 @@ Deno.serve(async request => {
           printifyConnection = { configured: true, verified: false, shop_count: 0, safe_error: (error as Error).message };
         }
       }
-      return reply({ settings, pricing_configs: pricingConfigs || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
+      return reply({ settings, pricing_configs: pricingConfigs || [], pricing_packages: pricingPackages || [], decoration_methods: decorationMethods || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
     }
 
     if (!isAdmin) {
@@ -263,8 +313,8 @@ Deno.serve(async request => {
       const kind = fileKind(rawBytes);
       let bytes = rawBytes;
       let dimensions;
-      if (kind === 'png') dimensions = pngDimensions(bytes);
-      else if (kind === 'jpg') dimensions = jpegDimensions(bytes);
+      if (kind === 'png') dimensions = pngMetadata(bytes);
+      else if (kind === 'jpg') dimensions = jpegMetadata(bytes);
       else {
         const sanitized = sanitizeSvg(bytes); bytes = sanitized.bytes; dimensions = sanitized;
       }
@@ -279,6 +329,9 @@ Deno.serve(async request => {
         owner_user_id: user.id, design_id: payload.design_id || null, storage_path: path,
         original_filename: originalName || `artwork.${ext}`, mime_type: mime, byte_size: bytes.length,
         pixel_width: dimensions.width, pixel_height: dimensions.height, sha256: digest, svg_sanitized: kind === 'svg',
+        file_kind: kind, has_transparency: dimensions.hasTransparency,
+        resolution_x_ppi: dimensions.resolutionX, resolution_y_ppi: dimensions.resolutionY,
+        contains_embedded_raster: dimensions.containsEmbeddedRaster,
       }).select('*').single();
       if (assetError) { await service.storage.from('customer-files').remove([path]); fail('Artwork metadata could not be saved.', 500); }
       const { data: signed } = await service.storage.from('customer-files').createSignedUrl(path, 3600);
@@ -296,38 +349,48 @@ Deno.serve(async request => {
       const document = payload.document as Record<string, unknown>;
       if (!document || typeof document !== 'object') fail('A design document is required.');
       const productId = safeText(document.productId, 100);
-      const { data: product } = await service.from('products').select('*').eq('id', productId).maybeSingle();
-      if (!product || product.visibility !== 'public' || !product.is_active) fail('The selected garment is not currently eligible.');
-      const productText = `${product.brand || ''} ${product.name || ''}`.toLowerCase();
-      if (productText.includes('columbia') || productText.includes('champion') || product.customization_restricted === true || product.customization_eligible === false) {
-        fail('This product is restricted from Design Studio customization.');
+      let product: Record<string, unknown> | null = null;
+      if (productId) {
+        const result = await service.from('products').select('*').eq('id', productId).maybeSingle();
+        product = result.data;
+        if (!product || product.visibility !== 'public' || !product.is_active) fail('The selected garment is not currently eligible.');
+        const productText = `${product.brand || ''} ${product.name || ''}`.toLowerCase();
+        if (productText.includes('columbia') || productText.includes('champion') || product.customization_restricted === true || product.customization_eligible === false) {
+          fail('This product is restricted from Design Studio customization.');
+        }
+        const garmentType = safeText(product.primary_garment_type || product.category || product.product_subtype, 80).toLowerCase();
+        const nameText = `${safeText(product.name, 300)} ${safeText(product.description, 500)} ${safeText(product.category, 100)} ${safeText(product.product_subtype, 100)}`.toLowerCase();
+        if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(nameText)) fail('Outerwear is not enabled for the current Design Studio rollout.');
+        const eligibleType = ['t_shirts','hoodies','crewnecks'].includes(garmentType)
+          || /\b(?:t-?shirt|tee|hoodie|hooded sweatshirt|crewneck|crew neck)\b/.test(nameText);
+        if (!eligibleType) fail('Only eligible T-shirts, hoodies, and crewneck sweatshirts can be customized.');
       }
-      const garmentType = safeText(product.primary_garment_type || product.category || product.product_subtype, 80).toLowerCase();
-      const nameText = `${safeText(product.name, 300)} ${safeText(product.description, 500)} ${safeText(product.category, 100)} ${safeText(product.product_subtype, 100)}`.toLowerCase();
-      if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(nameText)) fail('Outerwear is not enabled for the current Design Studio rollout.');
-      const eligibleType = ['t_shirts','hoodies','crewnecks'].includes(garmentType)
-        || /\b(?:t-?shirt|tee|hoodie|hooded sweatshirt|crewneck|crew neck)\b/.test(nameText);
-      if (!eligibleType) fail('Only eligible T-shirts, hoodies, and crewneck sweatshirts can be customized.');
       const color = safeText(document.color, 160);
       const size = safeText(document.size, 80);
-      const variants = Array.isArray(product.size_prices) ? product.size_prices : [];
-      const selectedVariant = variants.find((item: Record<string, unknown>) => {
+      const variants = product && Array.isArray(product.size_prices) ? product.size_prices : [];
+      const selectedVariant = color && size ? variants.find((item: Record<string, unknown>) => {
         const raw = safeText(item.size, 240);
         const separator = raw.indexOf(' / ');
         const itemColor = safeText(item.color_name || item.color || (separator >= 0 ? raw.slice(0, separator) : ''), 160);
         const itemSize = safeText(separator >= 0 ? raw.slice(separator + 3) : raw, 80);
         return itemColor.toLowerCase() === color.toLowerCase() && itemSize.toLowerCase() === size.toLowerCase();
-      });
-      if (variants.length && (!selectedVariant || Number(selectedVariant.inventory ?? 0) <= 0)) fail('The selected catalog variant is not currently available.');
-      const route = safeText(document.productionRoute || 'hc_transfer_press', 80);
-      const { data: areas } = await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', safeText(document.printMethod || 'dtf', 80)).in('product_size', ['*', size]);
+      }) : null;
+      if (color && size && variants.length && (!selectedVariant || Number(selectedVariant.inventory ?? 0) <= 0)) fail('The selected catalog variant is not currently available.');
+      const methodKey = safeText(document.decorationMethod || document.printMethod || 'dtf', 80);
+      const { data: method } = await service.from('design_decoration_methods').select('*').eq('method_key', methodKey).maybeSingle();
+      if (!method) fail('Choose a recognized print or decoration method.');
+      const route = safeText(method.production_route || 'hc_transfer_press', 80);
+      const areasResult = productId && size
+        ? await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', methodKey).in('product_size', ['*', size])
+        : { data: [] };
+      const areas = areasResult.data || [];
       const warnings = validateDocument(document, areas || []);
       const persistedDocument = await storedDocumentCopy(document);
       const record = {
-        owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId,
+        owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId || null,
         variant_sku: safeText(document.productSku, 160) || null, selected_color: safeText(document.color, 160) || null,
         selected_size: safeText(document.size, 80) || null, quantity: Math.max(1, Number(document.quantity) || 1),
-        production_route: route, print_method: safeText(document.printMethod || 'dtf', 80), document: persistedDocument,
+        production_route: route, print_method: methodKey, document: { ...persistedDocument, decorationMethod: methodKey, printMethod: methodKey, productionRoute: route },
         validation: warnings, autosaved_at: new Date().toISOString(),
         ...(payload.explicit ? { status: 'saved', saved_at: new Date().toISOString() } : {}),
       };
@@ -343,12 +406,12 @@ Deno.serve(async request => {
         if (result.error) fail(`Design could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_insert_failed'); saved = result.data;
       }
       let version = null;
-      if (payload.explicit) {
+      if (payload.create_version) {
         const { count } = await service.from('design_versions').select('*', { count: 'exact', head: true }).eq('design_id', saved.id);
-        const checksum = await sha256(new TextEncoder().encode(JSON.stringify(persistedDocument)));
+        const checksum = await sha256(new TextEncoder().encode(JSON.stringify(record.document)));
         const result = await service.from('design_versions').insert({
           design_id: saved.id, owner_user_id: saved.owner_user_id, version_number: Number(count || 0) + 1,
-          document_snapshot: persistedDocument, production_spec_snapshot: { print_areas: areas || [], route, print_method: record.print_method },
+          document_snapshot: record.document, production_spec_snapshot: { print_areas: areas || [], route, print_method: record.print_method },
           validation_snapshot: warnings, checksum,
         }).select('id,version_number,checksum,created_at').single();
         if (result.error) fail(`The design saved, but its immutable version could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_version_failed'); version = result.data;
@@ -372,6 +435,95 @@ Deno.serve(async request => {
       if (!data || (data.owner_user_id !== user.id && !isAdmin)) fail('Design not found.', 404);
       data.document = await hydrateDocumentAssets(service, data.document || {}, user.id, isAdmin);
       return reply({ design: data }, 200, origin);
+    }
+
+    if (action === 'attach_preview_cart') {
+      if (!isAdmin) fail('Admin access is required for the isolated preview cart.', 403);
+      const versionId = safeText(payload.design_version_id, 80);
+      const { data: version } = await service.from('design_versions').select('*').eq('id', versionId).maybeSingle();
+      if (!version || (version.owner_user_id !== user.id && !isAdmin)) fail('Saved design version not found.', 404);
+      const { data: design } = await service.from('design_documents').select('*').eq('id', version.design_id).maybeSingle();
+      if (!design || (design.owner_user_id !== user.id && !isAdmin)) fail('Saved design not found.', 404);
+      const document = (version.document_snapshot || {}) as Record<string, unknown>;
+      const productId = safeText(document.productId, 100);
+      const methodKey = safeText(document.decorationMethod || document.printMethod || 'dtf', 80);
+      const [{ data: method }, { data: product }, { data: configs }, { data: packages }] = await Promise.all([
+        service.from('design_decoration_methods').select('*').eq('method_key', methodKey).maybeSingle(),
+        productId ? service.from('products').select('*').eq('id', productId).maybeSingle() : Promise.resolve({ data: null }),
+        service.from('design_pricing_config').select('*').eq('active', true),
+        service.from('design_pricing_packages').select('*').eq('active', true).eq('method_key', methodKey),
+      ]);
+      const color = safeText(document.color, 160);
+      const size = safeText(document.size, 80);
+      const variants = product && Array.isArray(product.size_prices) ? product.size_prices : [];
+      const selectedVariant = variants.find((item: Record<string, unknown>) => {
+        const raw = safeText(item.size, 240);
+        const separator = raw.indexOf(' / ');
+        const itemColor = safeText(item.color_name || item.color || (separator >= 0 ? raw.slice(0, separator) : ''), 160);
+        const itemSize = safeText(separator >= 0 ? raw.slice(separator + 3) : raw, 80);
+        return itemColor.toLowerCase() === color.toLowerCase() && itemSize.toLowerCase() === size.toLowerCase();
+      });
+      const placementMap = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
+      const usedPlacements = Object.entries(placementMap).filter(([, elements]) => Array.isArray(elements) && elements.some(value => (value as Record<string, unknown>).visible !== false)).map(([placement]) => placement);
+      const remaining = new Set(usedPlacements);
+      let printingUnit = 0;
+      for (const item of (packages || []).sort((a, b) => (b.placements?.length || 0) - (a.placements?.length || 0))) {
+        const list = Array.isArray(item.placements) ? item.placements : [];
+        if (list.length > 1 && list.every((placement: string) => remaining.has(placement))) {
+          printingUnit += Number(item.service_price || 0);
+          list.forEach((placement: string) => remaining.delete(placement));
+        }
+      }
+      const missingPricing: string[] = [];
+      for (const placement of remaining) {
+        const candidates = (configs || []).filter(item => item.production_route === method?.production_route
+          && (!item.product_id || item.product_id === productId)
+          && (!item.print_method || item.print_method === methodKey)
+          && item.placement === placement)
+          .sort((a, b) => Number(Boolean(b.product_id)) - Number(Boolean(a.product_id)));
+        if (!candidates[0] || candidates[0].service_price === null) missingPricing.push(placement);
+        else printingUnit += Number(candidates[0].service_price || 0);
+      }
+      const blockers = Array.isArray(version.validation_snapshot) ? [...version.validation_snapshot] : [];
+      if (!method?.available) blockers.push({ code: 'method_unavailable', level: 'blocker', message: `${method?.customer_label || methodKey} is ${method?.availability_label || 'not available yet'}.` });
+      const compatibleTypes = Array.isArray(method?.compatible_garment_types) ? method.compatible_garment_types : [];
+      const compatiblePlacements = Array.isArray(method?.compatible_placements) ? method.compatible_placements : [];
+      if (method && compatibleTypes.length && !compatibleTypes.includes(safeText(document.garmentType, 80))) blockers.push({ code: 'method_garment_incompatible', level: 'blocker', message: `${method.customer_label} is not enabled for this garment type.` });
+      const incompatiblePlacements = usedPlacements.filter(placement => compatiblePlacements.length && !compatiblePlacements.includes(placement));
+      if (incompatiblePlacements.length) blockers.push({ code: 'method_placement_incompatible', level: 'blocker', message: `${method?.customer_label || methodKey} is not enabled for: ${incompatiblePlacements.join(', ')}.` });
+      if (missingPricing.length) blockers.push({ code: 'printing_price_missing', level: 'blocker', message: `Printing price is not configured for: ${missingPricing.join(', ')}.` });
+      if (Number(document.quantity || 1) >= 50) blockers.push({ code: 'bulk_quote_required', level: 'blocker', message: 'Quantities of 50 or more use the Bulk Quote workflow.' });
+      const garmentUnit = Number(selectedVariant?.price ?? product?.account_price ?? product?.price ?? 0);
+      const pricingComplete = Boolean(product && selectedVariant && method?.available && !missingPricing.length && usedPlacements.length);
+      const quantity = Math.max(1, Number(document.quantity) || 1);
+      const checkoutReady = pricingComplete && !blockers.some(item => item.level === 'blocker');
+      const record = {
+        owner_user_id: user.id, design_id: design.id, design_version_id: version.id, design_checksum: version.checksum,
+        product_id: productId || null, product_name: safeText(document.productName || product?.name, 300) || null,
+        variant_sku: safeText(selectedVariant?.sku || document.productSku, 160) || null,
+        variant_id: safeText(selectedVariant?.variant_id || selectedVariant?.id || document.variantId, 160) || null,
+        selected_color: color || null, selected_size: size || null, quantity,
+        decoration_method: methodKey, placements: usedPlacements,
+        thumbnail_url: safeText(document.productImage || product?.image_url, 1500) || null,
+        garment_unit_price: product ? garmentUnit : null,
+        printing_unit_price: pricingComplete ? printingUnit : null,
+        merchandise_total: pricingComplete ? (garmentUnit + printingUnit) * quantity : null,
+        pricing_complete: pricingComplete, checkout_ready: checkoutReady, blockers,
+        document_snapshot: document, admin_preview_only: true, updated_at: new Date().toISOString(),
+      };
+      const { data: existing } = await service.from('design_preview_cart_items').select('id').eq('owner_user_id', user.id).eq('design_version_id', version.id).is('archived_at', null).maybeSingle();
+      const result = existing
+        ? await service.from('design_preview_cart_items').update(record).eq('id', existing.id).select('*').single()
+        : await service.from('design_preview_cart_items').insert(record).select('*').single();
+      if (result.error) fail(`The preview cart could not be updated (database ${result.error.code || 'error'}).`, 500, result.error.code || 'preview_cart_failed');
+      return reply({ item: result.data, duplicate_prevented: Boolean(existing) }, 200, origin);
+    }
+
+    if (action === 'list_preview_cart') {
+      if (!isAdmin) fail('Admin access is required for the isolated preview cart.', 403);
+      const { data, error } = await service.from('design_preview_cart_items').select('*').eq('owner_user_id', user.id).is('archived_at', null).order('updated_at', { ascending: false });
+      if (error) fail('The preview cart could not be loaded.', 500);
+      return reply({ items: data || [] }, 200, origin);
     }
 
     if (action === 'catalog_blueprints') {
