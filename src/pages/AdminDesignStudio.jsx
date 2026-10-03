@@ -28,7 +28,13 @@ const BRAND = { plum: '#4b1236', gold: '#b58d2a', green: '#4f6b45', linen: '#f7f
 const TABS = [['studio', 'Studio'], ['designs', 'Saved Designs'], ['review', 'Production Review'], ['areas', 'Print Areas'], ['vendors', 'Pricing & Vendors'], ['settings', 'Settings']];
 
 async function invoke(action, payload = {}) {
-  const { data, error } = await supabase.functions.invoke('design-studio', { body: { action, ...payload } });
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (sessionError || !accessToken) throw new Error('Your HC Apparel session is not available to the Design Studio. Sign in again, then retry.');
+  const { data, error } = await supabase.functions.invoke('design-studio', {
+    body: { action, ...payload },
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (error) {
     let message = error.message || 'Design Studio request failed.';
     try { message = (await error.context?.json())?.error || message; } catch { /* Keep transport message. */ }
