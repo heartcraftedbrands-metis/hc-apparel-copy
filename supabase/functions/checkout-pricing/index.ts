@@ -596,14 +596,61 @@ Deno.serve(async (request) => {
     const serviceCredential = getSupabaseServiceCredential();
     const serviceKey = serviceCredential.key;
     if (!supabaseUrl || !publishableKey || !serviceKey) return respond({ error: 'Checkout is not configured.' }, 503);
-    const authorization = request.headers.get('Authorization') || '';
-    const userClient = createClient(supabaseUrl, publishableKey, { global: { headers: { Authorization: authorization } } });
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) return respond({ error: 'Please sign in again to continue checkout.', code: 'AUTH_REQUIRED' }, 401);
     const body = await request.json();
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
+    const authorization = request.headers.get('Authorization') || '';
+    const serviceRequest = authorization === `Bearer ${serviceKey}`;
     let admin = createClient(supabaseUrl, serviceKey);
+    if (serviceRequest && action === 'invoice_tax_quote') {
+      const state = String(payload.state || '').trim().toUpperCase();
+      if (state !== 'GA') return respond({ ok: true, state, amount: 0, rate_percent: 0, method: 'Georgia tax not applied outside Georgia', jurisdiction_name: null, creates_order: false, creates_payment: false });
+      const { data, error } = await admin.rpc('get_georgia_checkout_tax_rate', {
+        destination_zip: String(payload.destination_zip || ''),
+        destination_city: String(payload.destination_city || ''),
+        calculation_date: new Date().toISOString().slice(0, 10),
+      });
+      if (error) return respond({ error: 'Georgia destination tax lookup failed.', code: error.code }, 400);
+      return respond({ ...(data || {}), state, creates_order: false, creates_payment: false });
+    }
+    if (serviceRequest && action === 'invoice_usps_rate_quote') {
+      const originZip = String(payload.origin_zip || '').replace(/\D/g, '').slice(0, 5);
+      const destinationZip = String(payload.destination_zip || '').replace(/\D/g, '').slice(0, 5);
+      const ounces = safeNumber(payload.weight_oz);
+      const dimensions = {
+        length: safeNumber(payload.length_in),
+        width: safeNumber(payload.width_in),
+        height: safeNumber(payload.height_in),
+      };
+      if (!/^\d{5}$/.test(originZip) || !/^\d{5}$/.test(destinationZip)) return respond({ error: 'A valid origin and destination ZIP are required.' }, 400);
+      if (ounces <= 0) return respond({ error: 'A positive packed weight is required.' }, 400);
+      if (dimensions.length <= 0 || dimensions.width <= 0 || dimensions.height <= 0) return respond({ error: 'Complete package dimensions are required.' }, 400);
+      const settings = {
+        origin_zip: originZip,
+        usps_ground_advantage_enabled: payload.ground_enabled === true,
+        usps_priority_mail_enabled: payload.priority_enabled === true,
+      };
+      const [domestic, options] = await Promise.allSettled([
+        uspsDomesticRates(settings, destinationZip, ounces, dimensions),
+        uspsShippingOptionRates(settings, destinationZip, ounces, dimensions),
+      ]);
+      const domesticRates = domestic.status === 'fulfilled' ? domestic.value : [];
+      const optionRates = options.status === 'fulfilled' ? options.value : [];
+      const rates = optionRates.length ? optionRates : domesticRates;
+      if (!rates.length) return respond({ error: 'USPS returned no valid non-zero rate for this package.', code: 'USPS_RATE_UNAVAILABLE' }, 400);
+      return respond({
+        rates,
+        source: optionRates.length ? 'USPS Shipping Options v3' : 'USPS Domestic Prices v3',
+        package_data: { weight_oz: ounces, dimensions_in: dimensions },
+        quote_timestamp: new Date().toISOString(),
+        creates_order: false,
+        creates_label: false,
+        creates_payment: false,
+      });
+    }
+    const userClient = createClient(supabaseUrl, publishableKey, { global: { headers: { Authorization: authorization } } });
+    const { data: { user } } = await userClient.auth.getUser();
+    if (!user) return respond({ error: 'Please sign in again to continue checkout.', code: 'AUTH_REQUIRED' }, 401);
     if (action === 'settings_get' || action === 'settings_save') {
       const { data: isAdmin } = await userClient.rpc('is_admin');
       if (!isAdmin) return respond({ error: 'Administrator access required.' }, 403);
