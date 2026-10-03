@@ -56,16 +56,19 @@ assert.equal(history.present.name, 'Changed', 'redo restores changed document');
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610030006_build_design_studio_printify_backup.sql', import.meta.url), 'utf8');
 const repairMigration = fs.readFileSync(new URL('../supabase/migrations/202610030007_finish_design_studio_mobile.sql', import.meta.url), 'utf8');
+const permissionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030008_design_studio_service_role_permissions.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
 assert.match(migration, /design_versions_immutable/, 'saved versions are database-immutable');
 assert.match(repairMigration, /design_mockup_mappings/, 'real product view mappings are persisted securely');
+assert.match(permissionMigration, /grant select, insert, update on public\.design_documents to service_role/, 'server-side private design persistence has an explicit narrow database grant');
 assert.match(migration, /order_design_snapshots_immutable/, 'ordered snapshots are database-immutable');
 assert.match(migration, /public_studio_enabled boolean not null default false/, 'public studio starts disabled');
 assert.match(migration, /live_vendor_submission_enabled boolean not null default false/, 'vendor submission starts disabled');
 assert.match(edge, /payment_verified_at.*artwork_approved_at.*confirm_submission/s, 'submission has payment, artwork, and explicit confirmation gates');
 assert.match(edge, /PRINTIFY_API_TOKEN/, 'Printify credential remains server-side');
+assert.match(edge, /auth\.auth\.getUser\(jwt\)/, 'server validates the exact bearer token used by the signed-in HC session');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
 assert.match(flags, /customPrinting:\s*false/, 'hidden custom-printing page remains hidden');
@@ -77,5 +80,6 @@ assert.match(page, /Choose Garment/, 'garment selection is visible before the ca
 assert.match(page, /isStudioEligibleProduct/, 'catalog selection uses the shared T-shirt, hoodie, and crewneck eligibility rules');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(page, /admin_preview_only:\s*true/, 'cart attachment stays isolated from public checkout');
+assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/, 'Design Studio sends the active HC session explicitly to its server API');
 
 console.log('Design Studio safety, validation, pricing, and persistence tests passed.');

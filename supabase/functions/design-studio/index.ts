@@ -166,9 +166,11 @@ Deno.serve(async request => {
     const anonKey = env('SUPABASE_ANON_KEY');
     const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
     if (!supabaseUrl || !anonKey || !serviceKey) fail('Design Studio server configuration is incomplete.', 503, 'server_config_missing');
-    const auth = createClient(supabaseUrl, anonKey, { global: { headers: { authorization: request.headers.get('authorization') || '' } } });
+    const authorization = request.headers.get('authorization') || '';
+    const jwt = authorization.replace(/^Bearer\s+/i, '');
+    const auth = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } });
     const service = createClient(supabaseUrl, serviceKey);
-    const { data: { user } } = await auth.auth.getUser();
+    const { data: { user } } = await auth.auth.getUser(jwt);
     if (!user) fail('Sign in to use the Design Studio.', 401, 'auth_required');
     const { data: profile } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
     const isAdmin = profile?.role === 'admin';
