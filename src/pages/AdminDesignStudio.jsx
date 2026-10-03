@@ -228,10 +228,10 @@ export default function AdminDesignStudio() {
     const tshirts = (data || []).filter(item => {
       const name = String(item.name || '').toLowerCase();
       const shirtCategory = ['short_sleeve_shirts','mens_short_sleeve_shirts','womens_short_sleeve_shirts','youth_short_sleeve_shirts'].includes(item.category);
-      const legacyTee = item.category === 'apparel_blanks'
-        && /(t-?shirt|\btee\b)/i.test(name)
-        && !/(hoodie|sweatshirt|tank|polo|jacket|coat)/i.test(name);
-      return (shirtCategory || legacyTee) && !isRestrictedCustomizationProduct(item);
+      const namedAsTee = /(t-?shirt|\btee\b)/i.test(name);
+      const explicitlyNotTee = /(hoodie|sweatshirt|tank|polo|jacket|coat)/i.test(name);
+      const legacyTee = item.category === 'apparel_blanks' && namedAsTee;
+      return (shirtCategory || legacyTee) && namedAsTee && !explicitlyNotTee && !isRestrictedCustomizationProduct(item);
     });
     tshirts.sort((a, b) => (String(a.supplier_sku).toUpperCase() === '5000' ? -1 : String(b.supplier_sku).toUpperCase() === '5000' ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
     setProducts(tshirts);
