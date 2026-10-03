@@ -117,13 +117,15 @@ async function hydrateDocumentAssets(service: ReturnType<typeof createClient>, d
 
 function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[]) {
   const warnings: Record<string, unknown>[] = [];
+  const selectedSize = safeText(document.size, 100);
   const placements = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
   if (!safeText(document.productId, 100)) warnings.push({ code: 'product_missing', level: 'blocker', message: 'Choose an eligible garment.' });
   if (!safeText(document.color, 200) || !safeText(document.size, 100)) warnings.push({ code: 'variant_missing', level: 'blocker', message: 'Choose a color and size.' });
   if (!Object.values(placements).some(items => Array.isArray(items) && items.length)) warnings.push({ code: 'artwork_missing', level: 'blocker', message: 'Add a design element.' });
   for (const [placement, rawElements] of Object.entries(placements)) {
     if (!Array.isArray(rawElements) || !rawElements.length) continue;
-    const area = areas.find(item => item.placement === placement && item.enabled && item.verified);
+    const area = areas.filter(item => item.placement === placement && item.enabled && item.verified)
+      .sort((a, b) => Number(b.product_size === selectedSize) - Number(a.product_size === selectedSize))[0];
     if (!area || !Number(area.width_in) || !Number(area.height_in)) {
       warnings.push({ code: 'print_area_unverified', level: 'blocker', placement, message: 'Verified physical print dimensions are required.' });
       continue;
@@ -174,9 +176,10 @@ Deno.serve(async request => {
     const action = safeText(payload.action, 80);
 
     if (action === 'status') {
-      const [{ data: settings }, { data: printify }] = await Promise.all([
+      const [{ data: settings }, { data: printify }, { data: pricingConfigs }] = await Promise.all([
         service.from('design_studio_settings').select('*').eq('id', true).single(),
         service.from('printify_integration_settings').select('*').eq('id', true).single(),
+        service.from('design_pricing_config').select('*').eq('active', true).order('effective_at', { ascending: false }),
       ]);
       if (!isAdmin && !settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
       let printifyConnection = { configured: false, verified: false, shop_count: 0, safe_error: '' };
@@ -189,12 +192,65 @@ Deno.serve(async request => {
           printifyConnection = { configured: true, verified: false, shop_count: 0, safe_error: (error as Error).message };
         }
       }
-      return reply({ settings, printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
+      return reply({ settings, pricing_configs: pricingConfigs || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
     }
 
     if (!isAdmin) {
       const { data: settings } = await service.from('design_studio_settings').select('public_studio_enabled').eq('id', true).single();
       if (!settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
+    }
+
+    if (action === 'mockups') {
+      const productId = safeText(payload.product_id, 100);
+      const color = safeText(payload.color, 160);
+      let query = service.from('design_mockup_mappings').select('*').eq('product_id', productId).order('verified', { ascending: false });
+      if (color) query = query.in('color_key', ['*', color]);
+      const { data, error } = await query;
+      if (error) fail('Mapped garment views could not be loaded.', 500);
+      const mockups = await Promise.all((data || []).map(async mapping => {
+        let imageUrl = mapping.image_url || '';
+        if (mapping.storage_path) {
+          const { data: signed } = await service.storage.from(mapping.storage_bucket || 'customer-files').createSignedUrl(mapping.storage_path, 3600);
+          imageUrl = signed?.signedUrl || '';
+        }
+        return { ...mapping, image_url: imageUrl, storage_path: undefined };
+      }));
+      return reply({ mockups }, 200, origin);
+    }
+
+    if (action === 'upload_mockup') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const productId = safeText(payload.product_id, 100);
+      const colorKey = safeText(payload.color_key || '*', 160);
+      const view = safeText(payload.view, 40);
+      const sourceNote = safeText(payload.source_note, 500);
+      if (!['front','back','left_sleeve','right_sleeve'].includes(view)) fail('Choose a supported garment view.');
+      if (!sourceNote) fail('Record the authorized source for this garment view.');
+      const { data: product } = await service.from('products').select('id').eq('id', productId).maybeSingle();
+      if (!product) fail('Product not found.', 404);
+      const bytes = decodeBase64(String(payload.data || ''));
+      if (!bytes.length || bytes.length > 15728640) fail('Garment mockup files must be smaller than 15 MB.');
+      const kind = fileKind(bytes);
+      if (kind === 'svg') fail('Garment mockups must be a photographic PNG or JPG.');
+      const dimensions = kind === 'png' ? pngDimensions(bytes) : jpegDimensions(bytes);
+      if (dimensions.width > 12000 || dimensions.height > 12000) fail('Garment mockup dimensions may not exceed 12,000 × 12,000 pixels.');
+      const ext = kind === 'jpg' ? 'jpg' : 'png';
+      const mime = kind === 'jpg' ? 'image/jpeg' : 'image/png';
+      const path = `design-studio-mockups/${user.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await service.storage.from('customer-files').upload(path, bytes, { contentType: mime, upsert: false });
+      if (uploadError) fail('The garment mockup could not be stored privately.', 500);
+      const previewArea = payload.preview_area && typeof payload.preview_area === 'object' ? payload.preview_area : null;
+      const { data: previous } = await service.from('design_mockup_mappings').select('storage_bucket,storage_path').eq('product_id', productId).eq('color_key', colorKey).eq('view', view).maybeSingle();
+      const { data: mapping, error } = await service.from('design_mockup_mappings').upsert({
+        product_id: productId, color_key: colorKey, view, image_url: null,
+        storage_bucket: 'customer-files', storage_path: path, preview_area: previewArea,
+        source_note: sourceNote, verified: true, verified_at: new Date().toISOString(), verified_by: user.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'product_id,color_key,view' }).select('*').single();
+      if (error) { await service.storage.from('customer-files').remove([path]); fail('The garment mockup mapping could not be saved.', 500); }
+      if (previous?.storage_path && previous.storage_path !== path) await service.storage.from(previous.storage_bucket || 'customer-files').remove([previous.storage_path]);
+      const { data: signed } = await service.storage.from('customer-files').createSignedUrl(path, 3600);
+      return reply({ mockup: { ...mapping, image_url: signed?.signedUrl || '', storage_path: undefined }, server_validated: true }, 200, origin);
     }
 
     if (action === 'upload') {
@@ -244,13 +300,24 @@ Deno.serve(async request => {
       if (productText.includes('columbia') || productText.includes('champion') || product.customization_restricted === true || product.customization_eligible === false) {
         fail('This product is restricted from Design Studio customization.');
       }
+      const garmentType = safeText(product.primary_garment_type || product.category || product.product_subtype, 80).toLowerCase();
+      const nameText = safeText(product.name, 300).toLowerCase();
+      const eligibleType = ['t_shirts','hoodies','crewnecks'].includes(garmentType)
+        || /\b(?:t-?shirt|tee|hoodie|hooded sweatshirt|crewneck|crew neck)\b/.test(nameText);
+      if (!eligibleType) fail('Only eligible T-shirts, hoodies, and crewneck sweatshirts can be customized.');
       const color = safeText(document.color, 160);
       const size = safeText(document.size, 80);
       const variants = Array.isArray(product.size_prices) ? product.size_prices : [];
-      const selectedVariant = variants.find((item: Record<string, unknown>) => String(item.size || '') === `${color} / ${size}` || (String(item.color || '') === color && String(item.size || '') === size));
+      const selectedVariant = variants.find((item: Record<string, unknown>) => {
+        const raw = safeText(item.size, 240);
+        const separator = raw.indexOf(' / ');
+        const itemColor = safeText(item.color_name || item.color || (separator >= 0 ? raw.slice(0, separator) : ''), 160);
+        const itemSize = safeText(separator >= 0 ? raw.slice(separator + 3) : raw, 80);
+        return itemColor.toLowerCase() === color.toLowerCase() && itemSize.toLowerCase() === size.toLowerCase();
+      });
       if (variants.length && (!selectedVariant || Number(selectedVariant.inventory ?? 0) <= 0)) fail('The selected catalog variant is not currently available.');
       const route = safeText(document.productionRoute || 'hc_transfer_press', 80);
-      const { data: areas } = await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route);
+      const { data: areas } = await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', safeText(document.printMethod || 'dtf', 80)).in('product_size', ['*', size]);
       const warnings = validateDocument(document, areas || []);
       const persistedDocument = await storedDocumentCopy(document);
       const record = {

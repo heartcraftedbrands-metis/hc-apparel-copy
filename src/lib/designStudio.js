@@ -23,8 +23,12 @@ export const createStudioDocument = (overrides = {}) => ({
   name: 'Untitled design',
   productId: '',
   productName: '',
+  productBrand: '',
+  productStyle: '',
+  garmentType: '',
   productSku: '',
   productImage: '',
+  mockupViews: {},
   color: '',
   size: '',
   quantity: 1,
@@ -134,6 +138,26 @@ export function calculateStudioPricing({ route, garmentRetail = 0, printingCharg
     estimatedKnownCost: estimatedCost,
     estimatedContribution: costsComplete ? customerMerchandise - estimatedCost : null,
     costsComplete,
+  };
+}
+
+export function calculatePrintingCharge(document, configs = []) {
+  if (document?.productionRoute === 'printify') return { unit: 0, configured: true, placements: [] };
+  const usedPlacements = Object.entries(document?.placements || {})
+    .filter(([, elements]) => (elements || []).some(element => element.visible !== false))
+    .map(([placement]) => placement);
+  const matches = usedPlacements.map(placement => {
+    const candidates = (configs || []).filter(item => item.active
+      && item.production_route === document?.productionRoute
+      && (!item.product_id || item.product_id === document?.productId)
+      && (!item.print_method || item.print_method === document?.printMethod)
+      && item.placement === placement);
+    return candidates.sort((a, b) => Number(Boolean(b.product_id)) - Number(Boolean(a.product_id)))[0] || null;
+  });
+  return {
+    unit: matches.reduce((sum, item) => sum + Number(item?.service_price || 0), 0),
+    configured: usedPlacements.length > 0 && matches.every(item => item && item.service_price !== null && item.service_price !== undefined),
+    placements: usedPlacements.map((placement, index) => ({ placement, config: matches[index] })),
   };
 }
 

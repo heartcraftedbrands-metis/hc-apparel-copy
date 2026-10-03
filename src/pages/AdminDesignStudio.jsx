@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Check, Circle, Cloud, Download, Eye, Layers,
-  LockKeyhole, Plus, Redo2, Save, Shirt, Square, Star, Type, Undo2, Upload, X,
+  LockKeyhole, Plus, Redo2, Save, Search, Shirt, Square, Star, Type, Undo2, Upload, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/api/supabaseClient';
@@ -13,11 +13,16 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import {
   ACTIVE_PRODUCTION_ROUTES, DESIGN_PLACEMENTS, STUDIO_FONTS,
-  calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
-  isRestrictedCustomizationProduct, makeElement, updatePlacement, validateDesign,
+  calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
+  makeElement, updatePlacement, validateDesign,
 } from '@/lib/designStudio';
 import { getCustomizationColors, getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
-import { getPublicProductName } from '@/lib/productDisplayName';
+import { getProductBrand, getPublicProductName } from '@/lib/productDisplayName';
+import {
+  STUDIO_GARMENT_TYPES, buildMockupViews, getStudioGarmentLabel,
+  getOfficialGarmentSource, getStudioProductSummary, getVariantForColor, isStudioEligibleProduct, placementAvailability,
+  previewSurface, viewForPlacement,
+} from '@/lib/designStudioCatalog';
 
 const BRAND = { plum: '#4b1236', gold: '#b58d2a', green: '#4f6b45', linen: '#f7f3ea' };
 const TABS = [['studio', 'Studio'], ['designs', 'Saved Designs'], ['review', 'Production Review'], ['areas', 'Print Areas'], ['vendors', 'Pricing & Vendors'], ['settings', 'Settings']];
@@ -139,21 +144,39 @@ function AddPanel({ onText, onShape, onTemplate, onUpload, busy }) {
   </div>;
 }
 
-function VariantPanel({ products, product, document, onProduct, onField }) {
+function VariantPanel({ products, product, document, onProduct, onField, loading, error, onRetry, onDone }) {
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState('all');
+  const [brand, setBrand] = useState('all');
   const colors = getCustomizationColors(product);
   const sizes = getCustomizationSizes(product, document.color);
+  const brands = [...new Set(products.map(item => getProductBrand(item)).filter(Boolean))].sort();
+  const filtered = products.filter(item => {
+    const summary = getStudioProductSummary(item);
+    const haystack = `${summary.name} ${summary.brand} ${summary.style}`.toLowerCase();
+    return (type === 'all' || summary.type === type)
+      && (brand === 'all' || summary.brand === brand)
+      && (!search.trim() || haystack.includes(search.trim().toLowerCase()));
+  });
+  const chosenVariant = product ? findCustomizationVariant(product, document.color, document.size) : null;
+  const summary = product ? getStudioProductSummary(product) : null;
   return <div className="space-y-4">
-    <div><h3 className="font-bold text-[#4b1236]">Garment & variants</h3><p className="text-xs text-muted-foreground">Only published, active, eligible products appear.</p></div>
-    <Field label="Garment">
-      <select value={document.productId} onChange={event => onProduct(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm">
-        <option value="">Choose an eligible T-shirt</option>
-        {products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)} {item.supplier_sku ? `(${item.supplier_sku})` : ''}</option>)}
-      </select>
-    </Field>
+    <div><h3 className="font-bold text-[#4b1236]">Choose Garment</h3><p className="text-xs text-muted-foreground">Live published T-shirts, hoodies, and crewnecks. Restricted brands stay excluded.</p></div>
+    <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search product, brand, or style" className="h-11 pl-9" /></div>
+    <div className="flex gap-2 overflow-x-auto pb-1">{STUDIO_GARMENT_TYPES.map(([value, label]) => <button type="button" key={value} onClick={() => setType(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${type === value ? 'bg-[#4b1236] text-white' : 'border bg-white text-[#4b1236]'}`}>{label}</button>)}</div>
+    <Field label="Brand"><select value={brand} onChange={event => setBrand(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm"><option value="all">All eligible brands</option>{brands.map(value => <option key={value}>{value}</option>)}</select></Field>
+    {loading && <div className="rounded-xl border bg-white p-5 text-center text-sm"><span className="font-semibold text-[#4b1236]">Loading live garments…</span><p className="mt-1 text-xs text-muted-foreground">Reading current products, variants, prices, images, and inventory.</p></div>}
+    {error && <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Garments could not be loaded.</p><p className="mt-1 text-xs">{error}</p><Button size="sm" variant="outline" className="mt-3 bg-white" onClick={onRetry}>Try again</Button></div>}
+    {!loading && !error && <div className="max-h-[42dvh] space-y-2 overflow-y-auto pr-1 lg:max-h-[360px]">{filtered.map(item => {
+      const itemSummary = getStudioProductSummary(item);
+      return <button type="button" key={item.id} onClick={() => onProduct(item.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left transition ${document.productId === item.id ? 'border-[#b58d2a] bg-[#f7f3ea] ring-1 ring-[#b58d2a]' : 'bg-white hover:border-[#b58d2a]/60'}`}><img src={displayImage(item.image_url)} alt="" className="h-20 w-16 shrink-0 rounded-lg bg-white object-contain" /><span className="min-w-0 flex-1"><span className="block text-[11px] font-bold uppercase tracking-wide text-[#4f6b45]">{itemSummary.typeLabel} · {itemSummary.brand}</span><span className="mt-1 block text-sm font-semibold text-[#4b1236]">{itemSummary.name}</span><span className="mt-1 block text-xs text-muted-foreground">{itemSummary.style ? `Style ${itemSummary.style} · ` : ''}${Number(item.price || 0).toFixed(2)} · {Number(item.stock || 0).toLocaleString()} units across variants</span></span></button>;
+    })}{!filtered.length && <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">No eligible in-stock garments match these filters. Try All eligible or another brand.</div>}</div>}
+    {product && <div className="rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3"><div className="flex gap-3"><img src={document.productImage || displayImage(product.image_url)} alt={summary.name} className="h-24 w-20 shrink-0 rounded-lg bg-white object-contain" /><div className="min-w-0"><p className="text-xs font-bold uppercase text-[#4f6b45]">Selected {summary.typeLabel}</p><p className="text-sm font-bold text-[#4b1236]">{summary.name}</p><p className="mt-1 text-xs text-muted-foreground">{summary.brand}{summary.style ? ` · ${summary.style}` : ''}</p>{chosenVariant && <p className="mt-1 text-xs font-semibold">{chosenVariant.sku ? `SKU ${chosenVariant.sku} · ` : ''}${chosenVariant.inventory == null ? 'Inventory reported by catalog' : `${chosenVariant.inventory} available`}</p>}</div></div></div>}
     <Field label="Color"><select value={document.color} onChange={event => onField('color', event.target.value)} disabled={!product} className="h-11 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-50"><option value="">Choose color</option>{colors.map(value => <option key={value}>{value}</option>)}</select></Field>
     <Field label="Size"><select value={document.size} onChange={event => onField('size', event.target.value)} disabled={!document.color} className="h-11 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-50"><option value="">Choose size</option>{sizes.map(value => <option key={value}>{value}</option>)}</select></Field>
     <Field label="Quantity"><Input type="number" min="1" value={document.quantity} onChange={event => onField('quantity', Math.max(1, Number(event.target.value) || 1))} /></Field>
     <Field label="Production route"><select value={document.productionRoute} onChange={event => onField('productionRoute', event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm">{ACTIVE_PRODUCTION_ROUTES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+    {onDone && <Button type="button" className="h-11 w-full bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={onDone} disabled={!document.productId}>Use selected garment</Button>}
   </div>;
 }
 
@@ -203,7 +226,10 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const setDocument = useCallback(value => dispatch({ type: 'set', value }), []);
   const [selectedIds, setSelectedIds] = useState([]);
   const [products, setProducts] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState('');
   const [printAreas, setPrintAreas] = useState([]);
+  const [mockupMappings, setMockupMappings] = useState([]);
   const [designId, setDesignId] = useState('');
   const [version, setVersion] = useState(null);
   const [designs, setDesigns] = useState([]);
@@ -213,36 +239,50 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [previewMode, setPreviewMode] = useState(false);
   const [mobilePanel, setMobilePanel] = useState('');
   const [areaForm, setAreaForm] = useState({ product_id: '', product_size: '*', production_route: 'hc_transfer_press', provider_key: 'hc', print_method: 'dtf', placement: 'front', width_in: '', height_in: '', min_dpi: 150, enabled: true, verified: true, source_note: '' });
+  const [mockupForm, setMockupForm] = useState({ product_id: '', color_key: '*', view: 'back', source_note: '', x: 28, y: 22, width: 44, height: 58 });
+  const [pricingForm, setPricingForm] = useState({ product_id: '', production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: '', transfer_cost: '', pressing_labor_cost: '', packaging_cost: '', other_fee: '', notes: '' });
   const savedJsonRef = useRef(JSON.stringify(document));
 
   const product = products.find(item => item.id === document.productId) || null;
   const variant = product ? findCustomizationVariant(product, document.color, document.size) : null;
-  const activeArea = printAreas.find(item => item.placement === document.activePlacement && item.production_route === document.productionRoute && item.enabled);
-  const warnings = useMemo(() => validateDesign(document, printAreas.filter(item => item.production_route === document.productionRoute && item.enabled)), [document, printAreas]);
+  const relevantAreas = printAreas.filter(item => item.production_route === document.productionRoute && item.print_method === document.printMethod && item.enabled && (item.product_size === '*' || item.product_size === document.size));
+  const activeArea = [...relevantAreas].sort((a, b) => Number(b.product_size === document.size) - Number(a.product_size === document.size)).find(item => item.placement === document.activePlacement);
+  const warnings = useMemo(() => validateDesign(document, relevantAreas), [document, relevantAreas]);
   const selected = (document.placements?.[document.activePlacement] || []).find(item => selectedIds.includes(item.id));
-  const printingCharge = 0;
+  const pricingConfigs = status?.pricing_configs || [];
+  const printing = calculatePrintingCharge(document, pricingConfigs);
+  const printingCharge = printing.configured ? printing.unit : 0;
   const pricing = calculateStudioPricing({ route: document.productionRoute, garmentRetail: productPrice(product, variant), printingCharge, quantity: document.quantity });
+  const views = useMemo(() => buildMockupViews(product, document.color, document.size, mockupMappings), [product, document.color, document.size, mockupMappings]);
+  const placementState = useMemo(() => placementAvailability(product, views), [product, views]);
+  const activeView = viewForPlacement(document.activePlacement);
+  const activeMockup = views[activeView] || null;
+  const canvasArea = previewSurface(product, document.activePlacement, activeMockup?.previewArea);
+  const areaProduct = products.find(item => item.id === areaForm.product_id) || null;
+  const officialAreaSource = getOfficialGarmentSource(areaProduct);
 
   const loadProducts = useCallback(async () => {
-    const { data, error } = await supabase.from('storefront_products').select('*').eq('product_type', 'physical').eq('is_active', true).eq('visibility', 'public').limit(1000);
-    if (error) throw error;
-    const tshirts = (data || []).filter(item => {
-      const name = String(item.name || '').toLowerCase();
-      const shirtCategory = ['short_sleeve_shirts','mens_short_sleeve_shirts','womens_short_sleeve_shirts','youth_short_sleeve_shirts'].includes(item.category);
-      const namedAsTee = /(t-?shirt|\btee\b)/i.test(name);
-      const explicitlyNotTee = /(hoodie|sweatshirt|tank|polo|jacket|coat)/i.test(name);
-      const legacyTee = item.category === 'apparel_blanks' && namedAsTee;
-      return (shirtCategory || legacyTee) && namedAsTee && !explicitlyNotTee && !isRestrictedCustomizationProduct(item);
-    });
-    tshirts.sort((a, b) => (String(a.supplier_sku).toUpperCase() === '5000' ? -1 : String(b.supplier_sku).toUpperCase() === '5000' ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
-    setProducts(tshirts);
+    setProductsLoading(true); setProductsError('');
+    try {
+      const { data, error } = await supabase.from('storefront_products').select('*').eq('product_type', 'physical').eq('is_active', true).eq('visibility', 'public').limit(1000);
+      if (error) throw error;
+      const garments = (data || []).filter(isStudioEligibleProduct);
+      garments.sort((a, b) => (String(a.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(a.name) ? -1 : String(b.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(b.name) ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
+      setProducts(garments);
+      if (!garments.length) setProductsError('No live in-stock T-shirts, hoodies, or crewnecks passed the eligibility rules. Check product classification and customization restrictions.');
+    } catch (error) {
+      setProductsError(error.message || 'The live catalog request failed.');
+    } finally { setProductsLoading(false); }
   }, []);
   const loadDesigns = useCallback(async () => { const data = await invoke('list'); setDesigns(data.designs || []); }, []);
   const loadStatus = useCallback(async () => { const data = await invoke('status'); setStatus(data); }, []);
   useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus()]).catch(error => toast.error(error.message)); }, [loadDesigns, loadProducts, loadStatus]);
   useEffect(() => {
-    if (!document.productId) { setPrintAreas([]); return; }
-    supabase.from('design_print_areas').select('*').eq('product_id', document.productId).then(({ data }) => setPrintAreas(data || []));
+    if (!document.productId) { setPrintAreas([]); setMockupMappings([]); return; }
+    Promise.all([
+      supabase.from('design_print_areas').select('*').eq('product_id', document.productId),
+      invoke('mockups', { product_id: document.productId, color: document.color || '' }).catch(() => ({ mockups: [] })),
+    ]).then(([areas, mockups]) => { setPrintAreas(areas.data || []); setMockupMappings(mockups.mockups || []); });
   }, [document.productId]);
 
   useEffect(() => {
@@ -268,9 +308,29 @@ export default function AdminDesignStudio({ customerMode = false }) {
 
   const onProduct = id => {
     const next = products.find(item => item.id === id);
-    setDocument({ ...document, productId: id, productName: next ? getPublicProductName(next) : '', productSku: next?.supplier_sku || '', productImage: displayImage(next?.image_url || ''), color: '', size: '', updatedAt: new Date().toISOString() });
+    const summary = next ? getStudioProductSummary(next) : null;
+    const nextViews = next ? buildMockupViews(next) : {};
+    const nextAvailability = placementAvailability(next, nextViews);
+    const nextPlacement = nextAvailability[document.activePlacement]?.enabled ? document.activePlacement : (nextAvailability.front?.enabled ? 'front' : nextAvailability.left_chest?.enabled ? 'left_chest' : 'front');
+    setDocument({ ...document, productId: id, productName: summary?.name || '', productBrand: summary?.brand || '', productStyle: summary?.style || '', garmentType: summary?.type || '', productSku: next?.style_number || '', productImage: displayImage(next?.image_url || ''), mockupViews: nextViews, color: '', size: '', activePlacement: nextPlacement, updatedAt: new Date().toISOString() });
   };
-  const onField = (key, value) => setDocument({ ...document, [key]: value, ...(key === 'color' ? { size: '' } : {}), updatedAt: new Date().toISOString() });
+  const onField = (key, value) => {
+    const changes = { [key]: value };
+    if (key === 'color') {
+      const selectedVariant = getVariantForColor(product, value);
+      changes.size = '';
+      changes.productImage = displayImage(selectedVariant?.image_url || product?.image_url || '');
+      changes.productSku = selectedVariant?.sku || product?.style_number || '';
+      changes.mockupViews = buildMockupViews(product, value, '', mockupMappings);
+    }
+    if (key === 'size') {
+      const selectedVariant = findCustomizationVariant(product, document.color, value);
+      changes.productImage = displayImage(selectedVariant?.image_url || document.productImage || product?.image_url || '');
+      changes.productSku = selectedVariant?.sku || product?.style_number || '';
+      changes.mockupViews = buildMockupViews(product, document.color, value, mockupMappings);
+    }
+    setDocument({ ...document, ...changes, updatedAt: new Date().toISOString() });
+  };
   const addElement = element => {
     setDocument(updatePlacement(document, document.activePlacement, items => [...items, element]));
     setSelectedIds([element.id]); setMobilePanel('');
@@ -303,18 +363,25 @@ export default function AdminDesignStudio({ customerMode = false }) {
     } catch (error) { setSaveState('Save failed'); toast.error(error.message); } finally { setBusy(''); }
   };
   const openDesign = async id => {
+    if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('You have unsaved Design Studio changes. Open another design and discard them?')) return;
     setBusy('load'); try {
       const result = await invoke('load', { design_id: id });
-      dispatch({ type: 'replace', value: result.design.document }); setDesignId(result.design.id); setVersion(null); setSelectedIds([]); savedJsonRef.current = JSON.stringify(result.design.document); setSaveState('Saved'); setTab('studio');
+      const savedProduct = products.find(item => item.id === result.design.document.productId);
+      const hydrated = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantForColor(savedProduct, result.design.document.color, result.design.document.size)?.image_url || savedProduct.image_url || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
+      dispatch({ type: 'replace', value: hydrated }); setDesignId(result.design.id); setVersion(null); setSelectedIds([]); savedJsonRef.current = JSON.stringify(hydrated); setSaveState('Saved'); setTab('studio');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); }
   };
-  const newDesign = () => { dispatch({ type: 'replace', value: createStudioDocument() }); setDesignId(''); setVersion(null); setSelectedIds([]); setSaveState('Not saved'); };
+  const newDesign = () => {
+    if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('Start a new design and discard the unsaved changes?')) return;
+    const blank = createStudioDocument(); dispatch({ type: 'replace', value: blank }); savedJsonRef.current = JSON.stringify(blank); setDesignId(''); setVersion(null); setSelectedIds([]); setSaveState('Not saved');
+  };
   const attachPreviewCart = () => {
     if (!version) return toast.error('Save an immutable version first.');
     if (warnings.some(item => item.level === 'blocker')) return toast.error('Resolve production blockers before attaching this design.');
+    if (!printing.configured) return toast.error('A saved printing service price is required before attaching this configured design.');
     if (Number(document.quantity) >= 50) return toast.error('Orders of 50 or more use the existing Bulk Quote workflow.');
     const items = JSON.parse(localStorage.getItem('hc_design_preview_cart') || '[]');
-    items.push({ id: crypto.randomUUID(), design_id: designId, design_version_id: version.id, product_id: document.productId, color: document.color, size: document.size, quantity: document.quantity, admin_preview_only: true });
+    items.push({ id: crypto.randomUUID(), design_id: designId, design_version_id: version.id, design_checksum: version.checksum, product_id: document.productId, product_name: document.productName, variant_sku: variant?.sku || document.productSku, color: document.color, size: document.size, quantity: document.quantity, garment_unit_price: productPrice(product, variant), printing_unit_price: printing.unit, merchandise_total: pricing.customerMerchandise, production_route: document.productionRoute, immutable_design_snapshot: true, admin_preview_only: true });
     localStorage.setItem('hc_design_preview_cart', JSON.stringify(items)); toast.success('Attached to the isolated admin preview cart. Public custom checkout remains off.');
   };
   const exportPackage = async () => {
@@ -342,10 +409,39 @@ export default function AdminDesignStudio({ customerMode = false }) {
     toast.success('Verified print-area configuration saved.'); if (areaForm.product_id === document.productId) { const { data } = await supabase.from('design_print_areas').select('*').eq('product_id', document.productId); setPrintAreas(data || []); }
   };
 
+  const uploadMockup = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = form.elements.mockup_file?.files?.[0];
+    if (!mockupForm.product_id || !file || !mockupForm.source_note.trim()) return toast.error('Product, photographic file, and authorized source note are required.');
+    setBusy('mockup');
+    try {
+      const data = await invoke('upload_mockup', { ...mockupForm, preview_area: { x: Number(mockupForm.x), y: Number(mockupForm.y), width: Number(mockupForm.width), height: Number(mockupForm.height) }, filename: file.name, data: await readFile(file) });
+      toast.success('Authorized garment view uploaded and mapped.');
+      if (mockupForm.product_id === document.productId) setMockupMappings(items => [...items.filter(item => !(item.color_key === data.mockup.color_key && item.view === data.mockup.view)), data.mockup]);
+      form.reset();
+    } catch (error) { toast.error(error.message); } finally { setBusy(''); }
+  };
+
+  const savePricing = async event => {
+    event.preventDefault();
+    if (!pricingForm.service_price || !pricingForm.placement) return toast.error('A real customer service price and placement are required.');
+    const scope = { production_route: pricingForm.production_route, product_id: pricingForm.product_id || null, print_method: pricingForm.print_method || null, placement: pricingForm.placement };
+    const values = { ...scope, service_price: Number(pricingForm.service_price), transfer_cost: pricingForm.transfer_cost === '' ? null : Number(pricingForm.transfer_cost), pressing_labor_cost: pricingForm.pressing_labor_cost === '' ? null : Number(pricingForm.pressing_labor_cost), packaging_cost: pricingForm.packaging_cost === '' ? null : Number(pricingForm.packaging_cost), other_fee: pricingForm.other_fee === '' ? null : Number(pricingForm.other_fee), notes: pricingForm.notes.trim() || null, active: true, effective_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    let query = supabase.from('design_pricing_config').select('id').eq('production_route', scope.production_route).eq('placement', scope.placement);
+    query = scope.product_id ? query.eq('product_id', scope.product_id) : query.is('product_id', null);
+    query = scope.print_method ? query.eq('print_method', scope.print_method) : query.is('print_method', null);
+    const { data: existing, error: lookupError } = await query.maybeSingle();
+    if (lookupError) return toast.error(lookupError.message);
+    const result = existing ? await supabase.from('design_pricing_config').update(values).eq('id', existing.id) : await supabase.from('design_pricing_config').insert(values);
+    if (result.error) return toast.error(result.error.message);
+    await loadStatus(); toast.success('Secure Design Studio printing price saved. Existing invoices and historical orders were not changed.');
+  };
+
   const visibleTabs = customerMode ? TABS.filter(([key]) => ['studio', 'designs'].includes(key)) : TABS;
   const sidePanels = {
     add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} />,
-    variants: <VariantPanel products={products} product={product} document={document} onProduct={onProduct} onField={onField} />,
+    variants: <VariantPanel products={products} product={product} document={document} onProduct={onProduct} onField={onField} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel('')} />,
     layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />,
   };
 
@@ -362,21 +458,30 @@ export default function AdminDesignStudio({ customerMode = false }) {
         <Button size="sm" variant="outline" onClick={() => dispatch({ type: 'redo' })} disabled={!history.future.length}><Redo2 className="mr-1 h-4 w-4" />Redo</Button>
         <Button size="sm" variant="outline" onClick={newDesign}><Plus className="mr-1 h-4 w-4" />New</Button>
       </div>
+      <section className="mb-4 rounded-2xl border border-[#b58d2a]/45 bg-white p-3 shadow-sm sm:p-4" aria-label="Selected garment">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            {product ? <img src={document.productImage || displayImage(product.image_url)} alt={document.productName} className="h-24 w-20 shrink-0 rounded-xl border bg-white object-contain" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[#f7f3ea]"><Shirt className="h-8 w-8 text-[#4b1236]" /></div>}
+            <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.12em] text-[#4f6b45]">Garment comes first</p><h2 className="mt-1 text-base font-bold text-[#4b1236] sm:text-lg">{product ? document.productName : 'Choose a real live garment'}</h2><p className="mt-1 text-sm text-muted-foreground">{product ? `${getStudioGarmentLabel(product)} · ${document.color || 'Choose color'} · ${document.size || 'Choose size'} · ${variant?.sku ? `SKU ${variant.sku} · ` : ''}$${productPrice(product, variant).toFixed(2)}` : 'Search eligible T-shirts, pullover or zip hoodies, and crewneck sweatshirts before using the canvas.'}</p></div>
+          </div>
+          <Button type="button" className="h-12 shrink-0 bg-[#4b1236] text-white hover:bg-[#351026]" onClick={() => setMobilePanel('variants')}><Shirt className="mr-2 h-5 w-5" />{product ? 'Change Garment' : 'Choose Garment'}</Button>
+        </div>
+      </section>
       <div className="grid min-w-0 gap-4 lg:grid-cols-[270px_minmax(0,1fr)_280px]">
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.variants}</CardContent></Card><Card><CardContent className="p-4">{sidePanels.add}</CardContent></Card></aside>
         <div className="min-w-0 space-y-3">
           <div className="flex gap-2 overflow-x-auto rounded-xl border bg-white p-2">{DESIGN_PLACEMENTS.map(([key, label]) => {
-            const area = printAreas.find(item => item.placement === key && item.production_route === document.productionRoute && item.enabled);
-            return <button key={key} type="button" disabled={document.productId && !area} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-[#4f6b45] text-white' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={!area ? 'This placement needs a verified print-area configuration.' : ''}>{label}</button>;
+            const state = placementState[key] || { enabled: false, reason: 'Choose a garment first.' };
+            return <button key={key} type="button" disabled={!state.enabled} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-[#4f6b45] text-white' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={state.reason || (relevantAreas.some(item => item.placement === key) ? '' : 'Draft editing is available; production calibration is still required.')}>{label}</button>;
           })}</div>
-          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} />
-          <p className="text-center text-xs text-muted-foreground">Mockups are approximate visual previews and are never used as production artwork.</p>
+          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} />
+          <p className="text-center text-xs text-muted-foreground">The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.</p>
         </div>
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="space-y-2">{warnings.length ? warnings.map((warning, index) => <div key={`${warning.code}-${index}`} className={`flex gap-2 rounded-xl border p-3 text-sm ${warning.level === 'blocker' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning.message}</div>) : <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Design checks pass for the configured placement data.</div>}</div>
-        <Card className="min-w-[260px]"><CardContent className="p-4 text-sm"><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between"><span>Garment</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between"><span>Printing</span><span>{document.productionRoute === 'printify' ? 'Included in HC retail' : printingCharge ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise</span><span>${pricing.customerMerchandise.toFixed(2)}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. Incomplete internal costs are not treated as profit.</p></CardContent></Card>
+        <Card className="min-w-0 md:min-w-[260px]"><CardContent className="p-4 text-sm"><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between gap-3"><span>Garment × {document.quantity}</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between gap-3"><span>Printing × {document.quantity}</span><span>{document.productionRoute === 'printify' ? 'Included in HC retail' : printing.configured ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise</span><span>${pricing.customerMerchandise.toFixed(2)}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. Saved printing prices cover only the configured placement services; no placement package is counted twice.</p></CardContent></Card>
       </section>
         <div className="mt-4 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={exportPackage} disabled={busy === 'export'}><Download className="mr-2 h-4 w-4" />Download production package</Button><Button variant="outline" onClick={attachPreviewCart}>Attach to preview cart</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={save}><Save className="mr-2 h-4 w-4" />Save version</Button></div>
     </main>}
@@ -387,6 +492,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
 
     {tab === 'areas' && <main className="mx-auto max-w-4xl p-4"><Card><CardHeader><CardTitle>Verified print-area configuration</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">No dimensions are invented. Enter a real product/size/provider/method/location measurement and record its source. Unsupported placements remain disabled.</p><form onSubmit={saveArea} className="grid gap-4 sm:grid-cols-2">
       <Field label="Product"><select value={areaForm.product_id} onChange={event => setAreaForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Select product</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)} {item.supplier_sku ? `(${item.supplier_sku})` : ''}</option>)}</select></Field>
+      {officialAreaSource && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 sm:col-span-2"><a href={officialAreaSource.url} target="_blank" rel="noreferrer" className="font-bold underline">{officialAreaSource.label}</a><p className="mt-1">{officialAreaSource.note} Record a measured platen, approved transfer limit, or printer/provider specification before marking inches verified.</p></div>}
       <Field label="Size" hint="Use * only when the vendor confirms one area for every size."><Input value={areaForm.product_size} onChange={event => setAreaForm(value => ({ ...value, product_size: event.target.value }))} /></Field>
       <Field label="Route"><select value={areaForm.production_route} onChange={event => setAreaForm(value => ({ ...value, production_route: event.target.value, provider_key: event.target.value === 'printify' ? 'printify' : 'hc' }))} className="h-10 w-full rounded-md border bg-white px-3">{ACTIVE_PRODUCTION_ROUTES.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
       <Field label="Placement"><select value={areaForm.placement} onChange={event => setAreaForm(value => ({ ...value, placement: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3">{DESIGN_PLACEMENTS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
@@ -397,9 +503,32 @@ export default function AdminDesignStudio({ customerMode = false }) {
       <Field label="Minimum effective DPI"><Input type="number" min="72" max="1200" value={areaForm.min_dpi} onChange={event => setAreaForm(value => ({ ...value, min_dpi: event.target.value }))} /></Field>
       <Field label="Verification source note"><Input value={areaForm.source_note} onChange={event => setAreaForm(value => ({ ...value, source_note: event.target.value }))} placeholder="Vendor spec sheet / measured platen" /></Field>
       <div className="sm:col-span-2"><Button type="submit" className="bg-[#4f6b45] text-white">Save verified area</Button></div>
+    </form></CardContent></Card>
+    <Card className="mt-4"><CardHeader><CardTitle>Real garment view mapping</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">Catalog front photos are used automatically. Upload only an authorized real back or sleeve photograph when that exact product/view is available. The source and normalized preview surface are recorded; no view is fabricated.</p><form onSubmit={uploadMockup} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Product"><select value={mockupForm.product_id} onChange={event => setMockupForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Select product</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)}</option>)}</select></Field>
+      <Field label="Color" hint="Use * only for an asset verified to represent every color."><Input value={mockupForm.color_key} onChange={event => setMockupForm(value => ({ ...value, color_key: event.target.value }))} /></Field>
+      <Field label="View"><select value={mockupForm.view} onChange={event => setMockupForm(value => ({ ...value, view: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="front">Front</option><option value="back">Back</option><option value="left_sleeve">Wearer-left sleeve</option><option value="right_sleeve">Wearer-right sleeve</option></select></Field>
+      <Field label="Authorized source note"><Input value={mockupForm.source_note} onChange={event => setMockupForm(value => ({ ...value, source_note: event.target.value }))} placeholder="S&S catalog / licensed photographer / vendor asset" /></Field>
+      <Field label="PNG or JPG photograph"><Input name="mockup_file" type="file" accept="image/png,image/jpeg" /></Field>
+      <div className="grid grid-cols-4 gap-2"><Field label="X"><Input type="number" min="0" max="100" value={mockupForm.x} onChange={event => setMockupForm(value => ({ ...value, x: event.target.value }))} /></Field><Field label="Y"><Input type="number" min="0" max="120" value={mockupForm.y} onChange={event => setMockupForm(value => ({ ...value, y: event.target.value }))} /></Field><Field label="Width"><Input type="number" min="1" max="100" value={mockupForm.width} onChange={event => setMockupForm(value => ({ ...value, width: event.target.value }))} /></Field><Field label="Height"><Input type="number" min="1" max="120" value={mockupForm.height} onChange={event => setMockupForm(value => ({ ...value, height: event.target.value }))} /></Field></div>
+      <div className="sm:col-span-2"><Button type="submit" disabled={busy === 'mockup'} className="bg-[#4f6b45] text-white"><Upload className="mr-2 h-4 w-4" />{busy === 'mockup' ? 'Validating and saving…' : 'Upload and map view'}</Button></div>
     </form></CardContent></Card></main>}
 
-    {tab === 'vendors' && <main className="mx-auto max-w-6xl space-y-4 p-4"><div className="grid gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle className="flex items-center gap-2"><Cloud className="h-5 w-5" />Printify backup</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p className="font-semibold">Status: <span className={status?.printify?.verified ? 'text-green-700' : 'text-amber-700'}>{status?.printify?.verified ? 'Connected' : 'Not connected'}</span></p><p className="text-muted-foreground">{status?.printify?.verified ? `${status.printify.shop_count} API shop(s) visible. Catalog reads are available; submission remains disabled.` : 'Add a scoped Printify Personal Access Token as PRINTIFY_API_TOKEN in Supabase Edge Function secrets. Required read scopes: shops.read, catalog.read, products.read, print_providers.read. Add orders.read/orders.write only after submission QA.'}</p><p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">Printify is a backup route only. No HC garment, variant, print method, or placement is substituted without an explicit verified mapping.</p></CardContent></Card><Card><CardHeader><CardTitle>Cost models stay separate</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p><strong>HC blank + printing:</strong> website garment retail plus saved printing charges; internal blank, transfer, labor, packaging, fees, and shipping remain separate.</p><p><strong>Printify finished garment:</strong> HC-controlled retail; provider production already includes garment/printing, so no HC blank or transfer/press cost is added.</p><p className="text-muted-foreground">The October 3 screenshot amounts are stored as a dated, non-live reference only and are never used as pricing or quotes.</p></CardContent></Card></div></main>}
+    {tab === 'vendors' && <main className="mx-auto max-w-6xl space-y-4 p-4"><div className="grid gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle className="flex items-center gap-2"><Cloud className="h-5 w-5" />Printify backup</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p className="font-semibold">Status: <span className={status?.printify?.verified ? 'text-green-700' : 'text-amber-700'}>{status?.printify?.verified ? 'Connected' : 'Deferred · not required'}</span></p><p className="text-muted-foreground">{status?.printify?.verified ? `${status.printify.shop_count} API shop(s) visible. Catalog reads are available; submission remains disabled.` : 'Printify API work is deferred. Missing credentials do not block garment selection, designing, saving, previewing, HC pricing, or vendor-neutral production exports.'}</p><p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">Printify remains a disabled backup route. No HC garment, variant, print method, placement, quote, or order is substituted or submitted.</p></CardContent></Card><Card><CardHeader><CardTitle>Cost models stay separate</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><p><strong>HC blank + printing:</strong> website garment retail plus saved printing charges; internal blank, transfer, labor, packaging, fees, and shipping remain separate.</p><p><strong>Printify finished garment:</strong> HC-controlled retail; provider production already includes garment/printing, so no HC blank or transfer/press cost is added.</p><p className="text-muted-foreground">The October 3 screenshot amounts are stored as a dated, non-live reference only and are never used as pricing or quotes.</p></CardContent></Card></div>
+      <Card><CardHeader><CardTitle>Secure HC printing service prices</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">These server-side prices are separate from garment retail, shipping, and tax. Product-specific values override general values. Saving here never changes invoice-specific overrides or historical order prices.</p><form onSubmit={savePricing} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Field label="Product scope" hint="Leave as All eligible garments for a true universal service price."><select value={pricingForm.product_id} onChange={event => setPricingForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">All eligible garments</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)}</option>)}</select></Field>
+        <Field label="Production route"><select value={pricingForm.production_route} onChange={event => setPricingForm(value => ({ ...value, production_route: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3">{ACTIVE_PRODUCTION_ROUTES.filter(([key]) => key !== 'printify').map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+        <Field label="Placement"><select value={pricingForm.placement} onChange={event => setPricingForm(value => ({ ...value, placement: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3">{DESIGN_PLACEMENTS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+        <Field label="Print method"><Input value={pricingForm.print_method} onChange={event => setPricingForm(value => ({ ...value, print_method: event.target.value }))} /></Field>
+        <Field label="Customer service price"><Input type="number" min="0" step=".01" value={pricingForm.service_price} onChange={event => setPricingForm(value => ({ ...value, service_price: event.target.value }))} /></Field>
+        <Field label="Transfer cost"><Input type="number" min="0" step=".01" value={pricingForm.transfer_cost} onChange={event => setPricingForm(value => ({ ...value, transfer_cost: event.target.value }))} /></Field>
+        <Field label="Pressing labor cost"><Input type="number" min="0" step=".01" value={pricingForm.pressing_labor_cost} onChange={event => setPricingForm(value => ({ ...value, pressing_labor_cost: event.target.value }))} /></Field>
+        <Field label="Packaging cost"><Input type="number" min="0" step=".01" value={pricingForm.packaging_cost} onChange={event => setPricingForm(value => ({ ...value, packaging_cost: event.target.value }))} /></Field>
+        <Field label="Other internal fee"><Input type="number" min="0" step=".01" value={pricingForm.other_fee} onChange={event => setPricingForm(value => ({ ...value, other_fee: event.target.value }))} /></Field>
+        <div className="sm:col-span-2 lg:col-span-3"><Field label="Notes"><Input value={pricingForm.notes} onChange={event => setPricingForm(value => ({ ...value, notes: event.target.value }))} placeholder="Scope and source of the approved price" /></Field></div>
+        <div className="sm:col-span-2 lg:col-span-3"><Button type="submit" className="bg-[#4f6b45] text-white">Save active printing price</Button></div>
+      </form></CardContent></Card>
+    </main>}
 
     {tab === 'settings' && <main className="mx-auto max-w-4xl p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card></main>}
 
