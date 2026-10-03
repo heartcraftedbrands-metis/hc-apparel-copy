@@ -511,7 +511,12 @@ Deno.serve(async request => {
         pricing_complete: pricingComplete, checkout_ready: checkoutReady, blockers,
         document_snapshot: document, admin_preview_only: true, updated_at: new Date().toISOString(),
       };
-      const { data: existing } = await service.from('design_preview_cart_items').select('id').eq('owner_user_id', user.id).eq('design_version_id', version.id).is('archived_at', null).maybeSingle();
+      const { data: existing } = await service.from('design_preview_cart_items').select('id')
+        .eq('owner_user_id', user.id)
+        .eq('design_id', design.id)
+        .eq('design_checksum', version.checksum)
+        .is('archived_at', null)
+        .maybeSingle();
       const result = existing
         ? await service.from('design_preview_cart_items').update(record).eq('id', existing.id).select('*').single()
         : await service.from('design_preview_cart_items').insert(record).select('*').single();

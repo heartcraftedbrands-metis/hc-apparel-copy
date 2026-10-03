@@ -97,6 +97,7 @@ assert.match(page, /Choose Garment/, 'garment selection is visible before the ca
 assert.match(page, /isStudioEligibleProduct/, 'catalog selection uses the shared T-shirt, hoodie, and crewneck eligibility rules');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
+assert.match(edge, /\.eq\('design_checksum', version\.checksum\)/, 'reattaching an unchanged stable design is deduplicated by checksum');
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
