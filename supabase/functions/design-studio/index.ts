@@ -335,10 +335,10 @@ Deno.serve(async request => {
         if (!existing || (existing.owner_user_id !== user.id && !isAdmin)) fail('Design not found.', 404);
         if (existing.status === 'ordered') fail('Ordered designs cannot be changed. Duplicate it instead.');
         const result = await service.from('design_documents').update({ ...record, updated_at: new Date().toISOString() }).eq('id', payload.design_id).select('*').single();
-        if (result.error) fail('Design could not be saved.', 500); saved = result.data;
+        if (result.error) fail(`Design could not be saved (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_update_failed'); saved = result.data;
       } else {
         const result = await service.from('design_documents').insert(record).select('*').single();
-        if (result.error) fail('Design could not be created.', 500); saved = result.data;
+        if (result.error) fail(`Design could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_insert_failed'); saved = result.data;
       }
       let version = null;
       if (payload.explicit) {
@@ -349,7 +349,7 @@ Deno.serve(async request => {
           document_snapshot: persistedDocument, production_spec_snapshot: { print_areas: areas || [], route, print_method: record.print_method },
           validation_snapshot: warnings, checksum,
         }).select('id,version_number,checksum,created_at').single();
-        if (result.error) fail('The design saved, but its immutable version could not be created.', 500); version = result.data;
+        if (result.error) fail(`The design saved, but its immutable version could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_version_failed'); version = result.data;
       }
       const referencedAssetIds: string[] = [];
       visitImageElements(document, element => referencedAssetIds.push(String(element.assetId)));

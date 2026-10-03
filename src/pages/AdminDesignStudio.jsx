@@ -360,7 +360,11 @@ export default function AdminDesignStudio({ customerMode = false }) {
       setDesignId(result.design.id); setVersion(result.version); savedJsonRef.current = JSON.stringify(document);
       setSaveState(`Saved · version ${result.version.version_number}`); await loadDesigns();
       toast.success('Editable design and immutable version saved.');
-    } catch (error) { setSaveState('Save failed'); toast.error(error.message); } finally { setBusy(''); }
+    } catch (error) {
+      const message = error.message || 'Design Studio request failed.';
+      setSaveState(`Save failed · ${message}`);
+      toast.error(message);
+    } finally { setBusy(''); }
   };
   const openDesign = async id => {
     if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('You have unsaved Design Studio changes. Open another design and discard them?')) return;
