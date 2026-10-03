@@ -53,6 +53,7 @@ assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secr
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
 assert.match(flags, /customPrinting:\s*false/, 'hidden custom-printing page remains hidden');
 assert.match(flags, /designStudioPublic:\s*false/, 'public studio flag remains off');
+assert.match(app, /path="\/DesignStudio"[\s\S]*STOREFRONT_FEATURES\.designStudioPublic[\s\S]*Navigate to="\/ShopGarments"/, 'customer studio route safely redirects while the public flag is off');
 
 const page = fs.readFileSync(new URL('../src/pages/AdminDesignStudio.jsx', import.meta.url), 'utf8');
 assert.match(page, /explicitlyNotTee = \/\(hoodie\|sweatshirt\|tank\|polo\|jacket\|coat\)\/i/, 'catalog filtering excludes misclassified non-T-shirt garments');

@@ -133,8 +133,8 @@ export default function DesignCanvas({ document, setDocument, printArea, selecte
             <Button size="sm" variant="destructive" onClick={deleteSelected}><Trash2 className="mr-1 h-3.5 w-3.5" />Delete</Button>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <label className="text-[11px]">Width %<Input type="number" value={Math.round(selected.width)} min="1" max="100" onChange={event => patchSelected({ width: clamp(Number(event.target.value), 1, 100) })} className="h-8" /></label>
-            <label className="text-[11px]">Height %<Input type="number" value={Math.round(selected.height)} min="1" max="100" onChange={event => patchSelected({ height: clamp(Number(event.target.value), 1, 100) })} className="h-8" /></label>
+            <label className="text-[11px]">Width %<Input type="number" value={Math.round(selected.width)} min="1" max="100" onChange={event => { const width = clamp(Number(event.target.value), 1, 100); patchSelected({ width, height: clamp(width * (selected.height / selected.width), 1, 100) }); }} className="h-8" /></label>
+            <label className="text-[11px]">Height %<Input type="number" value={Math.round(selected.height)} min="1" max="100" onChange={event => { const height = clamp(Number(event.target.value), 1, 100); patchSelected({ height, width: clamp(height * (selected.width / selected.height), 1, 100) }); }} className="h-8" /></label>
             <label className="text-[11px]">Rotation°<Input type="number" value={Math.round(selected.rotation || 0)} onChange={event => patchSelected({ rotation: Number(event.target.value) || 0 })} className="h-8" /></label>
             <Button size="sm" variant="outline" className="mt-auto h-8" onClick={() => patchSelected({ x: (100 - selected.width) / 2 })}>Center horizontal</Button>
             <Button size="sm" variant="outline" className="mt-auto h-8" onClick={() => patchSelected({ y: (100 - selected.height) / 2 })}>Center vertical</Button>

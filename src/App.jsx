@@ -130,6 +130,12 @@ const AuthenticatedApp = () => {
           ? <LayoutWrapper currentPageName="CustomPrinting"><CustomPrintingPage /></LayoutWrapper>
           : <Navigate to="/ShopGarments" replace />}
       />
+      <Route
+        path="/DesignStudio"
+        element={STOREFRONT_FEATURES.designStudioPublic
+          ? <LayoutWrapper currentPageName="DesignStudio"><AdminDesignStudio customerMode /></LayoutWrapper>
+          : <Navigate to="/ShopGarments" replace />}
+      />
       <Route path="/PrintSupport" element={<LayoutWrapper currentPageName="PrintSupport"><PrintSupportPage /></LayoutWrapper>} />
       <Route path="/About" element={<LayoutWrapper currentPageName="About"><AboutPage /></LayoutWrapper>} />
       <Route path="/FAQ" element={<LayoutWrapper currentPageName="FAQ"><FAQPage /></LayoutWrapper>} />

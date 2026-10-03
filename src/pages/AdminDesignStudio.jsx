@@ -118,7 +118,7 @@ function Field({ label, children, hint }) {
   return <label className="block min-w-0 text-sm font-medium">{label}<div className="mt-1">{children}</div>{hint && <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>}</label>;
 }
 
-function AddPanel({ onText, onShape, onUpload, busy }) {
+function AddPanel({ onText, onShape, onTemplate, onUpload, busy }) {
   return <div className="space-y-4">
     <div><h3 className="font-bold text-[#4b1236]">Add design</h3><p className="text-xs text-muted-foreground">Only HC-managed tools and your own files are available.</p></div>
     <Button variant="outline" className="h-12 w-full justify-start" onClick={onText}><Type className="mr-3 h-5 w-5" />Editable text</Button>
@@ -128,6 +128,7 @@ function AddPanel({ onText, onShape, onUpload, busy }) {
       <Button variant="outline" onClick={() => onShape('star')}><Star className="mr-2 h-4 w-4" />Star</Button>
       <Button variant="outline" onClick={() => onShape('line')}>— Line</Button>
     </div>
+    <Button variant="outline" className="h-12 w-full justify-start" onClick={onTemplate}><Star className="mr-3 h-5 w-5 text-[#b58d2a]" />HC Classic Badge template</Button>
     <label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[#b58d2a]/60 bg-[#f7f3ea] px-3 text-sm font-semibold text-[#4b1236]">
       <Upload className="mr-2 h-4 w-4" />{busy ? 'Validating upload…' : 'Upload PNG, JPG, or SVG'}
       <input type="file" accept="image/png,image/jpeg,image/svg+xml" className="sr-only" onChange={onUpload} disabled={busy} />
@@ -195,7 +196,7 @@ function EditorFields({ selected, patchSelected }) {
   </CardContent></Card>;
 }
 
-export default function AdminDesignStudio() {
+export default function AdminDesignStudio({ customerMode = false }) {
   const [tab, setTab] = useState('studio');
   const [history, dispatch] = useReducer(historyReducer, createStudioDocument(), createHistory);
   const document = history.present;
@@ -274,6 +275,13 @@ export default function AdminDesignStudio() {
     setDocument(updatePlacement(document, document.activePlacement, items => [...items, element]));
     setSelectedIds([element.id]); setMobilePanel('');
   };
+  const addTemplate = () => {
+    const groupId = crypto.randomUUID();
+    const badge = makeElement('shape', { name: 'HC badge', shape: 'circle', groupId, x: 30, y: 22, width: 40, height: 40, fill: BRAND.plum });
+    const text = makeElement('text', { name: 'HC badge text', text: 'HC APPAREL', groupId, x: 33, y: 34, width: 34, height: 12, fill: '#f7f3ea', fontFamily: 'Georgia', fontWeight: 700, curve: 26 });
+    setDocument(updatePlacement(document, document.activePlacement, items => [...items, badge, text]));
+    setSelectedIds([badge.id, text.id]); setMobilePanel('');
+  };
   const patchSelected = values => setDocument(updatePlacement(document, document.activePlacement, items => items.map(item => selectedIds.includes(item.id) ? { ...item, ...values } : item)));
   const upload = async event => {
     const file = event.target.files?.[0]; if (!file) return;
@@ -334,16 +342,17 @@ export default function AdminDesignStudio() {
     toast.success('Verified print-area configuration saved.'); if (areaForm.product_id === document.productId) { const { data } = await supabase.from('design_print_areas').select('*').eq('product_id', document.productId); setPrintAreas(data || []); }
   };
 
+  const visibleTabs = customerMode ? TABS.filter(([key]) => ['studio', 'designs'].includes(key)) : TABS;
   const sidePanels = {
-    add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onUpload={upload} busy={busy === 'upload'} />,
+    add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} />,
     variants: <VariantPanel products={products} product={product} document={document} onProduct={onProduct} onField={onField} />,
     layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />,
   };
 
   return <div className="min-h-screen bg-[#f7f3ea]/60 pb-24 sm:pb-8">
     <header className="border-b border-[#b58d2a]/30 bg-[#4b1236] text-white"><div className="mx-auto max-w-[1500px] px-4 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to="/AdminDashboard"><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">Admin preview · custom checkout is not public</p></div></div><div className="flex items-center gap-2"><span className="hidden text-xs text-white/70 sm:inline">{saveState}</span><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className="bg-[#b58d2a] text-white hover:bg-[#99761f]" onClick={save} disabled={busy === 'save'}><Save className="mr-2 h-4 w-4" />Save</Button></div></div>
-      <nav className="mt-4 flex gap-1 overflow-x-auto pb-1" aria-label="Design Studio admin sections">{TABS.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${tab === key ? 'bg-white text-[#4b1236]' : 'bg-white/10 text-white hover:bg-white/20'}`}>{label}</button>)}</nav>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to={customerMode ? '/ShopGarments' : '/AdminDashboard'}><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">{customerMode ? 'Create and save your apparel design' : 'Admin preview · custom checkout is not public'}</p></div></div><div className="flex items-center gap-2"><span className="hidden text-xs text-white/70 sm:inline">{saveState}</span><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className="bg-[#b58d2a] text-white hover:bg-[#99761f]" onClick={save} disabled={busy === 'save'}><Save className="mr-2 h-4 w-4" />Save</Button></div></div>
+      <nav className="mt-4 flex gap-1 overflow-x-auto pb-1" aria-label={customerMode ? 'Design Studio sections' : 'Design Studio admin sections'}>{visibleTabs.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${tab === key ? 'bg-white text-[#4b1236]' : 'bg-white/10 text-white hover:bg-white/20'}`}>{label}</button>)}</nav>
     </div></header>
 
     {tab === 'studio' && <main className="mx-auto max-w-[1500px] p-3 sm:p-4">
