@@ -301,7 +301,8 @@ Deno.serve(async request => {
         fail('This product is restricted from Design Studio customization.');
       }
       const garmentType = safeText(product.primary_garment_type || product.category || product.product_subtype, 80).toLowerCase();
-      const nameText = safeText(product.name, 300).toLowerCase();
+      const nameText = `${safeText(product.name, 300)} ${safeText(product.description, 500)} ${safeText(product.category, 100)} ${safeText(product.product_subtype, 100)}`.toLowerCase();
+      if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(nameText)) fail('Outerwear is not enabled for the current Design Studio rollout.');
       const eligibleType = ['t_shirts','hoodies','crewnecks'].includes(garmentType)
         || /\b(?:t-?shirt|tee|hoodie|hooded sweatshirt|crewneck|crew neck)\b/.test(nameText);
       if (!eligibleType) fail('Only eligible T-shirts, hoodies, and crewneck sweatshirts can be customized.');

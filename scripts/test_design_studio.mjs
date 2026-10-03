@@ -35,6 +35,8 @@ const baseProduct = { product_type: 'physical', visibility: 'public', is_active:
 assert.equal(isStudioEligibleProduct(baseProduct), true, 'live in-stock T-shirts are studio eligible');
 assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Gildan 18500 Hoodie', primary_garment_type: 'hoodies' }), 'hoodies', 'hoodies are included');
 assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Gildan 18000 Crewneck', primary_garment_type: 'crewnecks' }), 'crewnecks', 'crewnecks are included');
+assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Hooded Puffer Jacket', primary_garment_type: 'hoodies' }), '', 'misclassified jackets are not offered as hoodies');
+assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Crewneck Windbreaker', primary_garment_type: 'crewnecks' }), '', 'misclassified outerwear is not offered as a crewneck sweatshirt');
 assert.equal(isStudioEligibleProduct({ ...baseProduct, brand: 'Champion' }), false, 'restricted brands remain excluded');
 const views = buildMockupViews(baseProduct, 'Black', 'L');
 assert.equal(views.front.url, baseProduct.size_prices[0].image_url, 'selected color/size uses its real catalog photograph');

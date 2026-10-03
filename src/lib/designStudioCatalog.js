@@ -14,11 +14,12 @@ const clean = value => String(value || '').trim();
 const lower = value => clean(value).toLowerCase();
 
 export function getStudioGarmentType(product) {
+  const text = lower(`${product?.name || ''} ${product?.description || ''} ${product?.category || ''} ${product?.product_subtype || ''}`);
+  if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(text)) return '';
   const explicit = lower(product?.primary_garment_type);
   if (['t_shirts', 'hoodies', 'crewnecks'].includes(explicit)) return explicit;
   const category = getStorefrontCategory(product);
   if (['t_shirts', 'hoodies', 'crewnecks'].includes(category)) return category;
-  const text = lower(`${product?.name || ''} ${product?.category || ''} ${product?.product_subtype || ''}`);
   if (/\b(?:full[- ]?zip|zip[- ]?up|pullover)?\s*hood(?:ie|ed)|hooded sweatshirt\b/.test(text)) return 'hoodies';
   if (/\b(?:crewneck|crew neck|sweatshirt)\b/.test(text) && !/hood/.test(text)) return 'crewnecks';
   if (/\b(?:t-?shirt|tee)\b/.test(text)) return 't_shirts';
@@ -46,11 +47,15 @@ export function isStudioEligibleProduct(product) {
 }
 
 export function getStudioProductSummary(product) {
+  const type = getStudioGarmentType(product);
+  const publicName = getPublicProductName(product);
+  const rawName = clean(product?.name);
+  const publicNameLooksLikeWrongType = type !== 't_shirts' && /\bt-?shirt\b/i.test(publicName);
   return {
-    name: getPublicProductName(product),
+    name: publicNameLooksLikeWrongType && rawName ? rawName : publicName,
     brand: getProductBrand(product) || 'Brand unavailable',
     style: getProductStyleLabel(product) || '',
-    type: getStudioGarmentType(product),
+    type,
     typeLabel: getStudioGarmentLabel(product),
   };
 }
