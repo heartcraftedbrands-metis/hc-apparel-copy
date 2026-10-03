@@ -91,7 +91,7 @@ Deno.serve(async (request) => {
       const appliedProcessingCost = paymentDetails.actualProcessingCost ?? estimatedProcessingCost;
       const { error: updateError } = await admin.from('orders').update({
         payment_status: 'paid',
-        status: 'paid',
+        status: 'awaiting_fulfillment',
         payment_method: paymentDetails.label,
         payment_method_type: paymentDetails.type,
         estimated_processing_cost: estimatedProcessingCost,
@@ -101,10 +101,13 @@ Deno.serve(async (request) => {
         amount_paid: order.total_amount,
         balance_due: 0,
         payment_date: new Date().toISOString(),
+        payment_confirmed_at: new Date().toISOString(),
+        payment_confirmation_source: 'stripe_verification',
+        payment_provider_event_id: session.id,
         stripe_session_id: session.id,
-      stripe_payment_intent_id: String(session.payment_intent || ''),
-      stripe_mode: stripeMode,
-      }).eq('id', order.id);
+        stripe_payment_intent_id: String(session.payment_intent || ''),
+        stripe_mode: stripeMode,
+      }).eq('id', order.id).neq('payment_status', 'paid');
       if (updateError) throw updateError;
       // The database trigger now creates the private vendor draft and notification drafts.
     }

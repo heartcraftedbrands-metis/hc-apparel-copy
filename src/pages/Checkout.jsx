@@ -17,7 +17,7 @@ import {
   validateCheckoutCart,
   validateCheckoutCustomer,
 } from '@/lib/smallOrderCheckout';
-import { markCheckoutPending } from '@/lib/checkoutCompletion';
+import { getOrCreateCheckoutAttempt, markCheckoutPending } from '@/lib/checkoutCompletion';
 import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { checkoutErrorMessage, CHECKOUT_CONNECT, PAYMENT_UNAVAILABLE, SIGN_IN_AGAIN } from '@/lib/checkoutErrors';
 
@@ -175,13 +175,22 @@ export default function Checkout() {
     }
     const payload = { ...buildSmallOrderCheckoutPayload(cart, customer), shipping_service_id: shippingServiceId };
     const payloadKey = JSON.stringify(payload);
+    let checkoutAttemptKey;
+    try {
+      checkoutAttemptKey = getOrCreateCheckoutAttempt(window.sessionStorage, payloadKey);
+    } catch {
+      checkoutAttemptKey = globalThis.crypto?.randomUUID?.() || `checkout-${Date.now()}`;
+    }
     let orderId = createdOrder?.payloadKey === payloadKey ? createdOrder.orderId : null;
     try {
       if (!orderId) {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
         if (!session) throw Object.assign(new Error('Authentication required'), { status: 401 });
-        const { data } = await base44.functions.invoke('checkout-pricing', { action: 'create_order', payload });
+        const { data } = await base44.functions.invoke('checkout-pricing', {
+          action: 'create_order',
+          payload: { ...payload, checkout_attempt_key: checkoutAttemptKey },
+        });
         orderId = data?.order_id;
         if (!orderId) throw new Error('Checkout did not return an order number.');
         setCreatedOrder({ orderId, payloadKey });

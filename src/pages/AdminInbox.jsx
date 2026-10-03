@@ -253,30 +253,6 @@ export default function AdminInbox() {
     }
   };
 
-  // Mark paid: update locally, clear from payment list, auto-select next
-  const markOrderPaid = (order) => {
-    const paidData = {
-      payment_status: 'paid',
-      amount_paid: order.total_amount,
-      fulfillment_status: order.fulfillment_status || 'not_started',
-      status: 'awaiting_fulfillment',
-    };
-    // Apply patch immediately so filters re-compute
-    setOrderPatches(p => ({ ...p, [order.id]: { ...(p[order.id] || {}), ...paidData } }));
-    base44.entities.Order.update(order.id, paidData).then(() =>
-      qc.invalidateQueries({ queryKey: ['orders_inbox'] })
-    );
-    // After patch, the order will drop from awaitingPaymentOrders.
-    // Pick next unpaid order to select (computed after patch below).
-    const remaining = orders.filter(o =>
-      o.id !== order.id &&
-      isAwaitingPayment({ ...o, ...(orderPatches[o.id] || {}) })
-    );
-    setSelectedOrder(remaining[0] || null);
-    setPaymentNote('');
-    showToast('Order marked paid and moved to Awaiting Fulfillment.');
-  };
-
   const savePaymentNote = async (order) => {
     if (!paymentNote.trim()) return;
     setSavingNote(true);
@@ -941,7 +917,6 @@ export default function AdminInbox() {
               {selectedOrder && activeTab === 'payment' && isAwaitingPayment(selectedOrder) ? (
                 <OrderPaymentDetail
                   order={selectedOrder}
-                  onMarkPaid={() => markOrderPaid(selectedOrder)}
                   paymentNote={paymentNote}
                   setPaymentNote={setPaymentNote}
                   onSaveNote={() => savePaymentNote(selectedOrder)}
@@ -1029,7 +1004,7 @@ export default function AdminInbox() {
 }
 
 // ── Order Payment Detail Panel ─────────────────────────────────
-function OrderPaymentDetail({ order, onMarkPaid, paymentNote, setPaymentNote, onSaveNote, savingNote }) {
+function OrderPaymentDetail({ order, paymentNote, setPaymentNote, onSaveNote, savingNote }) {
   const ps = PAY_STATUS_MAP[order.payment_status] || PAY_STATUS_MAP['awaiting_payment'];
   const fs = FULFILL_STATUS_MAP[order.fulfillment_status || 'not_started'] || FULFILL_STATUS_MAP['not_started'];
   const items = order.order_items || [];
@@ -1117,10 +1092,11 @@ function OrderPaymentDetail({ order, onMarkPaid, paymentNote, setPaymentNote, on
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-        <Button size="sm" variant="default" disabled={isPaid} onClick={onMarkPaid}
-          className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
-          <CheckCircle className="w-4 h-4" />Mark Paid
-        </Button>
+        {!isPaid && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+            Stripe checkout payments move to fulfillment only after server-side verification.
+          </p>
+        )}
         <Link to={`/AdminOrderDetail?id=${order.id}`}>
           <Button size="sm" variant="outline" className="gap-1.5">
             <ChevronRight className="w-4 h-4" />View Full Order

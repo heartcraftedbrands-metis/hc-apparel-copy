@@ -137,6 +137,21 @@ export default function AdminOrderDetail() {
   const [savingShipment, setSavingShipment] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState(null);
   const [creatingSafeDraft, setCreatingSafeDraft] = useState(false);
+  const [providerAudit, setProviderAudit] = useState(null);
+  const [auditingProvider, setAuditingProvider] = useState(false);
+
+  const auditStripeProvider = async () => {
+    setAuditingProvider(true);
+    try {
+      const response = await base44.functions.invoke('getStripeStatus', { orderId: form.id });
+      setProviderAudit(response.data);
+      toast.success('Stripe reconciliation checked. No payment or order was created.');
+    } catch (error) {
+      toast.error(error?.message || 'Stripe reconciliation could not be checked.');
+    } finally {
+      setAuditingProvider(false);
+    }
+  };
 
   const handleRepairGarmentItems = async () => {
     if (!form?.order_items?.length) return;
@@ -303,14 +318,14 @@ export default function AdminOrderDetail() {
   };
 
   const handleMarkPaid = async () => {
-    const update = { status: 'paid', payment_status: 'paid', amount_paid: form.total_amount };
-    await base44.entities.Order.update(form.id, update);
-    setForm(p => ({ ...p, ...update }));
-    qc.invalidateQueries({ queryKey: ['admin-orders'] });
-    toast.success('Marked as Paid');
+    toast.error('Stripe checkout payments can only be marked paid after server-side verification.');
   };
 
   const handleMarkAwaiting = async () => {
+    if (form.payment_status !== 'paid') {
+      toast.error('Verified payment is required before fulfillment.');
+      return;
+    }
     const update = { status: 'awaiting_fulfillment', fulfillment_status: 'vendor_order_needed' };
     await base44.entities.Order.update(form.id, update);
     setForm(p => ({ ...p, ...update }));
@@ -319,6 +334,10 @@ export default function AdminOrderDetail() {
   };
 
   const handlePaymentStatusChange = async (newStatus) => {
+    if (newStatus === 'paid' && form.checkout_source === 'customized_small_order' && form.payment_status !== 'paid') {
+      toast.error('Stripe checkout payments can only be marked paid after server-side verification.');
+      return;
+    }
     let update = { payment_status: newStatus };
     if (newStatus === 'paid') {
       update.amount_paid = form.total_amount;
@@ -484,19 +503,29 @@ export default function AdminOrderDetail() {
               </label>
               <Button size="sm"
                 className="bg-yellow-500 hover:bg-yellow-600 text-white gap-1.5"
-                onClick={handleMarkAwaiting}>
+                onClick={handleMarkAwaiting} disabled={form.payment_status !== 'paid'}>
                 <Package className="w-4 h-4" />Awaiting Fulfillment
               </Button>
-              <Button size="sm"
-                className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
-                onClick={handleMarkPaid}>
-                <DollarSign className="w-4 h-4" />Mark Paid
-              </Button>
+              {form.checkout_source === 'customized_small_order' && form.payment_status !== 'paid' ? (
+                <span className="rounded-md border border-primary-foreground/20 px-3 py-1.5 text-xs text-primary-foreground/80">
+                  Stripe verification required
+                </span>
+              ) : form.payment_status !== 'paid' ? (
+                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1.5" onClick={handleMarkPaid}>
+                  <DollarSign className="w-4 h-4" />Mark Paid
+                </Button>
+              ) : null}
               <Button size="sm" variant="outline"
                 className="gap-1.5"
                 onClick={() => window.open(`/TrackOrder?order=${form.id.slice(-8).toUpperCase()}&email=${encodeURIComponent(form.customer_email)}`, '_blank')}>
                 <Eye className="w-4 h-4" />Open Customer Tracking View
               </Button>
+              {form.stripe_session_id && (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={auditStripeProvider} disabled={auditingProvider}>
+                  {auditingProvider ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+                  Verify Stripe record
+                </Button>
+              )}
               <Button size="sm"
                 className="bg-accent text-accent-foreground hover:bg-accent/90 gap-1.5"
                 onClick={handleSave} disabled={saving}>
@@ -550,6 +579,18 @@ export default function AdminOrderDetail() {
 
       {/* Main content */}
       <div className="container mx-auto px-4 py-8">
+        {providerAudit?.provider_session && (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+            <p className="font-bold">Read-only Stripe reconciliation</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Session" value={providerAudit.provider_session.id} mono />
+              <Field label="Session status" value={providerAudit.provider_session.status} />
+              <Field label="Provider payment status" value={providerAudit.provider_session.payment_status} />
+              <Field label="PaymentIntent" value={providerAudit.provider_session.payment_intent_id || 'None'} mono />
+            </div>
+            <p className="mt-3 text-xs">Provider events: {providerAudit.provider_events?.length ? providerAudit.provider_events.map(event => `${event.type} (${event.id})`).join(', ') : 'No matching event returned in the session window.'}</p>
+          </div>
+        )}
         <div className="grid lg:grid-cols-3 gap-6">
 
           {/* ── Left column (2/3) ── */}

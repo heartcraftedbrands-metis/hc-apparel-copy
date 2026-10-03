@@ -157,7 +157,7 @@ assert.match(checkout, /Sales tax/);
 assert.match(checkout, /markCheckoutPending\(window\.localStorage, orderId\)/);
 assert.doesNotMatch(checkout, /clearCart\(/);
 assert.doesNotMatch(adapter, /createSmallOrderCheckout: \['create_small_order_checkout'/);
-assert.match(checkoutPricing, /rpc\('create_small_order_checkout'/);
+assert.match(checkoutPricing, /rpc\('create_or_reuse_small_order_checkout'/);
 assert.match(checkoutPricing, /ss_free_freight_threshold/);
 assert.match(checkoutPricing, /prices\/v3\/base-rates\/search/);
 assert.match(checkoutPricing, /USPS_CLIENT_ID/);

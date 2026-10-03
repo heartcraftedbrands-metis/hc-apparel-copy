@@ -1,6 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import Stripe from 'npm:stripe@17';
 import {
+  getStripeCredentials,
   getStripeCredentialStatus,
+  modeFromCheckoutSessionId,
   normalizeStripeMode,
 } from '../_shared/stripeCredentials.ts';
 
@@ -26,6 +29,7 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
+    const body = await request.json().catch(() => ({}));
     const credentials = getStripeCredentialStatus();
     console.info('[getStripeStatus] credential readiness', JSON.stringify({
       test: {
@@ -56,6 +60,57 @@ Deno.serve(async (request) => {
 
     const { data: isAdmin, error: adminError } = await userClient.rpc('is_admin');
     if (adminError || !isAdmin) return json({ error: 'Administrator access required' }, 403);
+
+    if (body?.orderId) {
+      const { data: order, error: orderError } = await userClient.from('orders')
+        .select('id,created_date,total_amount,payment_status,amount_paid,balance_due,stripe_session_id,stripe_payment_intent_id,stripe_mode,payment_date,payment_confirmation_source,payment_provider_event_id,archived_at')
+        .eq('id', String(body.orderId))
+        .maybeSingle();
+      if (orderError) return json({ error: 'Unable to load order for reconciliation' }, 500);
+      if (!order) return json({ error: 'Order not found' }, 404);
+      if (!order.stripe_session_id) return json({ order_id: order.id, provider_session: null, message: 'No Stripe Checkout Session is attached.' });
+
+      const mode = modeFromCheckoutSessionId(order.stripe_session_id);
+      if (!mode) return json({ error: 'Stored Stripe Checkout Session ID is invalid' }, 409);
+      const selectedCredentials = getStripeCredentials(mode);
+      if (!selectedCredentials.secretKey) return json({ error: `Stripe ${mode} reconciliation is not configured` }, 503);
+
+      const stripe = new Stripe(selectedCredentials.secretKey);
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+      const created = Math.max(0, Number(session.created || 0) - 300);
+      const eventPage = await stripe.events.list({ created: { gte: created, lte: created + 172800 }, limit: 100 });
+      const providerEvents = eventPage.data.filter((candidate) => {
+        const object = candidate.data.object as Record<string, unknown>;
+        return object.id === session.id || object.id === session.payment_intent
+          || object.payment_intent === session.payment_intent || object.client_reference_id === order.id;
+      }).map((candidate) => ({ id: candidate.id, type: candidate.type, created: candidate.created, livemode: candidate.livemode }));
+
+      return json({
+        order_id: order.id,
+        archived_at: order.archived_at,
+        database_payment: {
+          status: order.payment_status,
+          amount_paid: order.amount_paid,
+          balance_due: order.balance_due,
+          payment_date: order.payment_date,
+          confirmation_source: order.payment_confirmation_source,
+          provider_event_id: order.payment_provider_event_id,
+        },
+        provider_session: {
+          id: session.id,
+          mode,
+          status: session.status,
+          payment_status: session.payment_status,
+          amount_total: session.amount_total,
+          currency: session.currency,
+          payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
+          created: session.created,
+          expires_at: session.expires_at,
+        },
+        provider_events: providerEvents,
+        read_only: true,
+      });
+    }
 
     const { data: settings, error: settingsError } = await userClient
       .from('payment_settings')

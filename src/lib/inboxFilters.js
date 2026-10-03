@@ -6,6 +6,7 @@ export const isActiveInboxItem = (item) => !isArchivedInboxItem(item);
 
 export const isActiveInboxOrder = (order) =>
   !order?.is_sample &&
+  !order?.archived_at &&
   !['archived', 'canceled', 'cancelled', 'refunded'].includes(order?.status) &&
   order?.payment_status !== 'demo';
 

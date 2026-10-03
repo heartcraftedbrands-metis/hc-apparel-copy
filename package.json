@@ -34,7 +34,8 @@
     "test:ss-shipping": "node scripts/test_ss_shipping_fallbacks.mjs",
     "test:marketing-center": "node scripts/test_marketing_center.mjs",
     "test:privacy-policy": "node scripts/test_privacy_policy.mjs",
-    "test:custom-printing-visibility": "node scripts/test_custom_printing_visibility.mjs"
+    "test:custom-printing-visibility": "node scripts/test_custom_printing_visibility.mjs",
+    "test:order-reconciliation": "node scripts/test_order_reconciliation_archiving.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.39",

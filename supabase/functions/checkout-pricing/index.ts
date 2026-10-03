@@ -898,7 +898,7 @@ Deno.serve(async (request) => {
     if (action !== 'create_order') return respond({ error: 'Unsupported checkout action.' }, 400);
     if (quote.needsSelection) return respond({ error: 'Select a shipping service before continuing.' }, 400);
     const rpcPayload = { ...payload, shipping_method: quote.components.map((component: Item) => component.service || component.rule).filter(Boolean).join(' + ') };
-    const { data: created, error: createError } = await userClient.rpc('create_small_order_checkout', { payload: rpcPayload });
+    const { data: created, error: createError } = await userClient.rpc('create_or_reuse_small_order_checkout', { payload: rpcPayload });
     if (createError || !created?.order_id) return respond({ error: createError?.message || 'Order could not be created.' }, 400);
     const service = quote.components.find((component: Item) => component.source === 'hc_apparel');
     const { error: updateError } = await admin.from('orders').update({

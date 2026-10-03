@@ -73,6 +73,38 @@ Deno.serve(async (request) => {
   if (!supabaseUrl || !serviceRoleKey) return json({ error: 'Supabase is not configured' }, 503);
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
+  const { error: eventInsertError } = await admin.from('stripe_webhook_events').insert({
+    event_id: event.id,
+    event_type: event.type,
+    stripe_mode: stripeMode,
+    order_id: orderId,
+    processing_status: 'processing',
+  });
+  if (eventInsertError?.code === '23505') {
+    const { data: existingEvent } = await admin.from('stripe_webhook_events')
+      .select('processing_status,received_at,attempt_count')
+      .eq('event_id', event.id)
+      .maybeSingle();
+    const receivedAt = existingEvent?.received_at ? new Date(existingEvent.received_at).getTime() : 0;
+    if (existingEvent?.processing_status === 'processed' || (existingEvent?.processing_status === 'processing' && Date.now() - receivedAt < 300_000)) {
+      return json({ received: true, processed: existingEvent.processing_status === 'processed', duplicate: true, order_id: orderId });
+    }
+    await admin.from('stripe_webhook_events').update({
+      processing_status: 'processing',
+      attempt_count: Number(existingEvent?.attempt_count || 1) + 1,
+      received_at: new Date().toISOString(),
+      last_error: null,
+    }).eq('event_id', event.id);
+  } else if (eventInsertError) {
+    console.error('Stripe webhook event ledger unavailable', { code: eventInsertError.code });
+    return json({ error: 'Unable to record payment event' }, 500);
+  }
+  const failEvent = async (message: string) => {
+    await admin.from('stripe_webhook_events').update({
+      processing_status: 'failed',
+      last_error: message,
+    }).eq('event_id', event.id);
+  };
   const { data: order, error: orderError } = await admin
     .from('orders')
     .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,shipping_charged_to_customer,sales_tax_amount,vendor_cost_estimate,actual_s_and_s_shipping,actual_vendor_shipping,actual_shipping_cost,estimated_s_and_s_shipping,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,checkout_source,stripe_mode,payment_processing_estimate,pricing_snapshot')
@@ -83,17 +115,20 @@ Deno.serve(async (request) => {
       code: orderError.code,
       message: orderError.message,
     });
+    await failEvent('Order lookup failed');
     return json({ error: 'Unable to load customer order' }, 500);
   }
-  if (!order) return json({ error: 'Customer order not found' }, 404);
+  if (!order) { await failEvent('Customer order not found'); return json({ error: 'Customer order not found' }, 404); }
   if (
     order.owner_user_id !== ownerUserId
     || order.checkout_source !== 'customized_small_order'
     || (order.stripe_mode || 'test') !== stripeMode
   ) {
+    await failEvent('Checkout session does not match the order');
     return json({ error: 'Checkout session does not match the order' }, 403);
   }
   if (session.currency !== 'usd' || session.amount_total !== Math.round(Number(order.total_amount) * 100)) {
+    await failEvent('Checkout amount does not match the order');
     return json({ error: 'Checkout amount does not match the order' }, 409);
   }
 
@@ -105,7 +140,7 @@ Deno.serve(async (request) => {
     const appliedProcessingCost = paymentDetails.actualProcessingCost ?? estimatedProcessingCost;
     const { error: updateError } = await admin.from('orders').update({
       payment_status: 'paid',
-      status: 'paid',
+      status: 'awaiting_fulfillment',
       payment_method: paymentDetails.label,
       payment_method_type: paymentDetails.type,
       estimated_processing_cost: estimatedProcessingCost,
@@ -115,11 +150,14 @@ Deno.serve(async (request) => {
       amount_paid: order.total_amount,
       balance_due: 0,
       payment_date: new Date().toISOString(),
+      payment_confirmed_at: new Date().toISOString(),
+      payment_confirmation_source: 'stripe_webhook',
+      payment_provider_event_id: event.id,
       stripe_session_id: session.id,
       stripe_payment_intent_id: String(session.payment_intent || ''),
       stripe_mode: stripeMode,
     }).eq('id', order.id).neq('payment_status', 'paid');
-    if (updateError) return json({ error: 'Unable to confirm payment' }, 500);
+    if (updateError) { await failEvent('Order payment update failed'); return json({ error: 'Unable to confirm payment' }, 500); }
     // The existing database trigger prepares protected vendor and notification drafts.
   }
 
@@ -138,5 +176,11 @@ Deno.serve(async (request) => {
     }).eq('id', paymentSettings.id);
   }
 
-  return json({ received: true, processed: true, order_id: order.id, stripe_mode: stripeMode });
+  await admin.from('stripe_webhook_events').update({
+    processing_status: 'processed',
+    processed_at: new Date().toISOString(),
+    last_error: null,
+  }).eq('event_id', event.id);
+
+  return json({ received: true, processed: true, duplicate: false, order_id: order.id, stripe_mode: stripeMode });
 });

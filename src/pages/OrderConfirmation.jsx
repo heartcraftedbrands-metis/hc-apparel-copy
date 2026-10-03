@@ -8,6 +8,7 @@ import { CheckCircle, Download, Package, AlertCircle, Printer, Eye } from "lucid
 import { Link } from "react-router-dom";
 import { isBlankOnlyOrder, orderHasArtwork } from '@/lib/productionWorkflow';
 import {
+  clearCheckoutAttempt,
   isCheckoutCompleted,
   isCheckoutPending,
   markCheckoutCompleted,
@@ -67,6 +68,8 @@ export default function OrderConfirmation() {
       .then(() => {
         if (!active) return;
         markCheckoutCompleted(window.localStorage, orderId);
+        try { clearCheckoutAttempt(window.sessionStorage); }
+        catch { /* Storage restrictions must not affect a confirmed order. */ }
         setCartCleared(true);
       })
       .catch(error => console.error('Paid-order cart clearing failed:', error));
