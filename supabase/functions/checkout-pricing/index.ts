@@ -600,7 +600,14 @@ Deno.serve(async (request) => {
     const action = String(body.action || 'quote');
     const payload = (body.payload || body) as Record<string, unknown>;
     const authorization = request.headers.get('Authorization') || '';
-    const serviceRequest = authorization === `Bearer ${serviceKey}`;
+    const bearerToken = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+    const apiKeyHeader = request.headers.get('apikey')?.trim() || '';
+    const acceptedServiceKeys = [
+      serviceKey,
+      Deno.env.get('SUPABASE_SECRET_KEY')?.trim(),
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim(),
+    ].filter((value): value is string => Boolean(value));
+    const serviceRequest = acceptedServiceKeys.includes(bearerToken) || acceptedServiceKeys.includes(apiKeyHeader);
     let admin = createClient(supabaseUrl, serviceKey);
     if (serviceRequest && action === 'invoice_tax_quote') {
       const state = String(payload.state || '').trim().toUpperCase();
@@ -637,7 +644,7 @@ Deno.serve(async (request) => {
       const domesticRates = domestic.status === 'fulfilled' ? domestic.value : [];
       const optionRates = options.status === 'fulfilled' ? options.value : [];
       const rates = optionRates.length ? optionRates : domesticRates;
-      if (!rates.length) return respond({ error: 'USPS returned no valid non-zero rate for this package.', code: 'USPS_RATE_UNAVAILABLE' }, 400);
+      if (!rates.length) return respond({ error: [domestic, options].filter(result => result.status === 'rejected').map(result => String(result.reason instanceof Error ? result.reason.message : result.reason).replace(/[\r\n]+/g, ' ').slice(0, 280)).join(' | ') || 'USPS returned no valid non-zero rate for this package.', code: 'USPS_RATE_UNAVAILABLE' }, 400);
       return respond({
         rates,
         source: optionRates.length ? 'USPS Shipping Options v3' : 'USPS Domestic Prices v3',
