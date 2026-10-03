@@ -54,4 +54,8 @@ assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/,
 assert.match(flags, /customPrinting:\s*false/, 'hidden custom-printing page remains hidden');
 assert.match(flags, /designStudioPublic:\s*false/, 'public studio flag remains off');
 
+const page = fs.readFileSync(new URL('../src/pages/AdminDesignStudio.jsx', import.meta.url), 'utf8');
+assert.match(page, /!\/\(hoodie\|sweatshirt\|tank\|polo\|jacket\|coat\)\/i/, 'legacy catalog filtering excludes non-T-shirt garments');
+assert.match(page, /admin_preview_only:\s*true/, 'cart attachment stays isolated from public checkout');
+
 console.log('Design Studio safety, validation, pricing, and persistence tests passed.');
