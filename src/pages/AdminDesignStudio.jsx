@@ -255,7 +255,11 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [designId, setDesignId] = useState('');
   const [version, setVersion] = useState(null);
   const [designs, setDesigns] = useState([]);
+  const [designsLoading, setDesignsLoading] = useState(false);
+  const [designsError, setDesignsError] = useState('');
   const [previewCart, setPreviewCart] = useState([]);
+  const [previewCartLoading, setPreviewCartLoading] = useState(false);
+  const [previewCartError, setPreviewCartError] = useState('');
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [saveState, setSaveState] = useState('Not saved');
@@ -299,10 +303,37 @@ export default function AdminDesignStudio({ customerMode = false }) {
       setProductsError(error.message || 'The live catalog request failed.');
     } finally { setProductsLoading(false); }
   }, []);
-  const loadDesigns = useCallback(async () => { const data = await invoke('list'); setDesigns(data.designs || []); }, []);
+  const loadDesigns = useCallback(async () => {
+    setDesignsLoading(true); setDesignsError('');
+    try {
+      const data = await invoke('list');
+      setDesigns(data.designs || []);
+    } catch (error) {
+      setDesignsError(error.message || 'Saved designs could not be loaded.');
+      throw error;
+    } finally { setDesignsLoading(false); }
+  }, []);
   const loadStatus = useCallback(async () => { const data = await invoke('status'); setStatus(data); }, []);
-  const loadPreviewCart = useCallback(async () => { if (customerMode) return; const data = await invoke('list_preview_cart'); setPreviewCart(data.items || []); }, [customerMode]);
+  const loadPreviewCart = useCallback(async () => {
+    if (customerMode) return;
+    setPreviewCartLoading(true); setPreviewCartError('');
+    try {
+      const data = await invoke('list_preview_cart');
+      setPreviewCart(data.items || []);
+    } catch (error) {
+      setPreviewCartError(error.message || 'The preview cart could not be loaded.');
+      throw error;
+    } finally { setPreviewCartLoading(false); }
+  }, [customerMode]);
   useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus(), loadPreviewCart()]).catch(error => { setSaveState(`Load failed · ${error.message}`); toast.error(error.message); }); }, [loadDesigns, loadPreviewCart, loadProducts, loadStatus]);
+  useEffect(() => {
+    if (tab !== 'designs') return;
+    loadDesigns().catch(error => { setSaveState(`Load failed · ${error.message}`); });
+  }, [loadDesigns, tab]);
+  useEffect(() => {
+    if (tab !== 'cart' || customerMode) return;
+    loadPreviewCart().catch(error => { setSaveState(`Load failed · ${error.message}`); });
+  }, [customerMode, loadPreviewCart, tab]);
   useEffect(() => {
     if (!document.productId) { setPrintAreas([]); setMockupMappings([]); return; }
     Promise.all([
@@ -560,9 +591,9 @@ export default function AdminDesignStudio({ customerMode = false }) {
         <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={exportPackage} disabled={Boolean(busy)}><Download className="mr-2 h-4 w-4" />Download production package</Button><Button variant="outline" onClick={attachPreviewCart} disabled={Boolean(busy)}><ShoppingCart className="mr-2 h-4 w-4" />{busy === 'cart' ? 'Attaching…' : 'Attach to preview cart'}</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={saveVersion} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'version' ? 'Saving version…' : 'Save Version'}</Button></div>
     </main>}
 
-    {tab === 'designs' && <main className="mx-auto max-w-6xl p-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{designs.map(item => <Card key={item.id}><CardHeader><CardTitle className="text-base">{item.name}</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p>{item.selected_color || 'No color'} · {item.selected_size || 'No size'} · Qty {item.quantity}</p><p className="text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</p><div className="flex items-center justify-between"><span className="rounded-full bg-muted px-2 py-1 text-xs">{item.status}</span><Button size="sm" onClick={() => openDesign(item.id)} disabled={busy === 'load'}>Open</Button></div></CardContent></Card>)}{!designs.length && <p className="text-sm text-muted-foreground">No saved designs yet.</p>}</div></main>}
+    {tab === 'designs' && <main className="mx-auto max-w-6xl p-4"><div className="mb-3 flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Saved designs are loaded from HC Apparel, not this browser.</p><Button size="sm" variant="outline" onClick={() => loadDesigns().catch(error => setSaveState(`Load failed · ${error.message}`))} disabled={designsLoading}>{designsLoading ? 'Refreshing…' : 'Refresh'}</Button></div>{designsError && <div role="alert" className="mb-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{designsError} Retry with Refresh. If it continues, sign in again.</div>}<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{designs.map(item => <Card key={item.id}><CardHeader><CardTitle className="text-base">{item.name}</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p>{item.selected_color || 'No color'} · {item.selected_size || 'No size'} · Qty {item.quantity}</p><p className="text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</p><div className="flex items-center justify-between"><span className="rounded-full bg-muted px-2 py-1 text-xs">{item.status}</span><Button size="sm" onClick={() => openDesign(item.id)} disabled={busy === 'load'}>Open</Button></div></CardContent></Card>)}{!designsLoading && !designsError && !designs.length && <p className="text-sm text-muted-foreground">No saved designs yet.</p>}</div></main>}
 
-    {tab === 'cart' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle className="flex items-center gap-2 text-[#4b1236]"><ShoppingCart className="h-5 w-5" />Isolated admin preview cart</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">These entries are durable server-side previews only. They cannot enter public checkout or production while required configuration is missing.</p></CardContent></Card><div className="grid gap-3 md:grid-cols-2">{previewCart.map(item => <Card key={item.id}><CardContent className="space-y-3 p-4"><div className="flex gap-3">{item.thumbnail_url && <img src={displayImage(item.thumbnail_url)} alt="" className="h-24 w-20 rounded-lg border bg-white object-contain" />}<div><p className="font-bold text-[#4b1236]">{item.product_name || 'Garment not selected'}</p><p className="text-xs text-muted-foreground">{item.selected_color || 'Color pending'} · {item.selected_size || 'Size pending'} · Qty {item.quantity}</p><p className="text-xs">Method: {(methods.find(value => value.method_key === item.decoration_method)?.customer_label) || item.decoration_method}</p></div></div><div className={`rounded-lg p-3 text-sm ${item.checkout_ready ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}><p className="flex items-center gap-2 font-bold">{item.checkout_ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}{item.checkout_ready ? 'Checkout-ready preview' : 'Not checkout-ready'}</p>{!item.pricing_complete && <p className="mt-1">Known garment amount: {item.garment_unit_price == null ? 'pending' : `$${Number(item.garment_unit_price).toFixed(2)} each`}. Printing estimate is incomplete.</p>}{(item.blockers || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">{item.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul>}</div><div className="flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">Stable version · {item.design_checksum?.slice(0, 10)}</p><Button size="sm" onClick={() => openDesign(item.design_id)}>Open design</Button></div></CardContent></Card>)}{!previewCart.length && <p className="text-sm text-muted-foreground">No designs are attached yet.</p>}</div></main>}
+    {tab === 'cart' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle className="flex items-center gap-2 text-[#4b1236]"><ShoppingCart className="h-5 w-5" />Isolated admin preview cart</CardTitle></CardHeader><CardContent className="space-y-3"><p className="text-sm text-muted-foreground">These entries are durable server-side previews only. They cannot enter public checkout or production while required configuration is missing.</p><Button size="sm" variant="outline" onClick={() => loadPreviewCart().catch(error => setSaveState(`Load failed · ${error.message}`))} disabled={previewCartLoading}>{previewCartLoading ? 'Refreshing…' : 'Refresh preview cart'}</Button></CardContent></Card>{previewCartError && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{previewCartError} Retry the preview cart. If it continues, sign in again.</div>}<div className="grid gap-3 md:grid-cols-2">{previewCart.map(item => <Card key={item.id}><CardContent className="space-y-3 p-4"><div className="flex gap-3">{item.thumbnail_url && <img src={displayImage(item.thumbnail_url)} alt="" className="h-24 w-20 rounded-lg border bg-white object-contain" />}<div><p className="font-bold text-[#4b1236]">{item.product_name || 'Garment not selected'}</p><p className="text-xs text-muted-foreground">{item.selected_color || 'Color pending'} · {item.selected_size || 'Size pending'} · Qty {item.quantity}</p><p className="text-xs">Method: {(methods.find(value => value.method_key === item.decoration_method)?.customer_label) || item.decoration_method}</p></div></div><div className={`rounded-lg p-3 text-sm ${item.checkout_ready ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}><p className="flex items-center gap-2 font-bold">{item.checkout_ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}{item.checkout_ready ? 'Checkout-ready preview' : 'Not checkout-ready'}</p>{!item.pricing_complete && <p className="mt-1">Known garment amount: {item.garment_unit_price == null ? 'pending' : `$${Number(item.garment_unit_price).toFixed(2)} each`}. Printing estimate is incomplete.</p>}{(item.blockers || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">{item.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul>}</div><div className="flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">Stable version · {item.design_checksum?.slice(0, 10)}</p><Button size="sm" onClick={() => openDesign(item.design_id)}>Open design</Button></div></CardContent></Card>)}{!previewCartLoading && !previewCartError && !previewCart.length && <p className="text-sm text-muted-foreground">No designs are attached yet.</p>}</div></main>}
 
     {tab === 'review' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Production review</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Review saved designs, immutable versions, print warnings, variants, route, and costs here. A production job cannot be prepared while a blocker remains. Vendor submission additionally requires verified payment, artwork approval, and explicit admin confirmation.</p><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr className="border-b"><th className="p-2">Design</th><th>Route</th><th>Variant</th><th>Issues</th><th>Action</th></tr></thead><tbody>{designs.map(item => <tr key={item.id} className="border-b"><td className="p-2 font-semibold">{item.name}</td><td>{item.production_route}</td><td>{item.selected_color} / {item.selected_size}</td><td>{(item.validation || []).length || 'None'}</td><td><Button size="sm" variant="outline" onClick={() => openDesign(item.id)}>Review</Button></td></tr>)}</tbody></table></div></CardContent></Card></main>}
 
