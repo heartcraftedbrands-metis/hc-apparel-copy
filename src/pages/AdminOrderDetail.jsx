@@ -395,6 +395,76 @@ export default function AdminOrderDetail() {
     </div>
   );
 
+  if (form.archived_at) return (
+    <div className="min-h-screen bg-muted/30">
+      <div className="bg-primary text-primary-foreground shadow-md">
+        <div className="container mx-auto flex flex-wrap items-center gap-3 px-4 py-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/AdminOrders')}
+            className="text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground">
+            <ArrowLeft className="mr-1.5 h-4 w-4" />Orders
+          </Button>
+          <div>
+            <h1 className="text-xl font-extrabold">Archived Order #{form.id.slice(-8).toUpperCase()}</h1>
+            <p className="text-sm text-primary-foreground/75">Restricted test archive — read only</p>
+          </div>
+        </div>
+      </div>
+      <main className="container mx-auto max-w-4xl space-y-4 px-4 py-6">
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-bold">QA/Test — Do Not Fulfill</p>
+          <p className="mt-1">{form.archive_reason}</p>
+          <p className="mt-2 font-semibold">Archived {format(new Date(form.archived_at), 'MMM d, yyyy h:mm a')} · Scheduled deletion {form.purge_after ? format(new Date(form.purge_after), 'MMM d, yyyy') : 'not set'}</p>
+          <p className="mt-2 text-xs">Application records and exclusively test-owned files are removed after retention. Provider records and backups follow their own retention policies.</p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Section title="Customer and order" icon={User} adminOnly>
+            <div className="space-y-2 text-sm">
+              <p><span className="font-semibold">Customer:</span> {form.customer_name || '—'}</p>
+              <p><span className="font-semibold">Email:</span> {form.customer_email || '—'}</p>
+              <p><span className="font-semibold">Order date:</span> {form.created_date ? format(new Date(form.created_date), 'MMM d, yyyy h:mm a') : '—'}</p>
+              <p><span className="font-semibold">Order status:</span> {form.status?.replace(/_/g, ' ') || '—'}</p>
+              <p><span className="font-semibold">Fulfillment:</span> {form.fulfillment_status?.replace(/_/g, ' ') || '—'}</p>
+            </div>
+          </Section>
+          <Section title="Preserved payment history" icon={DollarSign} adminOnly>
+            <div className="space-y-2 text-sm">
+              <p><span className="font-semibold">Payment status:</span> {form.payment_status?.replace(/_/g, ' ') || '—'}</p>
+              <p><span className="font-semibold">Order total:</span> ${Number(form.total_amount || 0).toFixed(2)}</p>
+              <p><span className="font-semibold">Amount paid:</span> ${Number(form.amount_paid || 0).toFixed(2)}</p>
+              <p><span className="font-semibold">Balance due:</span> ${Number(form.balance_due || 0).toFixed(2)}</p>
+              <Button size="sm" variant="outline" className="mt-2 gap-1.5" onClick={auditStripeProvider} disabled={!form.stripe_session_id || auditingProvider}>
+                {auditingProvider ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                Verify Stripe record
+              </Button>
+            </div>
+          </Section>
+        </div>
+
+        {providerAudit?.provider_session && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+            <p className="font-bold">Read-only Stripe reconciliation</p>
+            <p className="mt-2">Session status: {providerAudit.provider_session.status} · Payment status: {providerAudit.provider_session.payment_status}</p>
+            <p className="mt-1 break-all">Session: {providerAudit.provider_session.id}</p>
+            <p className="mt-1 break-all">PaymentIntent: {providerAudit.provider_session.payment_intent_id || 'None'}</p>
+            <p className="mt-2 text-xs">Provider events: {providerAudit.provider_events?.length ? providerAudit.provider_events.map(event => `${event.type} (${event.id})`).join(', ') : 'No matching event returned in the session window.'}</p>
+          </div>
+        )}
+
+        <Section title="Archived items" icon={Package} adminOnly>
+          <div className="space-y-3">
+            {(form.order_items || []).map((item, index) => (
+              <div key={`${item.sku || item.product_id || 'item'}-${index}`} className="rounded-lg border bg-white p-3 text-sm">
+                <p className="font-semibold">{item.product_name || item.name || 'Order item'}</p>
+                <p className="text-muted-foreground">SKU {item.sku || '—'} · {item.color || '—'} · {item.size || '—'} · Qty {item.quantity || 1}</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      </main>
+    </div>
+  );
+
   const revenue = Number(form.total_amount) || 0;
   const amountPaid = Number(form.amount_paid) || 0;
   const balanceDue = revenue - amountPaid;

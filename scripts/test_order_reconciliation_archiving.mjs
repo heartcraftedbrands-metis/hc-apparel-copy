@@ -4,6 +4,7 @@ import { clearCheckoutAttempt, getOrCreateCheckoutAttempt } from '../src/lib/che
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const migration = read('../supabase/migrations/202610030001_reconcile_orders_and_archive_test_data.sql');
+const archiveLockMigration = read('../supabase/migrations/202610030005_lock_archived_test_orders.sql');
 const checkout = read('../src/pages/Checkout.jsx');
 const pricing = read('../supabase/functions/checkout-pricing/index.ts');
 const webhook = read('../supabase/functions/stripeWebhook/index.ts');
@@ -49,6 +50,9 @@ assert.doesNotMatch(migration, /customer_name.*~.*test/is);
 assert.match(migration, /test_review_required = true/);
 assert.match(migration, /customer_profile_deleted', false/);
 assert.match(migration, /external_provider_records_deleted', false/);
+assert.match(archiveLockMigration, /Archived test orders are read-only until scheduled purge/);
+assert.match(archiveLockMigration, /before update on public\.orders/);
+assert.match(detail, /Restricted test archive — read only/);
 
 assert.match(orders, /Archived Test/);
 assert.match(orders, /Scheduled deletion/);
