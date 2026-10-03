@@ -69,6 +69,7 @@ assert.match(migration, /live_vendor_submission_enabled boolean not null default
 assert.match(edge, /payment_verified_at.*artwork_approved_at.*confirm_submission/s, 'submission has payment, artwork, and explicit confirmation gates');
 assert.match(edge, /PRINTIFY_API_TOKEN/, 'Printify credential remains server-side');
 assert.match(edge, /auth\.auth\.getUser\(jwt\)/, 'server validates the exact bearer token used by the signed-in HC session');
+assert.match(edge, /\.\.\.\(payload\.explicit \? \{ status: 'saved'/, 'autosave cannot downgrade an explicitly saved design back to draft');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
 assert.match(flags, /customPrinting:\s*false/, 'hidden custom-printing page remains hidden');
@@ -81,5 +82,6 @@ assert.match(page, /isStudioEligibleProduct/, 'catalog selection uses the shared
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(page, /admin_preview_only:\s*true/, 'cart attachment stays isolated from public checkout');
 assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/, 'Design Studio sends the active HC session explicitly to its server API');
+assert.match(page, /JSON\.stringify\(document\) === savedJsonRef\.current/, 'a stale autosave timer exits after an explicit save');
 
 console.log('Design Studio safety, validation, pricing, and persistence tests passed.');

@@ -296,6 +296,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (!changed) return undefined;
     setSaveState('Unsaved changes');
     const timer = setTimeout(async () => {
+      if (JSON.stringify(document) === savedJsonRef.current) return;
       if (!document.productId || !designId) return;
       setSaveState('Autosaving…');
       try {

@@ -328,8 +328,8 @@ Deno.serve(async request => {
         variant_sku: safeText(document.productSku, 160) || null, selected_color: safeText(document.color, 160) || null,
         selected_size: safeText(document.size, 80) || null, quantity: Math.max(1, Number(document.quantity) || 1),
         production_route: route, print_method: safeText(document.printMethod || 'dtf', 80), document: persistedDocument,
-        validation: warnings, autosaved_at: new Date().toISOString(), status: payload.explicit ? 'saved' : 'draft',
-        ...(payload.explicit ? { saved_at: new Date().toISOString() } : {}),
+        validation: warnings, autosaved_at: new Date().toISOString(),
+        ...(payload.explicit ? { status: 'saved', saved_at: new Date().toISOString() } : {}),
       };
       let saved;
       if (payload.design_id) {
