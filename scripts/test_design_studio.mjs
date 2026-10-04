@@ -6,7 +6,7 @@ import {
   synchronizeArtworkResize, updateArtworkDimension, validateDesign, validatePlacement,
 } from '../src/lib/designStudio.js';
 import {
-  buildMockupViews, getStudioGarmentLabel, getStudioGarmentType, isStudioEligibleProduct,
+  buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel, getStudioGarmentType, getVariantImage, isStudioEligibleProduct,
   placementAvailability, previewSurface,
 } from '../src/lib/designStudioCatalog.js';
 
@@ -55,7 +55,7 @@ assert.equal(calculateStudioPricing({ route: 'printify', garmentRetail: 30, supp
 assert.equal(isRestrictedCustomizationProduct({ brand: 'Columbia' }), true, 'Columbia customization restriction is preserved');
 assert.equal(isRestrictedCustomizationProduct({ name: 'Champion Hoodie' }), true, 'Champion customization restriction is preserved');
 assert.equal(isRestrictedCustomizationProduct({ name: 'Gildan 5000' }), false, 'eligible Gildan product is allowed');
-const baseProduct = { product_type: 'physical', visibility: 'public', is_active: true, stock: 12, brand: 'Gildan', name: 'Gildan 5000 Heavy Cotton T-Shirt', primary_garment_type: 't_shirts', design_studio_eligible: true, design_studio_garment_type: 't_shirts', design_studio_image_status: 'approved', image_url: 'https://www.ssactivewear.com/Images/Color/33476_f_fm.jpg', size_prices: [{ size: 'Black / L', sku: 'TEST-L', inventory: 12, price: 8, image_url: 'https://www.ssactivewear.com/Images/Color/33476_f_fm.jpg' }] };
+const baseProduct = { product_type: 'physical', visibility: 'public', is_active: true, stock: 12, brand: 'Gildan', name: 'Gildan 5000 Heavy Cotton T-Shirt', primary_garment_type: 't_shirts', design_studio_eligible: true, design_studio_garment_type: 't_shirts', design_studio_image_status: 'approved', design_studio_approved_colors: ['Black'], image_url: 'https://www.ssactivewear.com/Images/Color/33476_f_fm.jpg', size_prices: [{ size: 'Black / L', sku: 'TEST-L', inventory: 12, price: 8, image_url: 'https://www.ssactivewear.com/Images/Color/33476_f_fm.jpg' }, { size: 'Red / L', sku: 'TEST-RED-L', inventory: 12, price: 8, image_url: 'https://www.ssactivewear.com/Images/Color/red_f_fm.jpg' }] };
 assert.equal(isStudioEligibleProduct(baseProduct), true, 'live in-stock T-shirts are studio eligible');
 assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Gildan 18500 Hoodie', primary_garment_type: 'hoodies', design_studio_garment_type: 'pullover_hoodies' }), 'hoodies', 'explicitly approved pullover hoodies are included');
 assert.equal(getStudioGarmentLabel({ ...baseProduct, name: 'Full-Zip Hoodie', design_studio_garment_type: 'zip_hoodies' }), 'Zip hoodie', 'zip classification is explicit rather than inferred from product copy');
@@ -64,8 +64,11 @@ assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Hooded Puffer Jacket'
 assert.equal(getStudioGarmentType({ ...baseProduct, name: 'Crewneck Windbreaker', primary_garment_type: 'crewnecks', design_studio_garment_type: null }), '', 'a title keyword cannot approve a garment for the Studio');
 assert.equal(isStudioEligibleProduct({ ...baseProduct, design_studio_eligible: false }), false, 'products require explicit admin-managed studio eligibility');
 assert.equal(isStudioEligibleProduct({ ...baseProduct, design_studio_image_status: 'needs_review' }), false, 'unreviewed garment photographs are excluded from new selection');
+assert.equal(isStudioEligibleProduct({ ...baseProduct, design_studio_approved_colors: [] }), false, 'a product approval without an exact-color image approval stays excluded');
 assert.equal(isStudioEligibleProduct({ ...baseProduct, brand: 'Berne' }), false, 'Berne workwear stays outside the authorized studio rollout');
 assert.equal(isStudioEligibleProduct({ ...baseProduct, brand: 'Champion' }), false, 'restricted brands remain excluded');
+assert.deepEqual(getStudioCustomizationColors(baseProduct), ['Black'], 'only exact-color images approved by an admin enter the customer selector');
+assert.equal(getVariantImage(baseProduct, 'Red', 'L'), '', 'an unreviewed color cannot reuse or expose a different garment photograph');
 const views = buildMockupViews(baseProduct, 'Black', 'L');
 assert.equal(views.front.url, baseProduct.size_prices[0].image_url, 'selected color/size uses its real catalog photograph');
 assert.equal(placementAvailability(baseProduct, views).back.enabled, false, 'missing back photos are not fabricated');
@@ -90,6 +93,7 @@ const mobileActionMigration = fs.readFileSync(new URL('../supabase/migrations/20
 const vinylMethodMigration = fs.readFileSync(new URL('../supabase/migrations/202610030016_correct_hc_vinyl_methods.sql', import.meta.url), 'utf8');
 const artworkSizingMigration = fs.readFileSync(new URL('../supabase/migrations/202610030018_enforce_design_artwork_300_dpi.sql', import.meta.url), 'utf8');
 const garmentReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030020_explicit_design_studio_garment_review.sql', import.meta.url), 'utf8');
+const colorImageReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030021_design_studio_color_image_approval.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -112,6 +116,8 @@ assert.match(garmentReviewMigration, /design_studio_eligible boolean not null de
 assert.match(garmentReviewMigration, /design_studio_garment_type in \([\s\S]*'pullover_hoodies'[\s\S]*'zip_hoodies'/, 'pullover and zip hoodie classifications are stored separately');
 assert.match(garmentReviewMigration, /where lower\(brand\) = 'berne'/, 'Berne workwear is explicitly excluded without changing its storefront publication');
 assert.match(garmentReviewMigration, /design_studio_image_status = 'approved'/, 'selection requires a reviewed suitable garment photograph');
+assert.match(colorImageReviewMigration, /design_studio_approved_colors text\[\]/, 'exact-color garment photograph approvals are persisted separately from product eligibility');
+assert.match(colorImageReviewMigration, /cardinality\(design_studio_approved_colors\) > 0/, 'Studio eligibility fails closed without an approved exact-color photograph');
 assert.match(migration, /order_design_snapshots_immutable/, 'ordered snapshots are database-immutable');
 assert.match(migration, /public_studio_enabled boolean not null default false/, 'public studio starts disabled');
 assert.match(migration, /live_vendor_submission_enabled boolean not null default false/, 'vendor submission starts disabled');
@@ -123,6 +129,7 @@ assert.match(edge, /method\.draft_selectable === false/, 'server separates draft
 assert.match(edge, /fulfillment_not_configured/, 'preview cart explains outside-provider readiness without blocking draft attachment');
 assert.match(edge, /code: 'low_resolution', level: 'blocker'/, 'low-resolution raster artwork blocks production readiness without blocking draft persistence');
 assert.match(edge, /action === 'save_catalog_review'/, 'garment and image approval is managed through a server-validated admin setting');
+assert.match(edge, /Every approved color must match an in-stock catalog color with its own vendor image/, 'server validates exact-color approvals against live imaged variants');
 assert.match(edge, /garment_replacement_required/, 'saved designs keep excluded garments as explicit replacement blockers');
 assert.doesNotMatch(edge, /hoodie\|hooded sweatshirt\|crewneck/, 'server eligibility no longer falls back to product-title keywords');
 assert.match(edge, /enteredWidth[\s\S]*intendedWidthIn[\s\S]*pixelWidth[\s\S]*printWidth/, 'server quality validation uses original upload pixels and selected physical inches');

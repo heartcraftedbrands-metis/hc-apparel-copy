@@ -49,8 +49,14 @@ export function isStudioEligibleProduct(product) {
   if (product.visibility !== 'public' || product.is_active !== true || Number(product.stock || 0) <= 0) return false;
   if (lower(product.brand) === 'berne') return false;
   if (product.design_studio_eligible !== true || lower(product.design_studio_image_status) !== 'approved') return false;
+  if (!getApprovedStudioColors(product).length) return false;
   if (!getStudioGarmentType(product) || isRestrictedCustomizationProduct(product)) return false;
   return getCustomizationVariants(product).some(variant => Number(variant.inventory) > 0);
+}
+
+export function getApprovedStudioColors(product) {
+  const values = Array.isArray(product?.design_studio_approved_colors) ? product.design_studio_approved_colors : [];
+  return [...new Set(values.map(clean).filter(Boolean))];
 }
 
 export function getStudioProductSummary(product) {
@@ -75,21 +81,29 @@ export function getVariantForColor(product, color, size = '') {
 }
 
 export function getStudioCustomizationColors(product) {
+  const approved = new Set(getApprovedStudioColors(product).map(lower));
   const colors = getCustomizationVariants(product)
-    .filter(variant => (variant.inventory === null || variant.inventory > 0) && clean(variant.image_url))
+    .filter(variant => approved.has(lower(variant.color)) && (variant.inventory === null || variant.inventory > 0) && clean(variant.image_url))
     .map(variant => clean(variant.color));
   return [...new Set(colors.filter(Boolean))];
 }
 
 export function getVariantImage(product, color = '', size = '') {
-  const variant = getVariantForColor(product, color, size);
+  const approvedColors = getApprovedStudioColors(product);
+  const requestedColor = clean(color) || approvedColors[0] || '';
+  if (!requestedColor || !approvedColors.some(value => lower(value) === lower(requestedColor))) return '';
+  const variant = getVariantForColor(product, requestedColor, size);
   if (variant?.image_url) return clean(variant.image_url);
-  if (color) {
-    const normalized = lower(color);
+  if (requestedColor) {
+    const normalized = lower(requestedColor);
     const colorImage = getCustomizationVariants(product).find(item => lower(item.color) === normalized && Number(item.inventory || 0) > 0 && clean(item.image_url));
     return clean(colorImage?.image_url);
   }
-  return lower(product?.design_studio_image_status) === 'approved' ? clean(product?.image_url) : '';
+  return '';
+}
+
+export function getStudioProductPreviewImage(product) {
+  return getVariantImage(product, getApprovedStudioColors(product)[0] || '', '');
 }
 
 const viewFromUrl = url => {
