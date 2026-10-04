@@ -16,6 +16,9 @@ const fail = (message: string, status = 400, code = 'invalid_request'): never =>
 };
 const env = (name: string) => Deno.env.get(name)?.trim() || '';
 const safeText = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
+const studioGarmentTypes = new Set(['t_shirts', 'pullover_hoodies', 'zip_hoodies', 'crewnecks']);
+const studioImageStatuses = new Set(['needs_review', 'approved', 'rejected']);
+const blockedStudioBrands = new Set(['berne']);
 const reply = (body: unknown, status: number, origin: string) => new Response(JSON.stringify(body), {
   status,
   headers: {
@@ -265,6 +268,53 @@ Deno.serve(async request => {
       if (!settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
     }
 
+    if (action === 'catalog_review') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const { data, error } = await service.from('products').select([
+        'id','name','brand','style_number','supplier_sku','primary_garment_type','image_url','stock','visibility','is_active','product_type',
+        'size_prices','design_studio_eligible','design_studio_garment_type',
+        'design_studio_image_status','design_studio_image_note','design_studio_reviewed_at',
+      ].join(',')).eq('product_type', 'physical').eq('visibility', 'public').eq('is_active', true).order('brand').order('name').limit(1000);
+      if (error) fail('The Design Studio garment review list could not be loaded.', 500);
+      const items = (data || []).map(product => {
+        const variants = Array.isArray(product.size_prices) ? product.size_prices : [];
+        const sampleImages = [...new Set([product.image_url, ...variants.map((variant: Record<string, unknown>) => variant.image_url)].filter(Boolean))].slice(0, 6);
+        return { ...product, size_prices: undefined, sample_images: sampleImages };
+      });
+      return reply({
+        items,
+        approved_count: items.filter(item => item.design_studio_eligible === true && item.design_studio_image_status === 'approved').length,
+        needs_image_review_count: items.filter(item => ['t_shirts','hoodies','crewnecks'].includes(safeText(item.primary_garment_type, 80)) && item.design_studio_image_status === 'needs_review').length,
+      }, 200, origin);
+    }
+
+    if (action === 'save_catalog_review') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const productId = safeText(payload.product_id, 100);
+      const garmentType = safeText(payload.design_studio_garment_type, 80).toLowerCase();
+      const imageStatus = safeText(payload.design_studio_image_status, 40).toLowerCase();
+      const eligible = payload.design_studio_eligible === true;
+      const note = safeText(payload.design_studio_image_note, 1000);
+      const { data: product } = await service.from('products').select('id,brand,style_number,supplier_sku,primary_garment_type').eq('id', productId).maybeSingle();
+      if (!product) fail('Product not found.', 404);
+      if (garmentType && !studioGarmentTypes.has(garmentType)) fail('Choose an explicit supported Design Studio garment type.');
+      if (!studioImageStatuses.has(imageStatus)) fail('Choose a recognized image-review status.');
+      if (eligible && (!garmentType || imageStatus !== 'approved')) fail('Studio availability requires an explicit garment type and an approved unobstructed image review.');
+      if (eligible && safeText(product.primary_garment_type, 80).toLowerCase() === 'outerwear') fail('Jackets, coats, and other outerwear are not authorized for the Design Studio.');
+      if (eligible && blockedStudioBrands.has(safeText(product.brand, 100).toLowerCase())) fail('Berne workwear is not authorized for the current Design Studio rollout.');
+      const { data: updated, error } = await service.from('products').update({
+        design_studio_eligible: eligible,
+        design_studio_garment_type: garmentType || null,
+        design_studio_image_status: imageStatus,
+        design_studio_image_note: note || null,
+        design_studio_reviewed_at: new Date().toISOString(),
+        design_studio_reviewed_by: user.id,
+        updated_date: new Date().toISOString(),
+      }).eq('id', productId).select('id,name,brand,style_number,supplier_sku,primary_garment_type,image_url,stock,visibility,is_active,product_type,design_studio_eligible,design_studio_garment_type,design_studio_image_status,design_studio_image_note,design_studio_reviewed_at').single();
+      if (error) fail('The Design Studio garment review could not be saved.', 500);
+      return reply({ item: updated, server_validated: true }, 200, origin);
+    }
+
     if (action === 'mockups') {
       const productId = safeText(payload.product_id, 100);
       const color = safeText(payload.color, 160);
@@ -362,21 +412,32 @@ Deno.serve(async request => {
       const document = payload.document as Record<string, unknown>;
       if (!document || typeof document !== 'object') fail('A design document is required.');
       const productId = safeText(document.productId, 100);
+      const existingDesignResult = payload.design_id
+        ? await service.from('design_documents').select('id,owner_user_id,product_id,status').eq('id', safeText(payload.design_id, 80)).maybeSingle()
+        : { data: null };
+      const existingDesign = existingDesignResult.data;
+      if (payload.design_id && (!existingDesign || (existingDesign.owner_user_id !== user.id && !isAdmin))) fail('Design not found.', 404);
       let product: Record<string, unknown> | null = null;
+      const garmentEligibilityWarnings: Record<string, unknown>[] = [];
       if (productId) {
         const result = await service.from('products').select('*').eq('id', productId).maybeSingle();
         product = result.data;
-        if (!product || product.visibility !== 'public' || !product.is_active) fail('The selected garment is not currently eligible.');
-        const productText = `${product.brand || ''} ${product.name || ''}`.toLowerCase();
-        if (productText.includes('columbia') || productText.includes('champion') || product.customization_restricted === true || product.customization_eligible === false) {
-          fail('This product is restricted from Design Studio customization.');
+        const legacyReference = Boolean(existingDesign && safeText(existingDesign.product_id, 100) === productId);
+        const replacementReasons: string[] = [];
+        if (!product || product.visibility !== 'public' || !product.is_active) replacementReasons.push('the catalog product is not currently public and active');
+        const productText = `${product?.brand || ''} ${product?.name || ''}`.toLowerCase();
+        if (productText.includes('columbia') || productText.includes('champion') || product?.customization_restricted === true || product?.customization_eligible === false) {
+          replacementReasons.push('the product has a customization restriction');
         }
-        const garmentType = safeText(product.primary_garment_type || product.category || product.product_subtype, 80).toLowerCase();
-        const nameText = `${safeText(product.name, 300)} ${safeText(product.description, 500)} ${safeText(product.category, 100)} ${safeText(product.product_subtype, 100)}`.toLowerCase();
-        if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(nameText)) fail('Outerwear is not enabled for the current Design Studio rollout.');
-        const eligibleType = ['t_shirts','hoodies','crewnecks'].includes(garmentType)
-          || /\b(?:t-?shirt|tee|hoodie|hooded sweatshirt|crewneck|crew neck)\b/.test(nameText);
-        if (!eligibleType) fail('Only eligible T-shirts, hoodies, and crewneck sweatshirts can be customized.');
+        const garmentType = safeText(product?.design_studio_garment_type, 80).toLowerCase();
+        if (product?.design_studio_eligible !== true || !studioGarmentTypes.has(garmentType)) replacementReasons.push('the garment has not been explicitly approved for this studio rollout');
+        if (safeText(product?.design_studio_image_status, 40).toLowerCase() !== 'approved') replacementReasons.push('a suitable unobstructed garment photograph has not been approved');
+        if (safeText(product?.primary_garment_type, 80).toLowerCase() === 'outerwear' || blockedStudioBrands.has(safeText(product?.brand, 100).toLowerCase())) replacementReasons.push('jackets, coats, and Berne workwear are outside the authorized rollout');
+        if (replacementReasons.length && !legacyReference) fail(`This garment is not available for a new Design Studio selection: ${replacementReasons.join('; ')}.`);
+        if (replacementReasons.length) garmentEligibilityWarnings.push({
+          code: 'garment_replacement_required', level: 'blocker',
+          message: `This saved design is preserved, but its garment must be replaced before production because ${replacementReasons.join('; ')}.`,
+        });
       }
       const color = safeText(document.color, 160);
       const size = safeText(document.size, 80);
@@ -399,7 +460,7 @@ Deno.serve(async request => {
         : { data: [] };
       const areas = areasResult.data || [];
       const { data: studioSettings } = await service.from('design_studio_settings').select('default_raster_ppi').eq('id', true).maybeSingle();
-      const warnings = validateDocument(document, areas || [], Math.max(300, Number(studioSettings?.default_raster_ppi || 300)));
+      const warnings = [...garmentEligibilityWarnings, ...validateDocument(document, areas || [], Math.max(300, Number(studioSettings?.default_raster_ppi || 300)))];
       const persistedDocument = await storedDocumentCopy(document);
       const record = {
         owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId || null,
@@ -411,9 +472,7 @@ Deno.serve(async request => {
       };
       let saved;
       if (payload.design_id) {
-        const { data: existing } = await service.from('design_documents').select('owner_user_id,status').eq('id', payload.design_id).maybeSingle();
-        if (!existing || (existing.owner_user_id !== user.id && !isAdmin)) fail('Design not found.', 404);
-        if (existing.status === 'ordered') fail('Ordered designs cannot be changed. Duplicate it instead.');
+        if (existingDesign.status === 'ordered') fail('Ordered designs cannot be changed. Duplicate it instead.');
         const result = await service.from('design_documents').update({ ...record, updated_at: new Date().toISOString() }).eq('id', payload.design_id).select('*').single();
         if (result.error) fail(`Design could not be saved (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_update_failed'); saved = result.data;
       } else {
@@ -505,6 +564,18 @@ Deno.serve(async request => {
         else printingUnit += Number(candidates[0].service_price || 0);
       }
       const blockers = Array.isArray(version.validation_snapshot) ? [...version.validation_snapshot] : [];
+      const currentGarmentType = safeText(product?.design_studio_garment_type, 80).toLowerCase();
+      const currentGarmentEligible = Boolean(product
+        && product.visibility === 'public'
+        && product.is_active
+        && product.design_studio_eligible === true
+        && studioGarmentTypes.has(currentGarmentType)
+        && safeText(product.design_studio_image_status, 40).toLowerCase() === 'approved'
+        && !blockedStudioBrands.has(safeText(product.brand, 100).toLowerCase()));
+      if (productId && !currentGarmentEligible && !blockers.some(item => item.code === 'garment_replacement_required')) blockers.push({
+        code: 'garment_replacement_required', level: 'blocker',
+        message: 'This preserved design references a garment that is no longer eligible for new studio work. Choose an approved replacement before production.',
+      });
       if (!method?.available) blockers.push({
         code: 'fulfillment_not_configured', level: 'blocker',
         message: `${method?.customer_label || methodKey} production fulfillment is not configured. The saved design remains available for draft review.`,
@@ -517,7 +588,7 @@ Deno.serve(async request => {
       if (missingPricing.length) blockers.push({ code: 'printing_price_missing', level: 'blocker', message: `Printing price is not configured for: ${missingPricing.join(', ')}.` });
       if (Number(document.quantity || 1) >= 50) blockers.push({ code: 'bulk_quote_required', level: 'blocker', message: 'Quantities of 50 or more use the Bulk Quote workflow.' });
       const garmentUnit = Number(selectedVariant?.price ?? product?.account_price ?? product?.price ?? 0);
-      const pricingComplete = Boolean(product && selectedVariant && method?.available && !missingPricing.length && usedPlacements.length);
+      const pricingComplete = Boolean(currentGarmentEligible && selectedVariant && method?.available && !missingPricing.length && usedPlacements.length);
       const quantity = Math.max(1, Number(document.quantity) || 1);
       const checkoutReady = pricingComplete && !blockers.some(item => item.level === 'blocker');
       const record = {

@@ -1,6 +1,5 @@
 import { getCustomizationVariants, findCustomizationVariant } from './productCustomization.js';
 import { getProductBrand, getPublicProductName, getProductStyleLabel } from './productDisplayName.js';
-import { getStorefrontCategory } from './shopGarmentFilters.js';
 import { isRestrictedCustomizationProduct } from './designStudio.js';
 
 export const STUDIO_GARMENT_TYPES = [
@@ -13,35 +12,43 @@ export const STUDIO_GARMENT_TYPES = [
 const clean = value => String(value || '').trim();
 const lower = value => clean(value).toLowerCase();
 
+export const STUDIO_GARMENT_CLASSIFICATIONS = [
+  ['t_shirts', 'T-shirt'],
+  ['pullover_hoodies', 'Pullover hoodie'],
+  ['zip_hoodies', 'Zip hoodie'],
+  ['crewnecks', 'Crewneck sweatshirt'],
+];
+
+export function getStudioGarmentClassification(product) {
+  const explicit = lower(product?.design_studio_garment_type);
+  return STUDIO_GARMENT_CLASSIFICATIONS.some(([key]) => key === explicit) ? explicit : '';
+}
+
 export function getStudioGarmentType(product) {
-  const text = lower(`${product?.name || ''} ${product?.description || ''} ${product?.category || ''} ${product?.product_subtype || ''}`);
-  if (/\b(?:jacket|coat|anorak|windbreaker|puffer|vest)\b/.test(text)) return '';
-  const explicit = lower(product?.primary_garment_type);
-  if (['t_shirts', 'hoodies', 'crewnecks'].includes(explicit)) return explicit;
-  const category = getStorefrontCategory(product);
-  if (['t_shirts', 'hoodies', 'crewnecks'].includes(category)) return category;
-  if (/\b(?:full[- ]?zip|zip[- ]?up|pullover)?\s*hood(?:ie|ed)|hooded sweatshirt\b/.test(text)) return 'hoodies';
-  if (/\b(?:crewneck|crew neck|sweatshirt)\b/.test(text) && !/hood/.test(text)) return 'crewnecks';
-  if (/\b(?:t-?shirt|tee)\b/.test(text)) return 't_shirts';
+  const explicit = getStudioGarmentClassification(product);
+  if (explicit === 't_shirts' || explicit === 'crewnecks') return explicit;
+  if (explicit === 'pullover_hoodies' || explicit === 'zip_hoodies') return 'hoodies';
   return '';
 }
 
 export function getStudioGarmentLabel(product) {
-  const type = getStudioGarmentType(product);
-  if (type === 'hoodies') return isZipHoodie(product) ? 'Zip hoodie' : 'Pullover hoodie';
-  if (type === 'crewnecks') return 'Crewneck sweatshirt';
-  if (type === 't_shirts') return 'T-shirt';
+  const explicit = getStudioGarmentClassification(product);
+  if (explicit === 'zip_hoodies') return 'Zip hoodie';
+  if (explicit === 'pullover_hoodies') return 'Pullover hoodie';
+  if (explicit === 'crewnecks') return 'Crewneck sweatshirt';
+  if (explicit === 't_shirts') return 'T-shirt';
   return 'Unsupported garment';
 }
 
 export function isZipHoodie(product) {
-  return getStudioGarmentType(product) === 'hoodies'
-    && /\b(?:full[- ]?zip|zip[- ]?up|zip hoodie|zip hooded)\b/i.test(`${product?.name || ''} ${product?.description || ''}`);
+  return getStudioGarmentClassification(product) === 'zip_hoodies';
 }
 
 export function isStudioEligibleProduct(product) {
   if (!product || (product.product_type || 'physical') !== 'physical') return false;
   if (product.visibility !== 'public' || product.is_active !== true || Number(product.stock || 0) <= 0) return false;
+  if (lower(product.brand) === 'berne') return false;
+  if (product.design_studio_eligible !== true || lower(product.design_studio_image_status) !== 'approved') return false;
   if (!getStudioGarmentType(product) || isRestrictedCustomizationProduct(product)) return false;
   return getCustomizationVariants(product).some(variant => Number(variant.inventory) > 0);
 }
@@ -67,9 +74,22 @@ export function getVariantForColor(product, color, size = '') {
   return getCustomizationVariants(product).find(item => lower(item.color) === normalized && (item.inventory === null || item.inventory > 0)) || null;
 }
 
+export function getStudioCustomizationColors(product) {
+  const colors = getCustomizationVariants(product)
+    .filter(variant => (variant.inventory === null || variant.inventory > 0) && clean(variant.image_url))
+    .map(variant => clean(variant.color));
+  return [...new Set(colors.filter(Boolean))];
+}
+
 export function getVariantImage(product, color = '', size = '') {
   const variant = getVariantForColor(product, color, size);
-  return clean(variant?.image_url || product?.image_url);
+  if (variant?.image_url) return clean(variant.image_url);
+  if (color) {
+    const normalized = lower(color);
+    const colorImage = getCustomizationVariants(product).find(item => lower(item.color) === normalized && Number(item.inventory || 0) > 0 && clean(item.image_url));
+    return clean(colorImage?.image_url);
+  }
+  return lower(product?.design_studio_image_status) === 'approved' ? clean(product?.image_url) : '';
 }
 
 const viewFromUrl = url => {
@@ -94,7 +114,7 @@ const mockupValues = value => {
 };
 
 export function buildMockupViews(product, color = '', size = '', mapped = []) {
-  const front = getVariantImage(product, color, size);
+  const front = lower(product?.design_studio_image_status) === 'approved' ? getVariantImage(product, color, size) : '';
   const views = front ? { front: { url: front, source: 'Live catalog variant image', verified: true } } : {};
   for (const item of mockupValues(product?.mockup_images)) {
     const value = typeof item === 'string' ? { url: item, view: viewFromUrl(item) } : item;

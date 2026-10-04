@@ -17,11 +17,11 @@ import {
   artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
   makeElement, updatePlacement, validateDesign,
 } from '@/lib/designStudio';
-import { getCustomizationColors, getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
+import { getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
 import { getProductBrand, getPublicProductName } from '@/lib/productDisplayName';
 import {
-  STUDIO_GARMENT_TYPES, buildMockupViews, getStudioGarmentLabel,
-  getOfficialGarmentSource, getStudioProductSummary, getVariantForColor, isStudioEligibleProduct, placementAvailability,
+  STUDIO_GARMENT_CLASSIFICATIONS, STUDIO_GARMENT_TYPES, buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel,
+  getOfficialGarmentSource, getStudioProductSummary, getVariantForColor, getVariantImage, isStudioEligibleProduct, placementAvailability,
   previewSurface, viewForPlacement,
 } from '@/lib/designStudioCatalog';
 
@@ -157,7 +157,7 @@ function VariantPanel({ products, product, document, methods, onProduct, onField
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [brand, setBrand] = useState('all');
-  const colors = getCustomizationColors(product);
+  const colors = getStudioCustomizationColors(product);
   const sizes = getCustomizationSizes(product, document.color);
   const brands = [...new Set(products.map(item => getProductBrand(item)).filter(Boolean))].sort();
   const filtered = products.filter(item => {
@@ -254,6 +254,29 @@ function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', t
   </CardContent></Card>;
 }
 
+function GarmentReviewPanel({ review, loading, error, onRefresh, onSave, busy }) {
+  const [search, setSearch] = useState('');
+  const items = review?.items || [];
+  const filtered = items.filter(item => {
+    const text = `${item.brand || ''} ${item.name || ''} ${item.style_number || ''} ${item.supplier_sku || ''}`.toLowerCase();
+    return !search.trim() || text.includes(search.trim().toLowerCase());
+  });
+  return <Card><CardHeader><CardTitle>Garment eligibility &amp; image review</CardTitle></CardHeader><CardContent className="space-y-4">
+    <p className="text-sm text-muted-foreground">Studio access is explicit. A storefront category or a word such as “hooded” never approves a product. Approve only T-shirts, pullover or zip hoodies, and crewneck sweatshirts with a straight-on, unobstructed real photograph.</p>
+    <div className="grid gap-3 sm:grid-cols-3"><p className="rounded-xl border p-3 text-sm"><strong>Approved for Studio</strong><br />{review?.approved_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Needs image review</strong><br />{review?.needs_image_review_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Berne workwear</strong><br />Excluded from Studio</p></div>
+    <div className="flex flex-col gap-2 sm:flex-row"><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search review queue by brand, product, or style" /><Button type="button" variant="outline" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh list'}</Button></div>
+    {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {!loading && !error && <div className="max-h-[720px] space-y-3 overflow-y-auto pr-1">{filtered.map(item => {
+      const berne = String(item.brand || '').toLowerCase() === 'berne';
+      return <form key={`${item.id}-${item.design_studio_reviewed_at || 'unreviewed'}`} onSubmit={event => onSave(event, item.id)} className="rounded-xl border bg-white p-3">
+        <div className="flex flex-col gap-3 sm:flex-row"><div className="flex shrink-0 gap-1 overflow-x-auto sm:w-32">{(item.sample_images || [item.image_url]).filter(Boolean).slice(0, 3).map(url => <img key={url} src={displayImage(url)} alt="Garment review candidate" className="h-24 w-20 shrink-0 rounded-lg border bg-white object-contain" />)}</div><div className="min-w-0 flex-1"><p className="font-bold text-[#4b1236]">{item.brand} · {item.name}</p><p className="text-xs text-muted-foreground">Style {item.style_number || item.supplier_sku || 'not provided'} · Storefront classification: {item.primary_garment_type || 'not classified'}</p>{berne && <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900">Berne workwear remains available in the regular catalog but is not authorized for this Studio rollout.</p>}</div></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Studio availability"><select name="design_studio_eligible" defaultValue={String(item.design_studio_eligible === true)} className="h-10 w-full rounded-md border bg-white px-3"><option value="false">Excluded / review needed</option><option value="true" disabled={berne}>Eligible for new designs</option></select></Field><Field label="Explicit Studio garment type"><select name="design_studio_garment_type" defaultValue={item.design_studio_garment_type || ''} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Not assigned</option>{STUDIO_GARMENT_CLASSIFICATIONS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Photograph review"><select name="design_studio_image_status" defaultValue={item.design_studio_image_status || 'needs_review'} className="h-10 w-full rounded-md border bg-white px-3"><option value="needs_review">Needs review</option><option value="approved">Approved unobstructed image</option><option value="rejected">Image unsuitable</option></select></Field><Field label="Review note"><Input name="design_studio_image_note" defaultValue={item.design_studio_image_note || ''} placeholder="Source and suitability decision" /></Field></div>
+        <div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{item.design_studio_reviewed_at ? `Last reviewed ${new Date(item.design_studio_reviewed_at).toLocaleString()}` : 'Not reviewed yet'}</p><Button type="submit" size="sm" disabled={busy === `catalog-${item.id}`}>{busy === `catalog-${item.id}` ? 'Saving…' : 'Save review'}</Button></div>
+      </form>;
+    })}{!filtered.length && <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">No catalog products match this review search.</p>}</div>}
+  </CardContent></Card>;
+}
+
 export default function AdminDesignStudio({ customerMode = false }) {
   const [tab, setTab] = useState('studio');
   const [history, dispatch] = useReducer(historyReducer, createStudioDocument(), createHistory);
@@ -273,6 +296,9 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [previewCart, setPreviewCart] = useState([]);
   const [previewCartLoading, setPreviewCartLoading] = useState(false);
   const [previewCartError, setPreviewCartError] = useState('');
+  const [catalogReview, setCatalogReview] = useState({ items: [], approved_count: 0, needs_image_review_count: 0 });
+  const [catalogReviewLoading, setCatalogReviewLoading] = useState(false);
+  const [catalogReviewError, setCatalogReviewError] = useState('');
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [saveState, setSaveState] = useState('Not saved');
@@ -284,6 +310,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const savedJsonRef = useRef(JSON.stringify(document));
 
   const product = products.find(item => item.id === document.productId) || null;
+  const preservedGarmentNeedsReplacement = Boolean(document.productId && !product && !productsLoading);
   const variant = product ? findCustomizationVariant(product, document.color, document.size) : null;
   const methodKey = document.decorationMethod || document.printMethod || 'dtf';
   const targetPpi = Math.max(300, Number(status?.settings?.default_raster_ppi || 300));
@@ -320,7 +347,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const loadProducts = useCallback(async () => {
     setProductsLoading(true); setProductsError('');
     try {
-      const { data, error } = await supabase.from('storefront_products').select('*').eq('product_type', 'physical').eq('is_active', true).eq('visibility', 'public').limit(1000);
+      const { data, error } = await supabase.from('design_studio_products').select('*').limit(1000);
       if (error) throw error;
       const garments = (data || []).filter(isStudioEligibleProduct);
       garments.sort((a, b) => (String(a.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(a.name) ? -1 : String(b.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(b.name) ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
@@ -341,6 +368,13 @@ export default function AdminDesignStudio({ customerMode = false }) {
     } finally { setDesignsLoading(false); }
   }, []);
   const loadStatus = useCallback(async () => { const data = await invoke('status'); setStatus(data); }, []);
+  const loadCatalogReview = useCallback(async () => {
+    if (customerMode) return;
+    setCatalogReviewLoading(true); setCatalogReviewError('');
+    try { setCatalogReview(await invoke('catalog_review')); }
+    catch (error) { setCatalogReviewError(error.message || 'The garment review list could not be loaded.'); }
+    finally { setCatalogReviewLoading(false); }
+  }, [customerMode]);
   const loadPreviewCart = useCallback(async () => {
     if (customerMode) return;
     setPreviewCartLoading(true); setPreviewCartError('');
@@ -361,6 +395,10 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (tab !== 'cart' || customerMode) return;
     loadPreviewCart().catch(error => { setSaveState(`Load failed · ${error.message}`); });
   }, [customerMode, loadPreviewCart, tab]);
+  useEffect(() => {
+    if (!['settings', 'areas'].includes(tab) || customerMode) return;
+    loadCatalogReview();
+  }, [customerMode, loadCatalogReview, tab]);
   useEffect(() => {
     if (!document.productId) { setPrintAreas([]); setMockupMappings([]); return; }
     Promise.all([
@@ -405,14 +443,14 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (key === 'color') {
       const selectedVariant = getVariantForColor(product, value);
       changes.size = '';
-      changes.productImage = displayImage(selectedVariant?.image_url || product?.image_url || '');
+      changes.productImage = displayImage(getVariantImage(product, value, '') || '');
       changes.productSku = selectedVariant?.sku || product?.style_number || '';
       changes.variantId = selectedVariant?.variant_id || '';
       changes.mockupViews = buildMockupViews(product, value, '', mockupMappings);
     }
     if (key === 'size') {
       const selectedVariant = findCustomizationVariant(product, document.color, value);
-      changes.productImage = displayImage(selectedVariant?.image_url || document.productImage || product?.image_url || '');
+      changes.productImage = displayImage(getVariantImage(product, document.color, value) || '');
       changes.productSku = selectedVariant?.sku || product?.style_number || '';
       changes.variantId = selectedVariant?.variant_id || '';
       changes.mockupViews = buildMockupViews(product, document.color, value, mockupMappings);
@@ -467,7 +505,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
     setBusy('load'); try {
       const result = await invoke('load', { design_id: id });
       const savedProduct = products.find(item => item.id === result.design.document.productId);
-      const hydrated = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantForColor(savedProduct, result.design.document.color, result.design.document.size)?.image_url || savedProduct.image_url || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
+      const hydrated = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantImage(savedProduct, result.design.document.color, result.design.document.size) || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
       dispatch({ type: 'replace', value: hydrated }); setDesignId(result.design.id); setVersion(null); setSelectedIds([]); savedJsonRef.current = JSON.stringify(hydrated); setSaveState('Saved'); setTab('studio');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); }
   };
@@ -570,6 +608,23 @@ export default function AdminDesignStudio({ customerMode = false }) {
     if (error) return toast.error(error.message);
     await loadStatus(); toast.success('Artwork quality target saved.');
   };
+  const saveCatalogReview = async (event, productId) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    setBusy(`catalog-${productId}`);
+    try {
+      await invoke('save_catalog_review', {
+        product_id: productId,
+        design_studio_eligible: values.design_studio_eligible === 'true',
+        design_studio_garment_type: values.design_studio_garment_type || null,
+        design_studio_image_status: values.design_studio_image_status,
+        design_studio_image_note: values.design_studio_image_note || '',
+      });
+      await Promise.all([loadCatalogReview(), loadProducts()]);
+      toast.success('Design Studio garment and image review saved. The regular storefront product was not changed.');
+    } catch (error) { toast.error(error.message); }
+    finally { setBusy(''); }
+  };
 
   const visibleTabs = customerMode ? TABS.filter(([key]) => ['studio', 'designs'].includes(key)) : TABS;
   const sidePanels = {
@@ -595,11 +650,12 @@ export default function AdminDesignStudio({ customerMode = false }) {
       <section className="mb-4 rounded-2xl border border-[#b58d2a]/45 bg-white p-3 shadow-sm sm:p-4" aria-label="Selected garment">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            {product ? <img src={document.productImage || displayImage(product.image_url)} alt={document.productName} className="h-24 w-20 shrink-0 rounded-xl border bg-white object-contain" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[#f7f3ea]"><Shirt className="h-8 w-8 text-[#4b1236]" /></div>}
-            <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.12em] text-[#4f6b45]">Garment comes first</p><h2 className="mt-1 text-base font-bold text-[#4b1236] sm:text-lg">{product ? document.productName : 'Choose a real live garment'}</h2><p className="mt-1 text-sm text-muted-foreground">{product ? `${getStudioGarmentLabel(product)} · ${document.color || 'Choose color'} · ${document.size || 'Choose size'} · ${variant?.sku ? `SKU ${variant.sku} · ` : ''}$${productPrice(product, variant).toFixed(2)}` : 'Search eligible T-shirts, pullover or zip hoodies, and crewneck sweatshirts before using the canvas.'}</p></div>
+            {product || preservedGarmentNeedsReplacement ? <img src={document.productImage || displayImage(product?.image_url)} alt={document.productName} className="h-24 w-20 shrink-0 rounded-xl border bg-white object-contain" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[#f7f3ea]"><Shirt className="h-8 w-8 text-[#4b1236]" /></div>}
+            <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.12em] text-[#4f6b45]">Garment comes first</p><h2 className="mt-1 text-base font-bold text-[#4b1236] sm:text-lg">{product || preservedGarmentNeedsReplacement ? document.productName : 'Choose a real live garment'}</h2><p className="mt-1 text-sm text-muted-foreground">{product ? `${getStudioGarmentLabel(product)} · ${document.color || 'Choose color'} · ${document.size || 'Choose size'} · ${variant?.sku ? `SKU ${variant.sku} · ` : ''}$${productPrice(product, variant).toFixed(2)}` : preservedGarmentNeedsReplacement ? `${document.color || 'Color preserved'} · ${document.size || 'Size preserved'} · Replacement required before production` : 'Search eligible T-shirts, pullover or zip hoodies, and crewneck sweatshirts before using the canvas.'}</p></div>
           </div>
-          <Button type="button" className="h-12 shrink-0 bg-[#4b1236] text-white hover:bg-[#351026]" onClick={() => setMobilePanel('variants')}><Shirt className="mr-2 h-5 w-5" />{product ? 'Change Garment' : 'Choose Garment'}</Button>
+          <Button type="button" className="h-12 shrink-0 bg-[#4b1236] text-white hover:bg-[#351026]" onClick={() => setMobilePanel('variants')}><Shirt className="mr-2 h-5 w-5" />{product || preservedGarmentNeedsReplacement ? 'Change Garment' : 'Choose Garment'}</Button>
         </div>
+        {preservedGarmentNeedsReplacement && <p role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">This saved design is preserved, but its previous garment is no longer eligible for new Design Studio work. Choose an approved replacement before production. Nothing was silently switched or deleted.</p>}
       </section>
       <div className="grid min-w-0 gap-4 lg:grid-cols-[270px_minmax(0,1fr)_280px]">
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.variants}</CardContent></Card><Card><CardContent className="p-4">{sidePanels.add}</CardContent></Card></aside>
@@ -640,8 +696,8 @@ export default function AdminDesignStudio({ customerMode = false }) {
       <Field label="Verification source note"><Input value={areaForm.source_note} onChange={event => setAreaForm(value => ({ ...value, source_note: event.target.value }))} placeholder="Vendor spec sheet / measured platen" /></Field>
       <div className="sm:col-span-2"><Button type="submit" className="bg-[#4f6b45] text-white">Save verified area</Button></div>
     </form></CardContent></Card>
-    <Card className="mt-4"><CardHeader><CardTitle>Real garment view mapping</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">Catalog front photos are used automatically. Upload only an authorized real back or sleeve photograph when that exact product/view is available. The source and normalized preview surface are recorded; no view is fabricated.</p><form onSubmit={uploadMockup} className="grid gap-4 sm:grid-cols-2">
-      <Field label="Product"><select value={mockupForm.product_id} onChange={event => setMockupForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Select product</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)}</option>)}</select></Field>
+    <Card className="mt-4"><CardHeader><CardTitle>Real garment view mapping</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">An exact-color catalog front photograph is used only after explicit image approval. Upload an authorized straight-on front, back, or sleeve photograph when the catalog view is unsuitable or missing. The source and normalized preview surface are recorded; no view is fabricated, mirrored, or borrowed from another style.</p><form onSubmit={uploadMockup} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Product"><select value={mockupForm.product_id} onChange={event => setMockupForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Select product</option>{(catalogReview.items?.length ? catalogReview.items : products).map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)}</option>)}</select></Field>
       <Field label="Color" hint="Use * only for an asset verified to represent every color."><Input value={mockupForm.color_key} onChange={event => setMockupForm(value => ({ ...value, color_key: event.target.value }))} /></Field>
       <Field label="View"><select value={mockupForm.view} onChange={event => setMockupForm(value => ({ ...value, view: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="front">Front</option><option value="back">Back</option><option value="left_sleeve">Wearer-left sleeve</option><option value="right_sleeve">Wearer-right sleeve</option></select></Field>
       <Field label="Authorized source note"><Input value={mockupForm.source_note} onChange={event => setMockupForm(value => ({ ...value, source_note: event.target.value }))} placeholder="S&S catalog / licensed photographer / vendor asset" /></Field>
@@ -669,7 +725,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
       </form></CardContent></Card>
     </main>}
 
-    {tab === 'settings' && <main className="mx-auto max-w-4xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card></main>}
+    {tab === 'settings' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card><GarmentReviewPanel review={catalogReview} loading={catalogReviewLoading} error={catalogReviewError} onRefresh={loadCatalogReview} onSave={saveCatalogReview} busy={busy} /></main>}
 
     {tab === 'studio' && <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] lg:hidden">
       {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} /></div>}</SheetContent></Sheet>)}
