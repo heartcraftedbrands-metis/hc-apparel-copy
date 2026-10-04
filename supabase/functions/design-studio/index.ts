@@ -757,14 +757,29 @@ Deno.serve(async request => {
       const { data: existing } = await service.from('design_preview_cart_items').select('id')
         .eq('owner_user_id', user.id)
         .eq('design_id', design.id)
-        .eq('design_checksum', version.checksum)
         .is('archived_at', null)
+        .order('updated_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
-      const result = existing
+      let duplicatePrevented = Boolean(existing);
+      let result = existing
         ? await service.from('design_preview_cart_items').update(record).eq('id', existing.id).select('*').single()
         : await service.from('design_preview_cart_items').insert(record).select('*').single();
+      if (result.error?.code === '23505') {
+        const { data: concurrent } = await service.from('design_preview_cart_items').select('id')
+          .eq('owner_user_id', user.id)
+          .eq('design_id', design.id)
+          .is('archived_at', null)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (concurrent) {
+          duplicatePrevented = true;
+          result = await service.from('design_preview_cart_items').update(record).eq('id', concurrent.id).select('*').single();
+        }
+      }
       if (result.error) fail(`The preview cart could not be updated (database ${result.error.code || 'error'}).`, 500, result.error.code || 'preview_cart_failed');
-      return reply({ item: result.data, duplicate_prevented: Boolean(existing) }, 200, origin);
+      return reply({ item: result.data, duplicate_prevented: duplicatePrevented }, 200, origin);
     }
 
     if (action === 'list_preview_cart') {

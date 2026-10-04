@@ -96,6 +96,7 @@ const artworkSizingMigration = fs.readFileSync(new URL('../supabase/migrations/2
 const garmentReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030020_explicit_design_studio_garment_review.sql', import.meta.url), 'utf8');
 const colorImageReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030021_design_studio_color_image_approval.sql', import.meta.url), 'utf8');
 const catalogCoverageMigration = fs.readFileSync(new URL('../supabase/migrations/202610040002_expand_design_studio_catalog_coverage.sql', import.meta.url), 'utf8');
+const previewCartDedupeMigration = fs.readFileSync(new URL('../supabase/migrations/202610040003_prevent_design_preview_cart_duplicates.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -160,7 +161,9 @@ assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields are stripp
 assert.match(page, /Approved exact-color front photographs/, 'admin coverage provides an exact-photo assignment control');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
-assert.match(edge, /\.eq\('design_checksum', version\.checksum\)/, 'reattaching an unchanged stable design is deduplicated by checksum');
+assert.match(edge, /\.eq\('design_id', design\.id\)[\s\S]*\.is\('archived_at', null\)/, 'reattaching a saved design is deduplicated by active design identity across reloads and versions');
+assert.match(edge, /result\.error\?\.code === '23505'/, 'concurrent preview-cart attaches recover from the database uniqueness guard');
+assert.match(previewCartDedupeMigration, /unique index[\s\S]*owner_user_id, design_id[\s\S]*where archived_at is null/i, 'the database permits only one active preview-cart row per owner and design');
 assert.match(edge, /!isAdmin \|\| payload\.owner_only === true/, 'customer preview saved-design lists remain scoped to the signed-in owner even for an admin testing the customer view');
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
