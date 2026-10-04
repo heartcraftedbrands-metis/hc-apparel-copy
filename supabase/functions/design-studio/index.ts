@@ -18,7 +18,11 @@ const env = (name: string) => Deno.env.get(name)?.trim() || '';
 const safeText = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
 const studioGarmentTypes = new Set(['t_shirts', 'pullover_hoodies', 'zip_hoodies', 'crewnecks']);
 const studioImageStatuses = new Set(['needs_review', 'approved', 'rejected']);
-const blockedStudioBrands = new Set(['berne']);
+const studioBrands = new Set([
+  'gildan', 'comfort colors', 'shaka wear', 'hanes', 'next level',
+  'bella + canvas', 'american apparel', 'tultex',
+]);
+const studioCatalogCategories = new Set(['t_shirts', 'hoodies', 'crewnecks']);
 const reply = (body: unknown, status: number, origin: string) => new Response(JSON.stringify(body), {
   status,
   headers: {
@@ -28,6 +32,24 @@ const reply = (body: unknown, status: number, origin: string) => new Response(JS
     'access-control-allow-methods': 'POST, OPTIONS',
   },
 });
+
+async function loadEveryProduct(service: ReturnType<typeof createClient>, select: string) {
+  const rows: Record<string, unknown>[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await service.from('products').select(select).eq('product_type', 'physical').order('id').range(from, from + pageSize - 1);
+    if (error) fail('The Design Studio garment review list could not be loaded.', 500);
+    rows.push(...((data || []) as Record<string, unknown>[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+function catalogColor(variant: Record<string, unknown>) {
+  const raw = safeText(variant.size, 240);
+  const separator = raw.indexOf(' / ');
+  return safeText(variant.color_name || variant.color || (separator >= 0 ? raw.slice(0, separator) : ''), 160);
+}
 
 function decodeBase64(value: string) {
   try {
@@ -270,21 +292,65 @@ Deno.serve(async request => {
 
     if (action === 'catalog_review') {
       if (!isAdmin) fail('Admin access is required.', 403);
-      const { data, error } = await service.from('products').select([
+      const data = await loadEveryProduct(service, [
         'id','name','brand','style_number','supplier_sku','primary_garment_type','image_url','stock','visibility','is_active','product_type',
         'size_prices','design_studio_eligible','design_studio_garment_type',
-        'design_studio_image_status','design_studio_image_note','design_studio_approved_colors','design_studio_reviewed_at',
-      ].join(',')).eq('product_type', 'physical').eq('visibility', 'public').eq('is_active', true).order('brand').order('name').limit(1000);
-      if (error) fail('The Design Studio garment review list could not be loaded.', 500);
-      const items = (data || []).map(product => {
+        'design_studio_image_status','design_studio_image_note','design_studio_approved_colors','design_studio_front_images','design_studio_reviewed_at',
+      ].join(','));
+      const items = data.filter(product => studioBrands.has(safeText(product.brand, 100).toLowerCase())).map(product => {
         const variants = Array.isArray(product.size_prices) ? product.size_prices : [];
-        const sampleImages = [...new Set([product.image_url, ...variants.map((variant: Record<string, unknown>) => variant.image_url)].filter(Boolean))].slice(0, 6);
-        return { ...product, size_prices: undefined, sample_images: sampleImages };
+        const candidateImages: Record<string, string>[] = [];
+        const seen = new Set<string>();
+        for (const variant of variants as Record<string, unknown>[]) {
+          const color = catalogColor(variant);
+          const imageUrl = safeText(variant.image_url, 1500);
+          if (!color || !imageUrl || Number(variant.inventory ?? 0) <= 0 || seen.has(`${color.toLowerCase()}|${imageUrl}`)) continue;
+          seen.add(`${color.toLowerCase()}|${imageUrl}`);
+          candidateImages.push({ color, image_url: imageUrl });
+        }
+        candidateImages.sort((a, b) => Number(!a.image_url.includes('/Images/Color/')) - Number(!b.image_url.includes('/Images/Color/')) || a.color.localeCompare(b.color));
+        const brandAllowed = studioBrands.has(safeText(product.brand, 100).toLowerCase());
+        const publicAndActive = product.visibility === 'public' && product.is_active === true;
+        const categoryAllowed = studioCatalogCategories.has(safeText(product.primary_garment_type, 80).toLowerCase());
+        const inStock = Number(product.stock || 0) > 0 && variants.some((variant: Record<string, unknown>) => Number(variant.inventory ?? 0) > 0);
+        const approvedImageMap = product.design_studio_front_images && typeof product.design_studio_front_images === 'object' && !Array.isArray(product.design_studio_front_images)
+          ? product.design_studio_front_images as Record<string, unknown> : {};
+        const approved = brandAllowed && publicAndActive && categoryAllowed && inStock
+          && product.design_studio_eligible === true
+          && studioGarmentTypes.has(safeText(product.design_studio_garment_type, 80).toLowerCase())
+          && safeText(product.design_studio_image_status, 40).toLowerCase() === 'approved'
+          && Object.keys(approvedImageMap).length > 0;
+        let coverageStatus = approved ? 'approved' : 'needs_image';
+        let coverageReason = approved ? 'Approved exact-style, exact-color front photograph.' : safeText(product.design_studio_image_note, 1000);
+        if (!publicAndActive) { coverageStatus = 'excluded'; coverageReason = product.visibility !== 'public' ? 'Not public in the current storefront catalog.' : 'Product is inactive.'; }
+        else if (!categoryAllowed) { coverageStatus = 'excluded'; coverageReason = `Storefront category ${safeText(product.primary_garment_type, 80) || 'unclassified'} is outside the Studio T-shirt, pullover/zip hoodie, and crewneck scope.`; }
+        else if (!inStock) { coverageStatus = 'excluded'; coverageReason = 'No currently available catalog variant.'; }
+        else if (!coverageReason) coverageReason = 'Suitable exact-style, exact-color straight-on photograph still needs review.';
+        return { ...product, size_prices: undefined, candidate_images: candidateImages, coverage_status: coverageStatus, coverage_reason: coverageReason };
+      }).sort((a, b) => `${a.brand} ${a.name}`.localeCompare(`${b.brand} ${b.name}`));
+      const coverage = [...studioBrands].map(brandKey => {
+        const brandItems = items.filter(item => safeText(item.brand, 100).toLowerCase() === brandKey);
+        const qualifying = brandItems.filter(item => studioCatalogCategories.has(safeText(item.primary_garment_type, 80).toLowerCase()) && item.visibility === 'public' && item.is_active === true && Number(item.stock || 0) > 0);
+        const categoryCount = (classification: string) => qualifying.filter(item => safeText(item.design_studio_garment_type, 80).toLowerCase() === classification).length;
+        return {
+          brand: brandItems[0]?.brand || brandKey,
+          qualifying_found: qualifying.length,
+          t_shirts: categoryCount('t_shirts'),
+          pullover_hoodies: categoryCount('pullover_hoodies'),
+          zip_hoodies: categoryCount('zip_hoodies'),
+          crewnecks: categoryCount('crewnecks'),
+          approved: qualifying.filter(item => item.coverage_status === 'approved').length,
+          needs_image: qualifying.filter(item => item.coverage_status === 'needs_image').length,
+          excluded: brandItems.filter(item => item.coverage_status === 'excluded').length,
+        };
       });
       return reply({
         items,
-        approved_count: items.filter(item => item.design_studio_eligible === true && item.design_studio_image_status === 'approved' && Array.isArray(item.design_studio_approved_colors) && item.design_studio_approved_colors.length > 0).length,
-        needs_image_review_count: items.filter(item => ['t_shirts','hoodies','crewnecks'].includes(safeText(item.primary_garment_type, 80)) && item.design_studio_image_status === 'needs_review').length,
+        coverage,
+        catalog_rows_scanned: data.length,
+        qualifying_count: coverage.reduce((sum, item) => sum + item.qualifying_found, 0),
+        approved_count: items.filter(item => item.coverage_status === 'approved').length,
+        needs_image_review_count: items.filter(item => item.coverage_status === 'needs_image').length,
       }, 200, origin);
     }
 
@@ -298,32 +364,46 @@ Deno.serve(async request => {
       const requestedColors = Array.isArray(payload.design_studio_approved_colors)
         ? [...new Set(payload.design_studio_approved_colors.map(value => safeText(value, 160)).filter(Boolean))]
         : [];
+      const requestedImageMap = payload.design_studio_front_images && typeof payload.design_studio_front_images === 'object' && !Array.isArray(payload.design_studio_front_images)
+        ? Object.fromEntries(Object.entries(payload.design_studio_front_images as Record<string, unknown>)
+          .map(([color, url]) => [safeText(color, 160), safeText(url, 1500)]).filter(([color, url]) => color && url))
+        : {};
       const { data: product } = await service.from('products').select('id,brand,style_number,supplier_sku,primary_garment_type,size_prices').eq('id', productId).maybeSingle();
       if (!product) fail('Product not found.', 404);
-      const availableColorMap = new Map<string, string>();
+      const availableColorMap = new Map<string, { color: string; urls: Set<string> }>();
       for (const variant of (Array.isArray(product.size_prices) ? product.size_prices : [])) {
-        const raw = safeText(variant.size, 240);
-        const separator = raw.indexOf(' / ');
-        const color = safeText(variant.color_name || variant.color || (separator >= 0 ? raw.slice(0, separator) : ''), 160);
-        if (color && safeText(variant.image_url, 1500) && Number(variant.inventory ?? 0) > 0) availableColorMap.set(color.toLowerCase(), color);
+        const color = catalogColor(variant);
+        const imageUrl = safeText(variant.image_url, 1500);
+        if (!color || !imageUrl || Number(variant.inventory ?? 0) <= 0) continue;
+        const current = availableColorMap.get(color.toLowerCase()) || { color, urls: new Set<string>() };
+        current.urls.add(imageUrl); availableColorMap.set(color.toLowerCase(), current);
       }
-      const approvedColors = requestedColors.map(color => availableColorMap.get(color.toLowerCase())).filter(Boolean) as string[];
-      if (approvedColors.length !== requestedColors.length) fail('Every approved color must match an in-stock catalog color with its own vendor image.');
+      const approvedImageMap: Record<string, string> = {};
+      for (const [requestedColor, requestedUrl] of Object.entries(requestedImageMap)) {
+        const available = availableColorMap.get(requestedColor.toLowerCase());
+        if (!available || !available.urls.has(requestedUrl)) fail('Every approved photograph must exactly match an in-stock catalog color and its supplier image URL.');
+        approvedImageMap[available.color] = requestedUrl;
+      }
+      const approvedColors = Object.keys(approvedImageMap);
+      if (requestedColors.length && (requestedColors.length !== approvedColors.length || requestedColors.some(color => !approvedColors.some(approved => approved.toLowerCase() === color.toLowerCase())))) fail('Approved colors and exact photograph assignments must match.');
       if (garmentType && !studioGarmentTypes.has(garmentType)) fail('Choose an explicit supported Design Studio garment type.');
       if (!studioImageStatuses.has(imageStatus)) fail('Choose a recognized image-review status.');
       if (eligible && (!garmentType || imageStatus !== 'approved' || !approvedColors.length)) fail('Studio availability requires an explicit garment type and at least one approved exact-color unobstructed image.');
-      if (eligible && safeText(product.primary_garment_type, 80).toLowerCase() === 'outerwear') fail('Jackets, coats, and other outerwear are not authorized for the Design Studio.');
-      if (eligible && blockedStudioBrands.has(safeText(product.brand, 100).toLowerCase())) fail('Berne workwear is not authorized for the current Design Studio rollout.');
+      const primaryType = safeText(product.primary_garment_type, 80).toLowerCase();
+      if (eligible && !studioBrands.has(safeText(product.brand, 100).toLowerCase())) fail('This brand is outside the current Design Studio rollout.');
+      if (eligible && !studioCatalogCategories.has(primaryType)) fail('Only catalog T-shirts, pullover/zip hoodies, and crewneck sweatshirts may be approved.');
+      if (eligible && ((primaryType === 't_shirts' && garmentType !== 't_shirts') || (primaryType === 'crewnecks' && garmentType !== 'crewnecks') || (primaryType === 'hoodies' && !['pullover_hoodies','zip_hoodies'].includes(garmentType)))) fail('The explicit Studio garment type does not match the catalog classification.');
       const { data: updated, error } = await service.from('products').update({
         design_studio_eligible: eligible,
         design_studio_garment_type: garmentType || null,
         design_studio_image_status: imageStatus,
         design_studio_approved_colors: approvedColors,
+        design_studio_front_images: approvedImageMap,
         design_studio_image_note: note || null,
         design_studio_reviewed_at: new Date().toISOString(),
         design_studio_reviewed_by: user.id,
         updated_date: new Date().toISOString(),
-      }).eq('id', productId).select('id,name,brand,style_number,supplier_sku,primary_garment_type,image_url,stock,visibility,is_active,product_type,design_studio_eligible,design_studio_garment_type,design_studio_image_status,design_studio_image_note,design_studio_approved_colors,design_studio_reviewed_at').single();
+      }).eq('id', productId).select('id,name,brand,style_number,supplier_sku,primary_garment_type,image_url,stock,visibility,is_active,product_type,design_studio_eligible,design_studio_garment_type,design_studio_image_status,design_studio_image_note,design_studio_approved_colors,design_studio_front_images,design_studio_reviewed_at').single();
       if (error) fail('The Design Studio garment review could not be saved.', 500);
       return reply({ item: updated, server_validated: true }, 200, origin);
     }
@@ -447,7 +527,8 @@ Deno.serve(async request => {
         if (product?.design_studio_eligible !== true || !studioGarmentTypes.has(garmentType)) replacementReasons.push('the garment has not been explicitly approved for this studio rollout');
         if (safeText(product?.design_studio_image_status, 40).toLowerCase() !== 'approved') replacementReasons.push('a suitable unobstructed garment photograph has not been approved');
         if (!Array.isArray(product?.design_studio_approved_colors) || !product.design_studio_approved_colors.length) replacementReasons.push('no exact-color garment photograph has been approved');
-        if (safeText(product?.primary_garment_type, 80).toLowerCase() === 'outerwear' || blockedStudioBrands.has(safeText(product?.brand, 100).toLowerCase())) replacementReasons.push('jackets, coats, and Berne workwear are outside the authorized rollout');
+        if (!product?.design_studio_front_images || typeof product.design_studio_front_images !== 'object' || Array.isArray(product.design_studio_front_images) || !Object.keys(product.design_studio_front_images).length) replacementReasons.push('no exact approved front photograph is assigned');
+        if (!studioCatalogCategories.has(safeText(product?.primary_garment_type, 80).toLowerCase()) || !studioBrands.has(safeText(product?.brand, 100).toLowerCase())) replacementReasons.push('the brand or garment category is outside the authorized rollout');
         if (replacementReasons.length && !legacyReference) fail(`This garment is not available for a new Design Studio selection: ${replacementReasons.join('; ')}.`);
         if (replacementReasons.length) garmentEligibilityWarnings.push({
           code: 'garment_replacement_required', level: 'blocker',
@@ -457,7 +538,10 @@ Deno.serve(async request => {
       const color = safeText(document.color, 160);
       const size = safeText(document.size, 80);
       const approvedColors = product && Array.isArray(product.design_studio_approved_colors) ? product.design_studio_approved_colors.map(value => safeText(value, 160).toLowerCase()) : [];
-      if (color && product && !approvedColors.includes(color.toLowerCase())) {
+      const frontImageMap = product?.design_studio_front_images && typeof product.design_studio_front_images === 'object' && !Array.isArray(product.design_studio_front_images)
+        ? product.design_studio_front_images as Record<string, unknown> : {};
+      const mappedColor = Object.keys(frontImageMap).find(value => value.toLowerCase() === color.toLowerCase());
+      if (color && product && (!approvedColors.includes(color.toLowerCase()) || !mappedColor || !safeText(frontImageMap[mappedColor], 1500))) {
         const message = 'the selected color does not have an approved straight-on, unobstructed exact-color garment photograph';
         if (!legacyReference) fail(`This garment is not available for a new Design Studio selection: ${message}.`);
         garmentEligibilityWarnings.push({ code: 'garment_replacement_required', level: 'blocker', message: `This saved design is preserved, but its garment or color must be replaced before production because ${message}.` });
@@ -589,6 +673,9 @@ Deno.serve(async request => {
       const currentApprovedColors = product && Array.isArray(product.design_studio_approved_colors)
         ? product.design_studio_approved_colors.map(value => safeText(value, 160).toLowerCase())
         : [];
+      const currentImageMap = product?.design_studio_front_images && typeof product.design_studio_front_images === 'object' && !Array.isArray(product.design_studio_front_images)
+        ? product.design_studio_front_images as Record<string, unknown> : {};
+      const currentMappedColor = Object.keys(currentImageMap).find(value => value.toLowerCase() === color.toLowerCase());
       const currentGarmentEligible = Boolean(product
         && product.visibility === 'public'
         && product.is_active
@@ -596,7 +683,10 @@ Deno.serve(async request => {
         && studioGarmentTypes.has(currentGarmentType)
         && safeText(product.design_studio_image_status, 40).toLowerCase() === 'approved'
         && currentApprovedColors.includes(color.toLowerCase())
-        && !blockedStudioBrands.has(safeText(product.brand, 100).toLowerCase()));
+        && currentMappedColor
+        && safeText(currentImageMap[currentMappedColor], 1500)
+        && studioCatalogCategories.has(safeText(product.primary_garment_type, 80).toLowerCase())
+        && studioBrands.has(safeText(product.brand, 100).toLowerCase()));
       if (productId && !currentGarmentEligible && !blockers.some(item => item.code === 'garment_replacement_required')) blockers.push({
         code: 'garment_replacement_required', level: 'blocker',
         message: 'This preserved design references a garment that is no longer eligible for new studio work. Choose an approved replacement before production.',

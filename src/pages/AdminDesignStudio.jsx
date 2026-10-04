@@ -20,7 +20,7 @@ import {
 import { getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
 import { getProductBrand, getPublicProductName } from '@/lib/productDisplayName';
 import {
-  STUDIO_GARMENT_CLASSIFICATIONS, STUDIO_GARMENT_TYPES, buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel,
+  STUDIO_BRANDS, STUDIO_GARMENT_CLASSIFICATIONS, STUDIO_GARMENT_TYPES, buildMockupViews, getApprovedStudioImageMap, getStudioCustomizationColors, getStudioGarmentLabel,
   getOfficialGarmentSource, getStudioProductPreviewImage, getStudioProductSummary, getVariantForColor, getVariantImage, isStudioEligibleProduct, placementAvailability,
   previewSurface, viewForPlacement,
 } from '@/lib/designStudioCatalog';
@@ -56,6 +56,12 @@ const readFile = file => new Promise((resolve, reject) => {
 
 const displayImage = value => value?.startsWith('Images/') || value?.startsWith('/Images/')
   ? `https://www.ssactivewear.com/${value.replace(/^\//, '')}` : value;
+
+const serializeFrontImageMap = value => Object.entries(value || {}).map(([color, url]) => `${color} | ${url}`).join('\n');
+const parseFrontImageMap = value => Object.fromEntries(String(value || '').split(/\r?\n/).map(line => {
+  const separator = line.indexOf('|');
+  return separator < 0 ? ['', ''] : [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+}).filter(([color, url]) => color && url));
 
 function productPrice(product, variant) {
   return Number(variant?.price ?? product?.account_price ?? product?.price ?? 0);
@@ -256,21 +262,31 @@ function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', t
 
 function GarmentReviewPanel({ review, loading, error, onRefresh, onSave, busy }) {
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('qualifying');
   const items = review?.items || [];
   const filtered = items.filter(item => {
     const text = `${item.brand || ''} ${item.name || ''} ${item.style_number || ''} ${item.supplier_sku || ''}`.toLowerCase();
-    return !search.trim() || text.includes(search.trim().toLowerCase());
+    const matchesSearch = !search.trim() || text.includes(search.trim().toLowerCase());
+    const matchesBrand = brandFilter === 'all' || String(item.brand || '').toLowerCase() === brandFilter;
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'qualifying' && item.coverage_status !== 'excluded')
+      || item.coverage_status === statusFilter;
+    return matchesSearch && matchesBrand && matchesStatus;
   });
   return <Card><CardHeader><CardTitle>Garment eligibility &amp; image review</CardTitle></CardHeader><CardContent className="space-y-4">
-    <p className="text-sm text-muted-foreground">Studio access is explicit. A storefront category or a word such as “hooded” never approves a product. Approve only T-shirts, pullover or zip hoodies, and crewneck sweatshirts, then list only colors whose exact catalog photograph is straight-on and unobstructed.</p>
-    <div className="grid gap-3 sm:grid-cols-3"><p className="rounded-xl border p-3 text-sm"><strong>Approved for Studio</strong><br />{review?.approved_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Needs image review</strong><br />{review?.needs_image_review_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Berne workwear</strong><br />Excluded from Studio</p></div>
-    <div className="flex flex-col gap-2 sm:flex-row"><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search review queue by brand, product, or style" /><Button type="button" variant="outline" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh list'}</Button></div>
+    <p className="text-sm text-muted-foreground">This report scans the complete product table in server-side pages. New mockups are limited to the eight approved brands and explicitly classified T-shirts, pullover hoodies, zip hoodies, and crewneck sweatshirts. An approved color is bound to the exact photograph shown in the picker and on the canvas.</p>
+    <div className="grid gap-3 sm:grid-cols-3"><p className="rounded-xl border p-3 text-sm"><strong>Qualifying live styles</strong><br />{review?.qualifying_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Approved photographs</strong><br />{review?.approved_count ?? '—'}</p><p className="rounded-xl border p-3 text-sm"><strong>Need a photograph</strong><br />{review?.needs_image_review_count ?? '—'}</p></div>
+    <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[820px] text-left text-xs"><thead className="bg-[#f7f3ea] text-[#4b1236]"><tr><th className="p-2">Brand</th><th>Qualifying</th><th>T-shirts</th><th>Pullovers</th><th>Zip hoodies</th><th>Crewnecks</th><th>Approved</th><th>Needs image</th><th>Other exclusions</th></tr></thead><tbody>{(review?.coverage || []).map(row => <tr key={row.brand} className="border-t"><td className="p-2 font-bold">{row.brand}</td><td>{row.qualifying_found}</td><td>{row.t_shirts}</td><td>{row.pullover_hoodies}</td><td>{row.zip_hoodies}</td><td>{row.crewnecks}</td><td className="text-green-700">{row.approved}</td><td className="text-amber-700">{row.needs_image}</td><td>{row.excluded}</td></tr>)}</tbody></table></div>
+    <p className="text-xs text-muted-foreground">Catalog rows scanned: {review?.catalog_rows_scanned ?? '—'}. Products outside this Studio scope remain untouched in the regular storefront.</p>
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px_auto]"><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search by brand, product, or style" /><select value={brandFilter} onChange={event => setBrandFilter(event.target.value)} className="h-10 rounded-md border bg-white px-3 text-sm"><option value="all">All requested brands</option>{STUDIO_BRANDS.map(brand => <option key={brand} value={brand.toLowerCase()}>{brand}</option>)}</select><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="h-10 rounded-md border bg-white px-3 text-sm"><option value="qualifying">Qualifying styles</option><option value="approved">Approved</option><option value="needs_image">Needs photograph</option><option value="excluded">Excluded with reason</option><option value="all">All reviewed catalog rows</option></select><Button type="button" variant="outline" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh report'}</Button></div>
     {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {!loading && !error && <div className="max-h-[720px] space-y-3 overflow-y-auto pr-1">{filtered.map(item => {
-      const berne = String(item.brand || '').toLowerCase() === 'berne';
+      const outsideScope = item.coverage_status === 'excluded';
+      const assignedImages = getApprovedStudioImageMap(item);
       return <form key={`${item.id}-${item.design_studio_reviewed_at || 'unreviewed'}`} onSubmit={event => onSave(event, item.id)} className="rounded-xl border bg-white p-3">
-        <div className="flex flex-col gap-3 sm:flex-row"><div className="flex shrink-0 gap-1 overflow-x-auto sm:w-32">{(item.sample_images || [item.image_url]).filter(Boolean).slice(0, 3).map(url => <img key={url} src={displayImage(url)} alt="Garment review candidate" className="h-24 w-20 shrink-0 rounded-lg border bg-white object-contain" />)}</div><div className="min-w-0 flex-1"><p className="font-bold text-[#4b1236]">{item.brand} · {item.name}</p><p className="text-xs text-muted-foreground">Style {item.style_number || item.supplier_sku || 'not provided'} · Storefront classification: {item.primary_garment_type || 'not classified'}</p>{berne && <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900">Berne workwear remains available in the regular catalog but is not authorized for this Studio rollout.</p>}</div></div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Field label="Studio availability"><select name="design_studio_eligible" defaultValue={String(item.design_studio_eligible === true)} className="h-10 w-full rounded-md border bg-white px-3"><option value="false">Excluded / review needed</option><option value="true" disabled={berne}>Eligible for new designs</option></select></Field><Field label="Explicit Studio garment type"><select name="design_studio_garment_type" defaultValue={item.design_studio_garment_type || ''} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Not assigned</option>{STUDIO_GARMENT_CLASSIFICATIONS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Photograph review"><select name="design_studio_image_status" defaultValue={item.design_studio_image_status || 'needs_review'} className="h-10 w-full rounded-md border bg-white px-3"><option value="needs_review">Needs review</option><option value="approved">Approved exact-color images</option><option value="rejected">Images unsuitable</option></select></Field><Field label="Approved photo colors"><Input name="design_studio_approved_colors" defaultValue={(item.design_studio_approved_colors || []).join(', ')} placeholder="Black, Heather Grey" /></Field><Field label="Review note"><Input name="design_studio_image_note" defaultValue={item.design_studio_image_note || ''} placeholder="Source and suitability decision" /></Field></div>
+        <div className="flex flex-col gap-3 sm:flex-row"><div className="flex shrink-0 gap-2 overflow-x-auto sm:max-w-md">{(item.candidate_images || []).slice(0, 8).map(candidate => <button key={`${candidate.color}-${candidate.image_url}`} type="button" className="w-24 shrink-0 rounded-lg border bg-white p-1 text-left text-[10px]" title={`Assign ${candidate.color} as the approved front photograph`} onClick={event => { const field = event.currentTarget.closest('form')?.elements?.namedItem('design_studio_front_images'); if (field) field.value = `${candidate.color} | ${candidate.image_url}`; }}><img src={displayImage(candidate.image_url)} alt={`${item.name} in ${candidate.color}`} className="h-24 w-full object-contain" /><span className="mt-1 block truncate">{candidate.color}</span></button>)}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-[#4b1236]">{item.brand} · {item.name}</p><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${item.coverage_status === 'approved' ? 'bg-green-100 text-green-800' : item.coverage_status === 'needs_image' ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'}`}>{item.coverage_status === 'approved' ? 'Approved' : item.coverage_status === 'needs_image' ? 'Needs photograph' : 'Excluded'}</span></div><p className="text-xs text-muted-foreground">Style {item.style_number || item.supplier_sku || 'not provided'} · Storefront classification: {item.primary_garment_type || 'not classified'}</p><p className="mt-2 rounded-md bg-[#f7f3ea] p-2 text-xs"><strong>Coverage reason:</strong> {item.coverage_reason}</p>{Object.entries(assignedImages).map(([color, url]) => <p key={color} className="mt-1 truncate text-xs text-green-800"><strong>{color}:</strong> {url}</p>)}</div></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Studio availability"><select name="design_studio_eligible" defaultValue={String(item.design_studio_eligible === true)} className="h-10 w-full rounded-md border bg-white px-3"><option value="false">Not selectable / review needed</option><option value="true" disabled={outsideScope}>Eligible for new designs</option></select></Field><Field label="Explicit Studio garment type"><select name="design_studio_garment_type" defaultValue={item.design_studio_garment_type || ''} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Not assigned</option>{STUDIO_GARMENT_CLASSIFICATIONS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Photograph review"><select name="design_studio_image_status" defaultValue={item.design_studio_image_status || 'needs_review'} className="h-10 w-full rounded-md border bg-white px-3"><option value="needs_review">Needs review</option><option value="approved">Approved exact-color images</option><option value="rejected">Images unsuitable</option></select></Field><Field label="Review note"><Input name="design_studio_image_note" defaultValue={item.design_studio_image_note || ''} placeholder="Source and suitability decision" /></Field><div className="sm:col-span-2 lg:col-span-4"><Field label="Approved exact-color front photographs" hint="One per line: Color | exact supplier image URL. Tap a candidate above to assign it."><textarea name="design_studio_front_images" defaultValue={serializeFrontImageMap(assignedImages)} rows={3} className="w-full rounded-md border bg-white px-3 py-2 text-xs" placeholder="Black | https://www.ssactivewear.com/Images/Color/example.jpg" /></Field></div></div>
         <div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{item.design_studio_reviewed_at ? `Last reviewed ${new Date(item.design_studio_reviewed_at).toLocaleString()}` : 'Not reviewed yet'}</p><Button type="submit" size="sm" disabled={busy === `catalog-${item.id}`}>{busy === `catalog-${item.id}` ? 'Saving…' : 'Save review'}</Button></div>
       </form>;
     })}{!filtered.length && <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">No catalog products match this review search.</p>}</div>}
@@ -296,7 +312,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [previewCart, setPreviewCart] = useState([]);
   const [previewCartLoading, setPreviewCartLoading] = useState(false);
   const [previewCartError, setPreviewCartError] = useState('');
-  const [catalogReview, setCatalogReview] = useState({ items: [], approved_count: 0, needs_image_review_count: 0 });
+  const [catalogReview, setCatalogReview] = useState({ items: [], coverage: [], qualifying_count: 0, approved_count: 0, needs_image_review_count: 0 });
   const [catalogReviewLoading, setCatalogReviewLoading] = useState(false);
   const [catalogReviewError, setCatalogReviewError] = useState('');
   const [status, setStatus] = useState(null);
@@ -347,9 +363,14 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const loadProducts = useCallback(async () => {
     setProductsLoading(true); setProductsError('');
     try {
-      const { data, error } = await supabase.from('design_studio_products').select('*').limit(1000);
-      if (error) throw error;
-      const garments = (data || []).filter(isStudioEligibleProduct);
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from('design_studio_products').select('*').order('id').range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      const garments = rows.filter(isStudioEligibleProduct);
       garments.sort((a, b) => (String(a.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(a.name) ? -1 : String(b.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(b.name) ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
       setProducts(garments);
       if (!garments.length) setProductsError('No live in-stock T-shirts, hoodies, or crewnecks passed the eligibility rules. Check product classification and customization restrictions.');
@@ -611,6 +632,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const saveCatalogReview = async (event, productId) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
+    const frontImages = parseFrontImageMap(values.design_studio_front_images);
     setBusy(`catalog-${productId}`);
     try {
       await invoke('save_catalog_review', {
@@ -618,7 +640,8 @@ export default function AdminDesignStudio({ customerMode = false }) {
         design_studio_eligible: values.design_studio_eligible === 'true',
         design_studio_garment_type: values.design_studio_garment_type || null,
         design_studio_image_status: values.design_studio_image_status,
-        design_studio_approved_colors: String(values.design_studio_approved_colors || '').split(',').map(value => value.trim()).filter(Boolean),
+        design_studio_approved_colors: Object.keys(frontImages),
+        design_studio_front_images: frontImages,
         design_studio_image_note: values.design_studio_image_note || '',
       });
       await Promise.all([loadCatalogReview(), loadProducts()]);

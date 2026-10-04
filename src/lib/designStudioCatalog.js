@@ -9,6 +9,17 @@ export const STUDIO_GARMENT_TYPES = [
   ['crewnecks', 'Crewnecks'],
 ];
 
+export const STUDIO_BRANDS = [
+  'Gildan',
+  'Comfort Colors',
+  'Shaka Wear',
+  'Hanes',
+  'Next Level',
+  'Bella + Canvas',
+  'American Apparel',
+  'Tultex',
+];
+
 const clean = value => String(value || '').trim();
 const lower = value => clean(value).toLowerCase();
 
@@ -47,9 +58,9 @@ export function isZipHoodie(product) {
 export function isStudioEligibleProduct(product) {
   if (!product || (product.product_type || 'physical') !== 'physical') return false;
   if (product.visibility !== 'public' || product.is_active !== true || Number(product.stock || 0) <= 0) return false;
-  if (lower(product.brand) === 'berne') return false;
+  if (!STUDIO_BRANDS.some(brand => lower(brand) === lower(product.brand))) return false;
   if (product.design_studio_eligible !== true || lower(product.design_studio_image_status) !== 'approved') return false;
-  if (!getApprovedStudioColors(product).length) return false;
+  if (!getApprovedStudioColors(product).length || !Object.keys(getApprovedStudioImageMap(product)).length) return false;
   if (!getStudioGarmentType(product) || isRestrictedCustomizationProduct(product)) return false;
   return getCustomizationVariants(product).some(variant => Number(variant.inventory) > 0);
 }
@@ -57,6 +68,20 @@ export function isStudioEligibleProduct(product) {
 export function getApprovedStudioColors(product) {
   const values = Array.isArray(product?.design_studio_approved_colors) ? product.design_studio_approved_colors : [];
   return [...new Set(values.map(clean).filter(Boolean))];
+}
+
+export function getApprovedStudioImageMap(product) {
+  const value = product?.design_studio_front_images;
+  if (!value || Array.isArray(value) || typeof value !== 'object') return {};
+  return Object.fromEntries(Object.entries(value)
+    .map(([color, url]) => [clean(color), clean(url)])
+    .filter(([color, url]) => color && url));
+}
+
+export function getApprovedStudioImage(product, color = '') {
+  const requested = lower(color || getApprovedStudioColors(product)[0]);
+  const match = Object.entries(getApprovedStudioImageMap(product)).find(([mappedColor]) => lower(mappedColor) === requested);
+  return clean(match?.[1]);
 }
 
 export function getStudioProductSummary(product) {
@@ -82,8 +107,9 @@ export function getVariantForColor(product, color, size = '') {
 
 export function getStudioCustomizationColors(product) {
   const approved = new Set(getApprovedStudioColors(product).map(lower));
+  const mapped = new Set(Object.keys(getApprovedStudioImageMap(product)).map(lower));
   const colors = getCustomizationVariants(product)
-    .filter(variant => approved.has(lower(variant.color)) && (variant.inventory === null || variant.inventory > 0) && clean(variant.image_url))
+    .filter(variant => approved.has(lower(variant.color)) && mapped.has(lower(variant.color)) && (variant.inventory === null || variant.inventory > 0))
     .map(variant => clean(variant.color));
   return [...new Set(colors.filter(Boolean))];
 }
@@ -93,13 +119,8 @@ export function getVariantImage(product, color = '', size = '') {
   const requestedColor = clean(color) || approvedColors[0] || '';
   if (!requestedColor || !approvedColors.some(value => lower(value) === lower(requestedColor))) return '';
   const variant = getVariantForColor(product, requestedColor, size);
-  if (variant?.image_url) return clean(variant.image_url);
-  if (requestedColor) {
-    const normalized = lower(requestedColor);
-    const colorImage = getCustomizationVariants(product).find(item => lower(item.color) === normalized && Number(item.inventory || 0) > 0 && clean(item.image_url));
-    return clean(colorImage?.image_url);
-  }
-  return '';
+  if (!variant || (variant.inventory !== null && Number(variant.inventory) <= 0)) return '';
+  return getApprovedStudioImage(product, requestedColor);
 }
 
 export function getStudioProductPreviewImage(product) {
@@ -129,7 +150,7 @@ const mockupValues = value => {
 
 export function buildMockupViews(product, color = '', size = '', mapped = []) {
   const front = lower(product?.design_studio_image_status) === 'approved' ? getVariantImage(product, color, size) : '';
-  const views = front ? { front: { url: front, source: 'Live catalog variant image', verified: true } } : {};
+  const views = front ? { front: { url: front, source: 'Admin-approved exact-style, exact-color supplier photograph', verified: true } } : {};
   for (const item of mockupValues(product?.mockup_images)) {
     const value = typeof item === 'string' ? { url: item, view: viewFromUrl(item) } : item;
     const view = ['front', 'back', 'left_sleeve', 'right_sleeve'].includes(value.view) ? value.view : viewFromUrl(value.url);
