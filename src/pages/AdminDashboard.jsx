@@ -65,7 +65,8 @@ export default function AdminDashboard() {
     { to: '/AdminOperationsDashboard', label: 'Customer Orders', desc: 'View and manage customer orders.', icon: <Package /> },
     { to: '/AdminVendorOrders', label: 'S&S Fulfillment Orders', desc: 'Review paid orders, validate S&S details, submit orders, and track fulfillment.', icon: <Truck /> },
     { to: '/AdminGarmentCatalog', label: 'Garment Catalog', desc: 'Manage products, brands, pricing, visibility, and product QA.', icon: <Archive /> },
-    { to: '/AdminDesignStudio', label: 'Design Studio Preview', desc: 'Create, validate, save, and review custom apparel designs before public launch.', icon: <Palette /> },
+    { to: '/AdminDesignStudio', label: 'Design Studio Customer Preview', desc: 'Test the private customer journey before public launch.', icon: <Palette /> },
+    { to: '/AdminDesignStudioAdmin', label: 'Design Studio Administration', desc: 'Manage production review, print areas, pricing, methods, routing, and garment coverage.', icon: <Settings /> },
   ];
   const marketingCards = [
     { to: '/AdminMarketingCenter', label: 'Marketing Center', desc: 'Organic-first plan, tasks, content, SEO, and performance.', icon: <Megaphone /> },

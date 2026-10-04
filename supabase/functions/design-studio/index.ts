@@ -642,7 +642,7 @@ Deno.serve(async request => {
 
     if (action === 'list') {
       let query = service.from('design_documents').select('id,name,status,product_id,selected_color,selected_size,quantity,production_route,print_method,validation,updated_at,saved_at,owner_user_id').is('archived_at', null).neq('status', 'archived').order('updated_at', { ascending: false }).limit(100);
-      if (!isAdmin) query = query.eq('owner_user_id', user.id);
+      if (!isAdmin || payload.owner_only === true) query = query.eq('owner_user_id', user.id);
       const { data, error } = await query;
       if (error) fail('Designs could not be loaded.', 500);
       return reply({ designs: data || [] }, 200, origin);

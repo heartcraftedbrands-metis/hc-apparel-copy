@@ -10,7 +10,7 @@ const displayNumber = (value, unit) => {
   return unit === 'pixels' ? Math.round(Number(value)) : Number(Number(value).toFixed(2));
 };
 
-export default function ArtworkSizeControls({ element, patchElement, printArea, targetPpi = ARTWORK_OUTPUT_PPI, compact = false }) {
+export default function ArtworkSizeControls({ element, patchElement, printArea, targetPpi = ARTWORK_OUTPUT_PPI, compact = false, customerMode = false }) {
   if (!element) return null;
   const unit = normalizeArtworkUnit(element.sizeUnit);
   const size = artworkSizeForUnit(element, printArea, targetPpi);
@@ -40,6 +40,6 @@ export default function ArtworkSizeControls({ element, patchElement, printArea, 
     <p className="text-[11px] text-muted-foreground">{unit === 'pixels'
       ? `Output pixels use the ${targetPpi}-DPI production reference (${targetPpi} pixels = 1 inch). This does not add detail to the original upload.`
       : 'Dimensions are the intended printed size, independent of browser zoom.'}</p>
-    {!printArea?.verified && <p className="text-[11px] text-amber-800">Intended artwork size can be saved now. Garment fit remains unverified until this mockup has a calibrated print area.</p>}
+    {!printArea?.verified && <p className="text-[11px] text-amber-800">{customerMode ? 'You can set the print size now. Final garment fit is checked during review.' : 'Intended artwork size can be saved now. Garment fit remains unverified until this mockup has a calibrated print area.'}</p>}
   </div>;
 }

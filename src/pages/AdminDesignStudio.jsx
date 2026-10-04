@@ -11,7 +11,7 @@ import DesignCanvas from '@/components/design-studio/DesignCanvas';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   ACTIVE_PRODUCTION_ROUTES, DECORATION_METHODS, DESIGN_PLACEMENTS, STUDIO_FONTS,
   artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
@@ -27,6 +27,7 @@ import {
 
 const BRAND = { plum: '#4b1236', gold: '#b58d2a', green: '#4f6b45', linen: '#f7f3ea' };
 const TABS = [['studio', 'Studio'], ['designs', 'Saved Designs'], ['cart', 'Preview Cart'], ['review', 'Production Review'], ['areas', 'Print Areas'], ['vendors', 'Pricing & Methods'], ['settings', 'Settings']];
+const CUSTOMER_TABS = [['studio', 'Design'], ['designs', 'Saved Designs'], ['cart', 'Cart']];
 const HC_METHOD_KEYS = new Set(['dtf', 'soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl']);
 const VINYL_METHOD_KEYS = ['soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl'];
 
@@ -138,7 +139,16 @@ function Field({ label, children, hint }) {
   return <label className="block min-w-0 text-sm font-medium">{label}<div className="mt-1">{children}</div>{hint && <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>}</label>;
 }
 
-function AddPanel({ onText, onShape, onTemplate, onUpload, busy }) {
+function customerBlockerMessage(blocker) {
+  if (blocker.code === 'printing_price_missing') return 'A printing price is not available for this selection.';
+  if (blocker.code === 'fulfillment_not_configured') return 'This decoration method is not available for checkout yet.';
+  if (blocker.code === 'print_area_unverified') return 'This placement needs a final production check before checkout.';
+  if (blocker.code === 'garment_replacement_required') return 'Choose another available garment before checkout.';
+  if (blocker.code === 'method_garment_incompatible' || blocker.code === 'method_placement_incompatible') return 'Choose a compatible garment, placement, or decoration method.';
+  return blocker.message;
+}
+
+function AddPanel({ onText, onShape, onTemplate, onUpload, busy, customerMode = false }) {
   return <div className="space-y-4">
     <div><h3 className="font-bold text-[#4b1236]">Add design</h3><p className="text-xs text-muted-foreground">Only HC-managed tools and your own files are available.</p></div>
     <Button variant="outline" className="h-12 w-full justify-start" onClick={onText}><Type className="mr-3 h-5 w-5" />Editable text</Button>
@@ -153,13 +163,13 @@ function AddPanel({ onText, onShape, onTemplate, onUpload, busy }) {
       <Upload className="mr-2 h-4 w-4" />{busy ? 'Validating upload…' : 'Upload PNG, JPG, or SVG'}
       <input type="file" accept="image/png,image/jpeg,image/svg+xml" className="sr-only" onChange={onUpload} disabled={busy} />
     </label>
-    <div className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">
-      Files are validated server-side, stored privately, and preserved separately from garment mockups. SVG scripts, event handlers, embeds, and external references are rejected.
-    </div>
+    <div className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">{customerMode
+      ? 'Your original artwork is kept private and stays separate from the garment preview.'
+      : 'Files are validated server-side, stored privately, and preserved separately from garment mockups. SVG scripts, event handlers, embeds, and external references are rejected.'}</div>
   </div>;
 }
 
-function VariantPanel({ products, product, document, methods, onProduct, onField, onMethod, loading, error, onRetry, onDone }) {
+function VariantPanel({ products, product, document, methods, onProduct, onField, onMethod, loading, error, onRetry, onDone, customerMode = false }) {
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [brand, setBrand] = useState('all');
@@ -177,7 +187,7 @@ function VariantPanel({ products, product, document, methods, onProduct, onField
   const summary = product ? getStudioProductSummary(product) : null;
   const selectedMethod = methods.find(item => item.method_key === (document.decorationMethod || document.printMethod)) || null;
   return <div className="space-y-4">
-    <div><h3 className="font-bold text-[#4b1236]">Choose Garment</h3><p className="text-xs text-muted-foreground">Live published T-shirts, pullover hoodies, zip hoodies, and crewnecks. Restricted brands stay excluded.</p></div>
+    <div><h3 className="font-bold text-[#4b1236]">Choose Garment</h3><p className="text-xs text-muted-foreground">Choose a T-shirt, hoodie, or crewneck, then select its available options.</p></div>
     <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search product, brand, or style" className="h-11 pl-9" /></div>
     <div className="flex gap-2 overflow-x-auto pb-1">{STUDIO_GARMENT_TYPES.map(([value, label]) => <button type="button" key={value} onClick={() => setType(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${type === value ? 'bg-[#4b1236] text-white' : 'border bg-white text-[#4b1236]'}`}>{label}</button>)}</div>
     <Field label="Brand"><select value={brand} onChange={event => setBrand(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm"><option value="all">All eligible brands</option>{brands.map(value => <option key={value}>{value}</option>)}</select></Field>
@@ -192,8 +202,10 @@ function VariantPanel({ products, product, document, methods, onProduct, onField
     <Field label="Size"><select value={document.size} onChange={event => onField('size', event.target.value)} disabled={!document.color} className="h-11 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-50"><option value="">Choose size</option>{sizes.map(value => <option key={value}>{value}</option>)}</select></Field>
     <Field label="Quantity"><Input type="number" min="1" value={document.quantity} onChange={event => onField('quantity', Math.max(1, Number(event.target.value) || 1))} /></Field>
     <Field label="Print / Decoration Method"><select value={document.decorationMethod || document.printMethod || 'dtf'} onChange={event => onMethod(event.target.value)} className="h-11 w-full rounded-md border bg-white px-3 text-sm">{methods.map(item => <option key={item.method_key} value={item.method_key} disabled={item.draft_selectable === false}>{item.customer_label}</option>)}</select></Field>
-    {selectedMethod && <p className={`rounded-xl border p-3 text-xs ${HC_METHOD_KEYS.has(selectedMethod.method_key) ? 'border-green-300 bg-green-50 text-green-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><strong>{selectedMethod.customer_label}:</strong> {HC_METHOD_KEYS.has(selectedMethod.method_key) ? 'HC-operated design method. Drafts, saved versions, and preview-cart review are available.' : 'Draft design and preview-cart review are available. Production stays blocked until its provider is approved and configured.'} {selectedMethod.limits_note || ''}</p>}
-    {onDone && <Button type="button" className="h-11 w-full bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={onDone} disabled={!document.productId}>Use selected garment</Button>}
+    {selectedMethod && <p className={`rounded-xl border p-3 text-xs ${HC_METHOD_KEYS.has(selectedMethod.method_key) ? 'border-green-300 bg-green-50 text-green-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><strong>{selectedMethod.customer_label}:</strong> {customerMode
+      ? (selectedMethod.available ? 'Available for this design.' : 'You can save this design, but this option is not available for checkout yet.')
+      : (HC_METHOD_KEYS.has(selectedMethod.method_key) ? 'HC-operated design method. Drafts, saved versions, and preview-cart review are available.' : 'Draft design and preview-cart review are available. Production stays blocked until its provider is approved and configured.')} {selectedMethod.limits_note || ''}</p>}
+    {onDone && <Button type="button" className="h-11 w-full bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={onDone} disabled={!document.productId}>{customerMode ? 'Continue to Add Design' : 'Use selected garment'}</Button>}
   </div>;
 }
 
@@ -229,7 +241,7 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
   </div>;
 }
 
-function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', targetPpi = 300 }) {
+function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', targetPpi = 300, customerMode = false }) {
   if (!selected) return null;
   const enforcedTargetPpi = Math.max(300, Number(targetPpi || 300));
   const quality = artworkQualityReport(selected, printArea, enforcedTargetPpi);
@@ -242,14 +254,18 @@ function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', t
       <Field label={`Curve: ${selected.curve || 0}`}><input type="range" min="-50" max="50" value={selected.curve || 0} onChange={event => patchSelected({ curve: Number(event.target.value) })} className="w-full" /></Field>
     </>}
     {(selected.type === 'text' || selected.type === 'shape') && <Field label="Color"><Input type="color" value={selected.fill || BRAND.plum} onChange={event => patchSelected({ fill: event.target.value })} className="h-10 p-1" /></Field>}
-    {selected.type !== 'image' && <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} />}
+    {selected.type !== 'image' && <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} customerMode={customerMode} />}
     {selected.type === 'image' && <div className="space-y-3 rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3 text-xs">
       <div><p className="text-sm font-black text-[#4b1236]">Artwork Quality</p><p className="mt-1 rounded-md bg-[#4b1236] px-3 py-2 text-sm font-bold text-white">Minimum resolution: 300 DPI at the selected print size.</p><p className="mt-2">{isVector && !selected.containsEmbeddedRaster ? 'Original artwork: genuine vector paths' : `Original image: ${Number(selected.pixelWidth || 0).toLocaleString()} × ${Number(selected.pixelHeight || 0).toLocaleString()} pixels`}</p><p>Transparency: {selected.hasTransparency === true ? 'Yes' : selected.hasTransparency === false ? 'No' : 'Not reported'}</p><p>{selected.resolutionX ? `File metadata: ${Math.round(selected.resolutionX)} DPI (informational only; it does not determine quality).` : 'Resolution metadata: Not present. Quality is calculated from original pixels and selected print size.'}</p></div>
-      <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} />
+      <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} customerMode={customerMode} />
       <div className="rounded-lg border bg-white p-3"><p>Selected print size: {quality?.intendedWidth && quality?.intendedHeight ? `${quality.intendedWidth.toFixed(2)} × ${quality.intendedHeight.toFixed(2)} inches` : 'Not entered'}</p>{quality?.effectivePpi != null && <p>Effective resolution: {quality.effectivePpiX} × {quality.effectivePpiY} DPI (minimum {quality.effectivePpi} DPI)</p>}{quality?.maxWidth && <p>Maximum recommended at 300 DPI: {quality.maxWidth.toFixed(2)} × {quality.maxHeight.toFixed(2)} inches</p>}</div>
-      <div className={`rounded-lg p-3 font-semibold ${quality?.state === 'good' || quality?.state === 'vector' ? 'bg-green-100 text-green-900' : quality?.state === 'low' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}><p>{quality?.label}</p>{quality?.message && <p className="mt-1 font-normal">{quality.message}</p>}{quality?.state === 'low' && <p className="mt-1 font-normal">This warning stays with saved drafts and Preview Cart records. Production remains blocked until the artwork meets the minimum or is replaced.</p>}</div>
+      <div className={`rounded-lg p-3 font-semibold ${quality?.state === 'good' || quality?.state === 'vector' ? 'bg-green-100 text-green-900' : quality?.state === 'low' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}><p>{quality?.label}</p>{quality?.message && <p className="mt-1 font-normal">{quality.message}</p>}{quality?.state === 'low' && <p className="mt-1 font-normal">{customerMode ? 'You can save this draft. Reduce the print size or use a sharper image before ordering.' : 'This warning stays with saved drafts and Preview Cart records. Production remains blocked until the artwork meets the minimum or is replaced.'}</p>}</div>
       {selected.containsEmbeddedRaster && <p className="text-amber-800">This SVG contains raster imagery. Its embedded pixels need separate resolution review.</p>}
-      <p className="text-muted-foreground">{methodKey === 'embroidery'
+      <p className="text-muted-foreground">{customerMode ? (methodKey === 'embroidery'
+        ? 'Image resolution and embroidery preparation are checked separately.'
+        : ['soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl'].includes(methodKey)
+          ? 'Image quality and vinyl compatibility are checked separately.'
+          : 'Artwork quality is checked for the selected decoration method.') : methodKey === 'embroidery'
         ? 'Raster resolution does not establish embroidery digitization readiness.'
         : ['soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl'].includes(methodKey)
           ? 'Resolution quality is separate from the selected vinyl material, preparation method, and any cut-path review required by its actual production configuration.'
@@ -293,7 +309,7 @@ function GarmentReviewPanel({ review, loading, error, onRefresh, onSave, busy })
   </CardContent></Card>;
 }
 
-export default function AdminDesignStudio({ customerMode = false }) {
+export default function AdminDesignStudio({ customerMode = false, privatePreview = false }) {
   const [tab, setTab] = useState('studio');
   const [history, dispatch] = useReducer(historyReducer, createStudioDocument(), createHistory);
   const document = history.present;
@@ -336,6 +352,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
     production_route: HC_METHOD_KEYS.has(method_key) ? 'hc_transfer_press' : 'outside_print_vendor',
     provider_key: HC_METHOD_KEYS.has(method_key) ? 'hc' : 'ss_fast',
   }));
+  const selectedMethod = methods.find(item => item.method_key === methodKey) || null;
   const relevantAreas = printAreas.filter(item => item.production_route === document.productionRoute && item.print_method === methodKey && item.enabled && (item.product_size === '*' || item.product_size === document.size));
   const activeArea = [...relevantAreas].sort((a, b) => Number(b.product_size === document.size) - Number(a.product_size === document.size)).find(item => item.placement === document.activePlacement);
   const warnings = useMemo(() => validateDesign(document, relevantAreas), [document, relevantAreas]);
@@ -376,13 +393,13 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const loadDesigns = useCallback(async () => {
     setDesignsLoading(true); setDesignsError('');
     try {
-      const data = await invoke('list');
+      const data = await invoke('list', { owner_only: customerMode });
       setDesigns(data.designs || []);
     } catch (error) {
       setDesignsError(error.message || 'Saved designs could not be loaded.');
       throw error;
     } finally { setDesignsLoading(false); }
-  }, []);
+  }, [customerMode]);
   const loadStatus = useCallback(async () => { const data = await invoke('status'); setStatus(data); }, []);
   const loadCatalogReview = useCallback(async () => {
     if (customerMode) return;
@@ -392,7 +409,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
     finally { setCatalogReviewLoading(false); }
   }, [customerMode]);
   const loadPreviewCart = useCallback(async () => {
-    if (customerMode) return;
+    if (customerMode && !privatePreview) return;
     setPreviewCartLoading(true); setPreviewCartError('');
     try {
       const data = await invoke('list_preview_cart');
@@ -401,16 +418,16 @@ export default function AdminDesignStudio({ customerMode = false }) {
       setPreviewCartError(error.message || 'The preview cart could not be loaded.');
       throw error;
     } finally { setPreviewCartLoading(false); }
-  }, [customerMode]);
+  }, [customerMode, privatePreview]);
   useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus(), loadPreviewCart()]).catch(error => { setSaveState(`Load failed · ${error.message}`); toast.error(error.message); }); }, [loadDesigns, loadPreviewCart, loadProducts, loadStatus]);
   useEffect(() => {
     if (tab !== 'designs') return;
     loadDesigns().catch(error => { setSaveState(`Load failed · ${error.message}`); });
   }, [loadDesigns, tab]);
   useEffect(() => {
-    if (tab !== 'cart' || customerMode) return;
+    if (tab !== 'cart' || (customerMode && !privatePreview)) return;
     loadPreviewCart().catch(error => { setSaveState(`Load failed · ${error.message}`); });
-  }, [customerMode, loadPreviewCart, tab]);
+  }, [customerMode, loadPreviewCart, privatePreview, tab]);
   useEffect(() => {
     if (!['settings', 'areas'].includes(tab) || customerMode) return;
     loadCatalogReview();
@@ -499,13 +516,13 @@ export default function AdminDesignStudio({ customerMode = false }) {
       toast.success('Artwork validated and stored privately.');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); event.target.value = ''; }
   };
-  const persistDesign = async ({ createVersion = false } = {}) => {
-    setBusy(createVersion ? 'version' : 'save'); setSaveState(createVersion ? 'Saving a stable version…' : 'Saving draft…');
+  const persistDesign = async ({ createVersion = false, busyKey = createVersion ? 'version' : 'save', announce = true } = {}) => {
+    setBusy(busyKey); setSaveState(customerMode ? 'Saving…' : (createVersion ? 'Saving a stable version…' : 'Saving draft…'));
     try {
       const result = await invoke('save', { design_id: designId || null, document, explicit: true, create_version: createVersion });
       setDesignId(result.design.id); if (result.version) setVersion(result.version); savedJsonRef.current = JSON.stringify(document);
-      setSaveState(result.version ? `Saved · stable version ${result.version.version_number}` : 'Draft saved to HC Apparel'); await loadDesigns();
-      toast.success(result.version ? `Stable version ${result.version.version_number} saved.` : 'Design draft saved.');
+      setSaveState(customerMode ? 'Saved' : (result.version ? `Saved · stable version ${result.version.version_number}` : 'Draft saved to HC Apparel')); await loadDesigns();
+      if (announce) toast.success(customerMode ? 'Design saved.' : (result.version ? `Stable version ${result.version.version_number} saved.` : 'Design draft saved.'));
       return result;
     } catch (error) {
       const message = error.message || 'Design Studio request failed.';
@@ -514,7 +531,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
       throw error;
     } finally { setBusy(''); }
   };
-  const save = () => persistDesign({ createVersion: false }).catch(() => null);
+  const save = () => persistDesign({ createVersion: customerMode, busyKey: 'save' }).catch(() => null);
   const saveVersion = () => persistDesign({ createVersion: true }).catch(() => null);
   const openDesign = async id => {
     if (JSON.stringify(document) !== savedJsonRef.current && !window.confirm('You have unsaved Design Studio changes. Open another design and discard them?')) return;
@@ -530,18 +547,23 @@ export default function AdminDesignStudio({ customerMode = false }) {
     const blank = createStudioDocument(); dispatch({ type: 'replace', value: blank }); savedJsonRef.current = JSON.stringify(blank); setDesignId(''); setVersion(null); setSelectedIds([]); setSaveState('Not saved');
   };
   const attachPreviewCart = async () => {
+    if (customerMode && !privatePreview) {
+      setSaveState('Add to Cart is not available until the Design Studio is approved for public release.');
+      toast.error('Custom design checkout is not available yet.');
+      return;
+    }
     setBusy('cart'); setSaveState('Saving a stable version for preview cart…');
     try {
       let savedVersion = version;
       if (!savedVersion || JSON.stringify(document) !== savedJsonRef.current) {
-        const saved = await persistDesign({ createVersion: true });
+        const saved = await persistDesign({ createVersion: true, busyKey: 'cart', announce: false });
         savedVersion = saved.version;
       }
       setBusy('cart'); setSaveState('Attaching to isolated preview cart…');
       const result = await invoke('attach_preview_cart', { design_version_id: savedVersion.id });
       await loadPreviewCart();
-      setSaveState(result.item.checkout_ready ? 'Attached · checkout-ready preview' : 'Attached · preview needs configuration');
-      toast.success(result.duplicate_prevented ? 'Preview cart entry refreshed; no duplicate was created.' : 'Attached to the isolated admin preview cart.');
+      setSaveState(customerMode ? 'Added to Cart' : (result.item.checkout_ready ? 'Attached · checkout-ready preview' : 'Attached · preview needs configuration'));
+      toast.success(result.duplicate_prevented ? 'Cart updated; a duplicate was not created.' : 'Design added to the private preview cart.');
       setTab('cart');
     } catch (error) {
       const message = error.message || 'The design could not be attached to the preview cart.';
@@ -645,21 +667,34 @@ export default function AdminDesignStudio({ customerMode = false }) {
     finally { setBusy(''); }
   };
 
-  const visibleTabs = customerMode ? TABS.filter(([key]) => ['studio', 'designs'].includes(key)) : TABS;
+  const visibleTabs = customerMode ? CUSTOMER_TABS : TABS;
+  const hasArtwork = Object.values(document.placements || {}).some(elements => elements?.length);
+  const customerWarnings = warnings.filter(warning => !['product_missing', 'artwork_missing', 'print_area_unverified', 'resolution_size_missing'].includes(warning.code)
+    && !(warning.code === 'variant_missing' && !document.productId)
+    && !(warning.code === 'artwork_missing' && (!document.productId || !document.color || !document.size)));
+  const customerSaveState = /failed|unavailable/i.test(saveState)
+    ? saveState
+    : (/saving|autosaving|attaching/i.test(saveState) || ['save', 'cart'].includes(busy))
+      ? 'Saving…'
+      : (designId && JSON.stringify(document) === savedJsonRef.current) ? 'Saved' : 'Changes not saved';
+  const currentCartItem = designId ? previewCart.find(item => item.design_id === designId) : null;
   const sidePanels = {
-    add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} />,
-    variants: <VariantPanel products={products} product={product} document={document} methods={methods} onProduct={onProduct} onField={onField} onMethod={onMethod} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel('')} />,
+    add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} customerMode={customerMode} />,
+    variants: <VariantPanel products={products} product={product} document={document} methods={methods} onProduct={onProduct} onField={onField} onMethod={onMethod} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel(customerMode ? 'add' : '')} customerMode={customerMode} />,
     layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />,
   };
 
   return <div className="min-h-screen bg-[#f7f3ea]/60 pb-40 lg:pb-8">
     <header className="border-b border-[#b58d2a]/30 bg-[#4b1236] text-white"><div className="mx-auto max-w-[1500px] px-4 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to={customerMode ? '/ShopGarments' : '/AdminDashboard'}><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">{customerMode ? 'Create and save your apparel design' : 'Admin preview · custom checkout is not public'}</p></div></div><div className="flex items-center gap-2"><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className="min-w-[104px] bg-[#b58d2a] text-white hover:bg-[#99761f]" onClick={save} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'save' ? 'Saving…' : 'Save'}</Button></div></div>
-      <p role="status" aria-live="polite" className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${/failed|unavailable/i.test(saveState) ? 'bg-red-950/50 text-red-100' : /saving|attaching/i.test(saveState) ? 'bg-white/15 text-white' : 'bg-white/10 text-white/90'}`}>{saveState}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><Link to={customerMode && !privatePreview ? '/ShopGarments' : '/AdminDashboard'}><Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white"><ArrowLeft /></Button></Link><div><h1 className="text-xl font-bold sm:text-2xl">HC Apparel Design Studio</h1><p className="text-xs text-white/70">{customerMode ? (privatePreview ? 'Private customer-experience preview' : 'Create your custom apparel design') : 'Design Studio administration'}</p></div></div>{tab === 'studio' && <div className="flex items-center gap-2"><Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={() => setPreviewMode(value => !value)}><Eye className="mr-2 h-4 w-4" />{previewMode ? 'Edit' : 'Preview'}</Button><Button className={`min-w-[124px] bg-[#b58d2a] text-white hover:bg-[#99761f] ${customerMode ? 'hidden sm:inline-flex' : ''}`} onClick={save} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'save' ? 'Saving…' : customerMode ? 'Save Design' : 'Save'}</Button></div>}</div>
+      <p role="status" aria-live="polite" className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${/failed|unavailable/i.test(customerMode ? customerSaveState : saveState) ? 'bg-red-950/50 text-red-100' : /saving|attaching/i.test(customerMode ? customerSaveState : saveState) ? 'bg-white/15 text-white' : 'bg-white/10 text-white/90'}`}>{customerMode ? customerSaveState : saveState}</p>
       <nav className="mt-4 flex gap-1 overflow-x-auto pb-1" aria-label={customerMode ? 'Design Studio sections' : 'Design Studio admin sections'}>{visibleTabs.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${tab === key ? 'bg-white text-[#4b1236]' : 'bg-white/10 text-white hover:bg-white/20'}`}>{label}</button>)}</nav>
     </div></header>
 
     {tab === 'studio' && <main className="mx-auto max-w-[1500px] p-3 sm:p-4">
+      {customerMode && <ol className="mb-4 grid grid-cols-4 gap-1 rounded-2xl border border-[#b58d2a]/35 bg-white p-2 text-center text-[10px] font-bold text-[#4b1236] shadow-sm sm:gap-2 sm:p-3 sm:text-sm" aria-label="Design steps">
+        {[['Choose Garment', Boolean(product)], ['Add Design', hasArtwork], ['Review', previewMode], ['Add to Cart', Boolean(currentCartItem)]].map(([label, complete], index) => <li key={label} className={`rounded-xl px-1 py-2 sm:px-3 ${complete ? 'bg-[#4f6b45] text-white' : 'bg-[#f7f3ea]'}`}><span className="mr-1 hidden sm:inline">{index + 1}.</span>{label}</li>)}
+      </ol>}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input value={document.name} onChange={event => onField('name', event.target.value)} aria-label="Design name" className="h-9 min-w-[180px] flex-1 bg-white sm:max-w-sm" />
         <Button size="sm" variant="outline" onClick={() => dispatch({ type: 'undo' })} disabled={!history.past.length}><Undo2 className="mr-1 h-4 w-4" />Undo</Button>
@@ -670,7 +705,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             {product || preservedGarmentNeedsReplacement ? <img src={document.productImage || displayImage(getStudioProductPreviewImage(product))} alt={document.productName} className="h-24 w-20 shrink-0 rounded-xl border bg-white object-contain" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[#f7f3ea]"><Shirt className="h-8 w-8 text-[#4b1236]" /></div>}
-            <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.12em] text-[#4f6b45]">Garment comes first</p><h2 className="mt-1 text-base font-bold text-[#4b1236] sm:text-lg">{product || preservedGarmentNeedsReplacement ? document.productName : 'Choose a real live garment'}</h2><p className="mt-1 text-sm text-muted-foreground">{product ? `${getStudioGarmentLabel(product)} · ${document.color || 'Choose color'} · ${document.size || 'Choose size'} · ${variant?.sku ? `SKU ${variant.sku} · ` : ''}$${productPrice(product, variant).toFixed(2)}` : preservedGarmentNeedsReplacement ? `${document.color || 'Color preserved'} · ${document.size || 'Size preserved'} · Replacement required before production` : 'Search eligible T-shirts, pullover or zip hoodies, and crewneck sweatshirts before using the canvas.'}</p></div>
+            <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.12em] text-[#4f6b45]">Choose Garment</p><h2 className="mt-1 text-base font-bold text-[#4b1236] sm:text-lg">{product || preservedGarmentNeedsReplacement ? document.productName : 'Start with a garment'}</h2><p className="mt-1 text-sm text-muted-foreground">{product ? `${getStudioGarmentLabel(product)} · ${document.color || 'Choose color'} · ${document.size || 'Choose size'} · ${variant?.sku ? `SKU ${variant.sku} · ` : ''}$${productPrice(product, variant).toFixed(2)}` : preservedGarmentNeedsReplacement ? `${document.color || 'Color preserved'} · ${document.size || 'Size preserved'} · Choose a replacement to continue` : 'Choose a T-shirt, hoodie, or crewneck, then select its color, size, and quantity.'}</p></div>
           </div>
           <Button type="button" className="h-12 shrink-0 bg-[#4b1236] text-white hover:bg-[#351026]" onClick={() => setMobilePanel('variants')}><Shirt className="mr-2 h-5 w-5" />{product || preservedGarmentNeedsReplacement ? 'Change Garment' : 'Choose Garment'}</Button>
         </div>
@@ -683,23 +718,29 @@ export default function AdminDesignStudio({ customerMode = false }) {
             const state = placementState[key] || { enabled: false, reason: 'Choose a garment first.' };
             return <button key={key} type="button" disabled={!state.enabled} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-[#4f6b45] text-white' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={state.reason || (relevantAreas.some(item => item.placement === key) ? '' : 'Draft editing is available; production calibration is still required.')}>{label}</button>;
           })}</div>
-          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} />
-          <p className="text-center text-xs text-muted-foreground">The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.</p>
+          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} />
+          <p className="text-center text-xs text-muted-foreground">{customerMode ? 'Your preview uses the selected garment and color. Placement shown is approximate until the design is reviewed.' : 'The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.'}</p>
         </div>
-        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} /></aside>
+        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-        <div className="space-y-2">{warnings.length ? warnings.map((warning, index) => <div key={`${warning.code}-${index}`} className={`flex gap-2 rounded-xl border p-3 text-sm ${warning.level === 'blocker' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning.message}</div>) : <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Design checks pass for the configured placement data.</div>}</div>
-        <Card className="min-w-0 md:min-w-[260px]"><CardContent className="p-4 text-sm"><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between gap-3"><span>Known garment amount × {document.quantity}</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between gap-3"><span>Printing × {document.quantity}</span><span>{printing.configured ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise estimate</span><span>{printing.configured ? `$${pricing.customerMerchandise.toFixed(2)}` : 'Incomplete'}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. When printing is unconfigured, the garment amount is not presented as a complete merchandise total. Saved package prices prevent double-counting front/back or both-sleeve combinations.</p></CardContent></Card>
+        <div className="space-y-2">{customerMode ? <>
+          {!product && <div className="rounded-xl border border-[#b58d2a]/45 bg-white p-3 text-sm text-[#4b1236]">Choose a garment to begin designing and see pricing.</div>}
+          {product && (!document.color || !document.size) && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Choose an available color and size to continue.</div>}
+          {product && document.color && document.size && !hasArtwork && <div className="rounded-xl border border-[#b58d2a]/45 bg-white p-3 text-sm text-[#4b1236]">Add artwork, text, a shape, or a template when you&apos;re ready.</div>}
+          {customerWarnings.map((warning, index) => <div key={`${warning.code}-${index}`} className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{customerBlockerMessage(warning)}</div>)}
+          {product && document.color && document.size && hasArtwork && !customerWarnings.length && <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Your design is ready to preview and save.</div>}
+        </> : warnings.length ? warnings.map((warning, index) => <div key={`${warning.code}-${index}`} className={`flex gap-2 rounded-xl border p-3 text-sm ${warning.level === 'blocker' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning.message}</div>) : <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Design checks pass for the configured placement data.</div>}</div>
+        <Card className="min-w-0 md:min-w-[280px]"><CardContent className="p-4 text-sm">{!product ? <><p className="font-bold text-[#4b1236]">Pricing</p><p className="mt-2 text-muted-foreground">Choose a garment to see your price.</p></> : customerMode ? <><p className="font-bold text-[#4b1236]">Pricing</p><div className="mt-2 flex justify-between gap-3"><span>Garment price</span><span>${productPrice(product, variant).toFixed(2)} each</span></div><div className="flex justify-between gap-3"><span>Printing price</span><span>{printing.configured ? `$${Number(printing.unit || 0).toFixed(2)} each` : 'Not available'}</span></div><div className="flex justify-between gap-3"><span>Quantity</span><span>{document.quantity}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Subtotal</span><span>{printing.configured ? `$${pricing.customerMerchandise.toFixed(2)}` : 'Pending'}</span></div><p className="mt-2 text-xs text-muted-foreground">Shipping and applicable tax calculated at checkout.</p>{!printing.configured && <p className="mt-2 text-xs font-semibold text-amber-800">You can save this design, but this selection cannot be purchased until its printing price is available.</p>}{selectedMethod && !selectedMethod.available && <p className="mt-2 text-xs font-semibold text-amber-800">This decoration method is not available for checkout yet.</p>}</> : <><p className="font-bold text-[#4b1236]">Preview pricing</p><div className="mt-2 flex justify-between gap-3"><span>Known garment amount × {document.quantity}</span><span>${pricing.garmentRetail.toFixed(2)}</span></div><div className="flex justify-between gap-3"><span>Printing × {document.quantity}</span><span>{printing.configured ? `$${pricing.printingCharge.toFixed(2)}` : 'Not configured'}</span></div><div className="mt-2 flex justify-between border-t pt-2 font-bold"><span>Merchandise estimate</span><span>{printing.configured ? `$${pricing.customerMerchandise.toFixed(2)}` : 'Incomplete'}</span></div><p className="mt-2 text-xs text-amber-700">Shipping and customer tax remain separate. When printing is unconfigured, the garment amount is not presented as a complete merchandise total. Saved package prices prevent double-counting front/back or both-sleeve combinations.</p></>}</CardContent></Card>
       </section>
-        <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={exportPackage} disabled={Boolean(busy)}><Download className="mr-2 h-4 w-4" />Download production package</Button><Button variant="outline" onClick={attachPreviewCart} disabled={Boolean(busy)}><ShoppingCart className="mr-2 h-4 w-4" />{busy === 'cart' ? 'Attaching…' : 'Attach to preview cart'}</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={saveVersion} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'version' ? 'Saving version…' : 'Save Version'}</Button></div>
+        {customerMode ? <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:justify-end"><Button className="h-12 bg-[#4f6b45] px-6 text-white hover:bg-[#40593a]" onClick={attachPreviewCart} disabled={Boolean(busy) || !document.productId}><ShoppingCart className="mr-2 h-4 w-4" />{busy === 'cart' ? 'Adding…' : 'Add to Cart'}</Button></div> : <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={exportPackage} disabled={Boolean(busy)}><Download className="mr-2 h-4 w-4" />Download Production Artwork &amp; Job Sheet</Button><Button variant="outline" onClick={attachPreviewCart} disabled={Boolean(busy)}><ShoppingCart className="mr-2 h-4 w-4" />{busy === 'cart' ? 'Attaching…' : 'Attach to preview cart'}</Button><Button className="bg-[#4f6b45] text-white hover:bg-[#40593a]" onClick={saveVersion} disabled={Boolean(busy)}><Save className="mr-2 h-4 w-4" />{busy === 'version' ? 'Saving version…' : 'Save Version'}</Button></div>}
     </main>}
 
     {tab === 'designs' && <main className="mx-auto max-w-6xl p-4"><div className="mb-3 flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Saved designs are loaded from HC Apparel, not this browser.</p><Button size="sm" variant="outline" onClick={() => loadDesigns().catch(error => setSaveState(`Load failed · ${error.message}`))} disabled={designsLoading}>{designsLoading ? 'Refreshing…' : 'Refresh'}</Button></div>{designsError && <div role="alert" className="mb-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{designsError} Retry with Refresh. If it continues, sign in again.</div>}<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{designs.map(item => <Card key={item.id}><CardHeader><CardTitle className="text-base">{item.name}</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p>{item.selected_color || 'No color'} · {item.selected_size || 'No size'} · Qty {item.quantity}</p><p className="text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</p><div className="flex items-center justify-between"><span className="rounded-full bg-muted px-2 py-1 text-xs">{item.status}</span><Button size="sm" onClick={() => openDesign(item.id)} disabled={busy === 'load'}>Open</Button></div></CardContent></Card>)}{!designsLoading && !designsError && !designs.length && <p className="text-sm text-muted-foreground">No saved designs yet.</p>}</div></main>}
 
-    {tab === 'cart' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle className="flex items-center gap-2 text-[#4b1236]"><ShoppingCart className="h-5 w-5" />Isolated admin preview cart</CardTitle></CardHeader><CardContent className="space-y-3"><p className="text-sm text-muted-foreground">These entries are durable server-side previews only. They cannot enter public checkout or production while required configuration is missing.</p><Button size="sm" variant="outline" onClick={() => loadPreviewCart().catch(error => setSaveState(`Load failed · ${error.message}`))} disabled={previewCartLoading}>{previewCartLoading ? 'Refreshing…' : 'Refresh preview cart'}</Button></CardContent></Card>{previewCartError && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{previewCartError} Retry the preview cart. If it continues, sign in again.</div>}<div className="grid gap-3 md:grid-cols-2">{previewCart.map(item => <Card key={item.id}><CardContent className="space-y-3 p-4"><div className="flex gap-3">{item.thumbnail_url && <img src={displayImage(item.thumbnail_url)} alt="" className="h-24 w-20 rounded-lg border bg-white object-contain" />}<div><p className="font-bold text-[#4b1236]">{item.product_name || 'Garment not selected'}</p><p className="text-xs text-muted-foreground">{item.selected_color || 'Color pending'} · {item.selected_size || 'Size pending'} · Qty {item.quantity}</p><p className="text-xs">Method: {(methods.find(value => value.method_key === item.decoration_method)?.customer_label) || item.decoration_method}</p></div></div><div className={`rounded-lg p-3 text-sm ${item.checkout_ready ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}><p className="flex items-center gap-2 font-bold">{item.checkout_ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}{item.checkout_ready ? 'Checkout-ready preview' : 'Not checkout-ready'}</p>{!item.pricing_complete && <p className="mt-1">Known garment amount: {item.garment_unit_price == null ? 'pending' : `$${Number(item.garment_unit_price).toFixed(2)} each`}. Printing estimate is incomplete.</p>}{(item.blockers || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">{item.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul>}</div><div className="flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">Stable version · {item.design_checksum?.slice(0, 10)}</p><Button size="sm" onClick={() => openDesign(item.design_id)}>Open design</Button></div></CardContent></Card>)}{!previewCartLoading && !previewCartError && !previewCart.length && <p className="text-sm text-muted-foreground">No designs are attached yet.</p>}</div></main>}
+    {tab === 'cart' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle className="flex items-center gap-2 text-[#4b1236]"><ShoppingCart className="h-5 w-5" />{customerMode ? 'Cart Preview' : 'Isolated admin preview cart'}</CardTitle></CardHeader><CardContent className="space-y-3"><p className="text-sm text-muted-foreground">{customerMode ? 'This private preview lets you test saved cart designs. Checkout remains disabled until the Design Studio is approved for release.' : 'These entries are durable server-side previews only. They cannot enter public checkout or production while required configuration is missing.'}</p><Button size="sm" variant="outline" onClick={() => loadPreviewCart().catch(error => setSaveState(`Load failed · ${error.message}`))} disabled={previewCartLoading}>{previewCartLoading ? 'Refreshing…' : customerMode ? 'Refresh Cart' : 'Refresh preview cart'}</Button></CardContent></Card>{previewCartError && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{previewCartError} Retry the cart. If it continues, sign in again.</div>}<div className="grid gap-3 md:grid-cols-2">{previewCart.map(item => <Card key={item.id}><CardContent className="space-y-3 p-4"><div className="flex gap-3">{item.thumbnail_url && <img src={displayImage(item.thumbnail_url)} alt="" className="h-24 w-20 rounded-lg border bg-white object-contain" />}<div><p className="font-bold text-[#4b1236]">{item.product_name || 'Garment not selected'}</p><p className="text-xs text-muted-foreground">{item.selected_color || 'Color pending'} · {item.selected_size || 'Size pending'} · Qty {item.quantity}</p><p className="text-xs">Method: {(methods.find(value => value.method_key === item.decoration_method)?.customer_label) || item.decoration_method}</p></div></div><div className={`rounded-lg p-3 text-sm ${item.checkout_ready ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}><p className="flex items-center gap-2 font-bold">{item.checkout_ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}{item.checkout_ready ? (customerMode ? 'Ready for checkout review' : 'Checkout-ready preview') : (customerMode ? 'Needs attention before checkout' : 'Not checkout-ready')}</p>{!item.pricing_complete && <p className="mt-1">{customerMode ? 'The printing price is not available for this selection yet.' : <>Known garment amount: {item.garment_unit_price == null ? 'pending' : `$${Number(item.garment_unit_price).toFixed(2)} each`}. Printing estimate is incomplete.</>}</p>}{(item.blockers || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">{item.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{customerMode ? customerBlockerMessage(blocker) : blocker.message}</li>)}</ul>}</div><div className="flex items-center justify-between gap-2">{!customerMode && <p className="text-xs text-muted-foreground">Stable version · {item.design_checksum?.slice(0, 10)}</p>}<Button size="sm" onClick={() => openDesign(item.design_id)}>Open Design</Button></div></CardContent></Card>)}{!previewCartLoading && !previewCartError && !previewCart.length && <p className="text-sm text-muted-foreground">Your cart preview is empty.</p>}</div></main>}
 
-    {tab === 'review' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Production review</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Review saved designs, immutable versions, print warnings, variants, method readiness, routing, and costs here. Draft selection does not approve an unconfigured production route. A production job cannot be prepared while a blocker remains.</p><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b"><th className="p-2">Design</th><th>Method</th><th>Internal route</th><th>Variant</th><th>Issues</th><th>Action</th></tr></thead><tbody>{designs.map(item => { const method = methods.find(value => value.method_key === item.print_method); return <tr key={item.id} className="border-b"><td className="p-2 font-semibold">{item.name}</td><td><span className="block">{method?.customer_label || item.print_method || 'Not selected'}</span><span className={`text-xs ${method?.available ? 'text-green-700' : 'text-amber-700'}`}>{method?.available ? 'Production route ready' : 'Fulfillment configuration required'}</span></td><td>{item.production_route}</td><td>{item.selected_color} / {item.selected_size}</td><td>{(item.validation || []).length || 'None'}</td><td><Button size="sm" variant="outline" onClick={() => openDesign(item.id)}>Review</Button></td></tr>; })}</tbody></table></div></CardContent></Card></main>}
+    {tab === 'review' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Production review</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Review saved designs, immutable versions, print warnings, variants, method readiness, routing, and costs here. The admin-only <strong>Download Production Artwork &amp; Job Sheet</strong> action exports one transparent 300-DPI PNG for each fully configured placement plus a JSON job sheet. Garment photographs are never included in print artwork.</p><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b"><th className="p-2">Design</th><th>Method</th><th>Internal route</th><th>Variant</th><th>Issues</th><th>Action</th></tr></thead><tbody>{designs.map(item => { const method = methods.find(value => value.method_key === item.print_method); return <tr key={item.id} className="border-b"><td className="p-2 font-semibold">{item.name}</td><td><span className="block">{method?.customer_label || item.print_method || 'Not selected'}</span><span className={`text-xs ${method?.available ? 'text-green-700' : 'text-amber-700'}`}>{method?.available ? 'Production route ready' : 'Fulfillment configuration required'}</span></td><td>{item.production_route}</td><td>{item.selected_color} / {item.selected_size}</td><td>{(item.validation || []).length || 'None'}</td><td><Button size="sm" variant="outline" onClick={() => openDesign(item.id)}>Review</Button></td></tr>; })}</tbody></table></div></CardContent></Card></main>}
 
     {tab === 'areas' && <main className="mx-auto max-w-4xl p-4"><Card><CardHeader><CardTitle>Verified print-area configuration</CardTitle></CardHeader><CardContent><p className="mb-5 text-sm text-muted-foreground">No dimensions are invented. Enter a real product/size/provider/method/location measurement and record its source. Unsupported placements remain disabled.</p><form onSubmit={saveArea} className="grid gap-4 sm:grid-cols-2">
       <Field label="Product"><select value={areaForm.product_id} onChange={event => setAreaForm(value => ({ ...value, product_id: event.target.value }))} className="h-10 w-full rounded-md border bg-white px-3"><option value="">Select product</option>{products.map(item => <option key={item.id} value={item.id}>{getPublicProductName(item)} {item.supplier_sku ? `(${item.supplier_sku})` : ''}</option>)}</select></Field>
@@ -746,9 +787,11 @@ export default function AdminDesignStudio({ customerMode = false }) {
 
     {tab === 'settings' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card><GarmentReviewPanel review={catalogReview} loading={catalogReviewLoading} error={catalogReviewError} onRefresh={loadCatalogReview} onSave={saveCatalogReview} busy={busy} /></main>}
 
-    {tab === 'studio' && <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] lg:hidden">
-      {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} /></div>}</SheetContent></Sheet>)}
-      <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : 'Save'}</Button>
-    </div>}
+    {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-[#4b1236]"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></div>}</SheetContent></Sheet>)}
+      <div className={`fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] ${customerMode ? 'sm:hidden' : 'lg:hidden'}`}>
+        {[["variants", Shirt, customerMode ? 'Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Button key={key} type="button" variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={() => setMobilePanel(key)}><Icon className="h-5 w-5" />{label}</Button>)}
+        <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : customerMode ? 'Save Design' : 'Save'}</Button>
+      </div>
+    </>}
   </div>;
 }

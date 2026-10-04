@@ -145,6 +145,8 @@ assert.doesNotMatch(edge, /code: 'method_unavailable'/, 'production readiness is
 assert.match(edge, /\.is\('archived_at', null\)\.neq\('status', 'archived'\)/, 'confirmed QA fixtures are excluded from active saved designs by both archive markers');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
+assert.match(app, /path="\/AdminDesignStudio"[\s\S]*AdminDesignStudio customerMode privatePreview/, 'the protected preview renders the customer experience with the isolated preview cart enabled');
+assert.match(app, /path="\/AdminDesignStudioAdmin"[\s\S]*<AdminDesignStudio \/>/, 'production, pricing, routing, and coverage controls have a separate admin route');
 assert.match(flags, /customPrinting:\s*false/, 'hidden custom-printing page remains hidden');
 assert.match(flags, /designStudioPublic:\s*false/, 'public studio flag remains off');
 assert.match(app, /path="\/DesignStudio"[\s\S]*STOREFRONT_FEATURES\.designStudioPublic[\s\S]*Navigate to="\/ShopGarments"/, 'customer studio route safely redirects while the public flag is off');
@@ -159,6 +161,7 @@ assert.match(page, /Approved exact-color front photographs/, 'admin coverage pro
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
 assert.match(edge, /\.eq\('design_checksum', version\.checksum\)/, 'reattaching an unchanged stable design is deduplicated by checksum');
+assert.match(edge, /!isAdmin \|\| payload\.owner_only === true/, 'customer preview saved-design lists remain scoped to the signed-in owner even for an admin testing the customer view');
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
@@ -171,5 +174,9 @@ assert.match(page, /Vinyl pricing still needs approval/, 'admin pricing identifi
 assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');
 assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/, 'Design Studio sends the active HC session explicitly to its server API');
 assert.match(page, /JSON\.stringify\(document\) === savedJsonRef\.current/, 'a stale autosave timer exits after an explicit save');
+assert.match(page, /persistDesign\(\{ createVersion: customerMode, busyKey: 'save' \}\)/, 'customer Save Design creates internal immutable history without exposing Save Version');
+assert.match(page, /if \(customerMode && !privatePreview\)/, 'customer Add to Cart stays isolated to the authorized private preview until public release');
+assert.match(page, /customerMode \? 'Save Design' : 'Save'/, 'the customer action uses the plain Save Design label');
+assert.match(page, /customerMode \? <div className="mt-4[\s\S]*Add to Cart[\s\S]*: <div className="mt-4[\s\S]*Download Production Artwork/, 'customer cart action and admin production export render in separate interfaces');
 
 console.log('Design Studio safety, validation, pricing, and persistence tests passed.');

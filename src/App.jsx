@@ -156,7 +156,8 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}
       <Route path="/AdminDashboard" element={<LayoutWrapper currentPageName="AdminDashboard"><AdminDashboard /></LayoutWrapper>} />
-      <Route path="/AdminDesignStudio" element={<LayoutWrapper currentPageName="AdminDesignStudio"><AdminDesignStudio /></LayoutWrapper>} />
+      <Route path="/AdminDesignStudio" element={<LayoutWrapper currentPageName="AdminDesignStudio"><AdminDesignStudio customerMode privatePreview /></LayoutWrapper>} />
+      <Route path="/AdminDesignStudioAdmin" element={<LayoutWrapper currentPageName="AdminDesignStudioAdmin"><AdminDesignStudio /></LayoutWrapper>} />
       <Route path="/AdminBrandPages" element={<LayoutWrapper currentPageName="AdminBrandPages"><AdminBrandPages /></LayoutWrapper>} />
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />
