@@ -201,11 +201,18 @@ assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not e
 assert.match(page, /Minimum resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
 const canvas = fs.readFileSync(new URL('../src/components/design-studio/DesignCanvas.jsx', import.meta.url), 'utf8');
 const sizeControls = fs.readFileSync(new URL('../src/components/design-studio/ArtworkSizeControls.jsx', import.meta.url), 'utf8');
+const sharedTheme = fs.readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 assert.match(canvas, /synchronizeArtworkResize\(original, nextWidth, nextHeight, sizingArea\)/, 'live handle resizing updates physical size through the shared preview scale');
 assert.match(canvas, /\{ transient: true \}/, 'pointer movement updates the shared document continuously during a drag');
 assert.match(sizeControls, /Width \(\{suffix\}\)/, 'customer fields explicitly label width units');
 assert.match(sizeControls, /Height \(\{suffix\}\)/, 'customer fields explicitly label height units');
 assert.match(sizeControls, /editingAxis/, 'decimal typing is preserved while physical dimensions update');
+assert.match(sharedTheme, /--primary:\s*82 35% 28%/, 'the shared storefront olive primary remains the Design Studio theme source');
+assert.match(sharedTheme, /--accent:\s*44 82% 50%/, 'the shared storefront gold accent remains the Design Studio theme source');
+assert.match(page, /bg-primary text-primary-foreground/, 'the Studio header and completed steps use the shared storefront primary token');
+assert.match(page, /bg-accent text-accent-foreground/, 'the desktop Save Design action uses the shared storefront accent button treatment');
+assert.match(canvas, /stroke="hsl\(var\(--accent\)\)"/, 'canvas selection guides use the shared storefront accent token');
+assert.doesNotMatch(`${page}\n${canvas}`, /#4b1236|#b58d2a|#4f6b45|#f7f3ea|#d8c9b7/i, 'the separate maroon and legacy Studio palette is removed from customer and canvas UI');
 assert.match(page, /setDocument\(\{ \.\.\.document, decorationMethod: value, printMethod: value/, 'switching methods preserves the rest of the editable design document');
 assert.match(page, /Vinyl pricing still needs approval/, 'admin pricing identifies missing vinyl configuration without inventing values');
 assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');
