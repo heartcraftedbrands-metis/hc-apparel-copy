@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/api/supabaseClient';
+import ArtworkSizeControls from '@/components/design-studio/ArtworkSizeControls';
 import DesignCanvas from '@/components/design-studio/DesignCanvas';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -224,7 +225,9 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
 
 function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', targetPpi = 300 }) {
   if (!selected) return null;
-  const quality = artworkQualityReport(selected, printArea, targetPpi);
+  const enforcedTargetPpi = Math.max(300, Number(targetPpi || 300));
+  const quality = artworkQualityReport(selected, printArea, enforcedTargetPpi);
+  const isVector = selected.fileKind === 'svg' || selected.mimeType === 'image/svg+xml';
   return <Card className="border-[#d8c9b7]"><CardHeader className="pb-2"><CardTitle className="text-base text-[#4b1236]">Selected layer</CardTitle></CardHeader><CardContent className="space-y-3">
     <Field label="Layer name"><Input value={selected.name} onChange={event => patchSelected({ name: event.target.value })} /></Field>
     {selected.type === 'text' && <>
@@ -233,10 +236,12 @@ function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', t
       <Field label={`Curve: ${selected.curve || 0}`}><input type="range" min="-50" max="50" value={selected.curve || 0} onChange={event => patchSelected({ curve: Number(event.target.value) })} className="w-full" /></Field>
     </>}
     {(selected.type === 'text' || selected.type === 'shape') && <Field label="Color"><Input type="color" value={selected.fill || BRAND.plum} onChange={event => patchSelected({ fill: event.target.value })} className="h-10 p-1" /></Field>}
+    {selected.type !== 'image' && <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} />}
     {selected.type === 'image' && <div className="space-y-3 rounded-xl border border-[#b58d2a]/40 bg-[#f7f3ea] p-3 text-xs">
-      <div><p className="font-bold text-[#4b1236]">Artwork quality</p><p>{(selected.fileKind || selected.mimeType || 'File').toString().toUpperCase()} · {Number(selected.pixelWidth || 0).toLocaleString()} × {Number(selected.pixelHeight || 0).toLocaleString()} px</p><p>Transparency: {selected.hasTransparency === true ? 'Yes' : selected.hasTransparency === false ? 'No' : 'Not reported'}{selected.resolutionX ? ` · File metadata: ${Math.round(selected.resolutionX)} PPI` : ' · Resolution metadata not present'}</p></div>
-      {!printArea?.verified && <div className="grid grid-cols-2 gap-2"><Field label="Intended width (in)"><Input type="number" min="0.1" step="0.1" value={selected.intendedWidthIn || ''} onChange={event => patchSelected({ intendedWidthIn: Number(event.target.value) || null })} /></Field><Field label="Intended height (in)"><Input type="number" min="0.1" step="0.1" value={selected.intendedHeightIn || ''} onChange={event => patchSelected({ intendedHeightIn: Number(event.target.value) || null })} /></Field></div>}
-      <div className={`rounded-lg p-3 font-semibold ${quality?.state === 'good' || quality?.state === 'vector' ? 'bg-green-100 text-green-900' : quality?.state === 'low' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}><p>{quality?.label}</p>{quality?.message && <p className="mt-1 font-normal">{quality.message}</p>}{quality?.maxWidth && <p className="mt-1 font-normal">Recommended maximum at {targetPpi} PPI: {quality.maxWidth.toFixed(2)} × {quality.maxHeight.toFixed(2)} in.</p>}</div>
+      <div><p className="text-sm font-black text-[#4b1236]">Artwork Quality</p><p className="mt-1 rounded-md bg-[#4b1236] px-3 py-2 text-sm font-bold text-white">Minimum resolution: 300 DPI at the selected print size.</p><p className="mt-2">{isVector && !selected.containsEmbeddedRaster ? 'Original artwork: genuine vector paths' : `Original image: ${Number(selected.pixelWidth || 0).toLocaleString()} × ${Number(selected.pixelHeight || 0).toLocaleString()} pixels`}</p><p>Transparency: {selected.hasTransparency === true ? 'Yes' : selected.hasTransparency === false ? 'No' : 'Not reported'}</p><p>{selected.resolutionX ? `File metadata: ${Math.round(selected.resolutionX)} DPI (informational only; it does not determine quality).` : 'Resolution metadata: Not present. Quality is calculated from original pixels and selected print size.'}</p></div>
+      <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} />
+      <div className="rounded-lg border bg-white p-3"><p>Selected print size: {quality?.intendedWidth && quality?.intendedHeight ? `${quality.intendedWidth.toFixed(2)} × ${quality.intendedHeight.toFixed(2)} inches` : 'Not entered'}</p>{quality?.effectivePpi != null && <p>Effective resolution: {quality.effectivePpiX} × {quality.effectivePpiY} DPI (minimum {quality.effectivePpi} DPI)</p>}{quality?.maxWidth && <p>Maximum recommended at 300 DPI: {quality.maxWidth.toFixed(2)} × {quality.maxHeight.toFixed(2)} inches</p>}</div>
+      <div className={`rounded-lg p-3 font-semibold ${quality?.state === 'good' || quality?.state === 'vector' ? 'bg-green-100 text-green-900' : quality?.state === 'low' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}><p>{quality?.label}</p>{quality?.message && <p className="mt-1 font-normal">{quality.message}</p>}{quality?.state === 'low' && <p className="mt-1 font-normal">This warning stays with saved drafts and Preview Cart records. Production remains blocked until the artwork meets the minimum or is replaced.</p>}</div>
       {selected.containsEmbeddedRaster && <p className="text-amber-800">This SVG contains raster imagery. Its embedded pixels need separate resolution review.</p>}
       <p className="text-muted-foreground">{methodKey === 'embroidery'
         ? 'Raster resolution does not establish embroidery digitization readiness.'
@@ -273,7 +278,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const [saveState, setSaveState] = useState('Not saved');
   const [previewMode, setPreviewMode] = useState(false);
   const [mobilePanel, setMobilePanel] = useState('');
-  const [areaForm, setAreaForm] = useState({ product_id: '', product_size: '*', production_route: 'hc_transfer_press', provider_key: 'hc', print_method: 'dtf', placement: 'front', width_in: '', height_in: '', min_dpi: 150, enabled: true, verified: true, source_note: '' });
+  const [areaForm, setAreaForm] = useState({ product_id: '', product_size: '*', production_route: 'hc_transfer_press', provider_key: 'hc', print_method: 'dtf', placement: 'front', width_in: '', height_in: '', min_dpi: 300, enabled: true, verified: true, source_note: '' });
   const [mockupForm, setMockupForm] = useState({ product_id: '', color_key: '*', view: 'back', source_note: '', x: 28, y: 22, width: 44, height: 58 });
   const [pricingForm, setPricingForm] = useState({ product_id: '', production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: '', transfer_cost: '', preparation_labor_cost: '', pressing_labor_cost: '', packaging_cost: '', other_fee: '', notes: '' });
   const savedJsonRef = useRef(JSON.stringify(document));
@@ -281,6 +286,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const product = products.find(item => item.id === document.productId) || null;
   const variant = product ? findCustomizationVariant(product, document.color, document.size) : null;
   const methodKey = document.decorationMethod || document.printMethod || 'dtf';
+  const targetPpi = Math.max(300, Number(status?.settings?.default_raster_ppi || 300));
   const methods = status?.decoration_methods?.length ? status.decoration_methods : DECORATION_METHODS.map(([method_key, customer_label]) => ({
     method_key, customer_label, draft_selectable: true,
     available: HC_METHOD_KEYS.has(method_key),
@@ -508,7 +514,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const saveArea = async event => {
     event.preventDefault();
     if (!areaForm.product_id || !areaForm.width_in || !areaForm.height_in || !areaForm.source_note.trim()) return toast.error('Product, real dimensions, and a source note are required.');
-    const { error } = await supabase.from('design_print_areas').upsert({ ...areaForm, width_in: Number(areaForm.width_in), height_in: Number(areaForm.height_in), min_dpi: Number(areaForm.min_dpi), source_effective_at: new Date().toISOString() }, { onConflict: 'product_id,product_size,production_route,provider_key,print_method,placement' });
+    const { error } = await supabase.from('design_print_areas').upsert({ ...areaForm, width_in: Number(areaForm.width_in), height_in: Number(areaForm.height_in), min_dpi: Math.max(300, Number(areaForm.min_dpi || 300)), source_effective_at: new Date().toISOString() }, { onConflict: 'product_id,product_size,production_route,provider_key,print_method,placement' });
     if (error) return toast.error(error.message);
     toast.success('Verified print-area configuration saved.'); if (areaForm.product_id === document.productId) { const { data } = await supabase.from('design_print_areas').select('*').eq('product_id', document.productId); setPrintAreas(data || []); }
   };
@@ -559,7 +565,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const saveRasterTarget = async event => {
     event.preventDefault();
     const target = Number(new FormData(event.currentTarget).get('default_raster_ppi'));
-    if (target < 72 || target > 1200) return toast.error('Raster target must be between 72 and 1200 PPI.');
+    if (target < 300 || target > 1200) return toast.error('Raster target must be between 300 and 1200 DPI.');
     const { error } = await supabase.from('design_studio_settings').update({ default_raster_ppi: target, updated_at: new Date().toISOString() }).eq('id', true);
     if (error) return toast.error(error.message);
     await loadStatus(); toast.success('Artwork quality target saved.');
@@ -602,10 +608,10 @@ export default function AdminDesignStudio({ customerMode = false }) {
             const state = placementState[key] || { enabled: false, reason: 'Choose a garment first.' };
             return <button key={key} type="button" disabled={!state.enabled} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-[#4f6b45] text-white' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={state.reason || (relevantAreas.some(item => item.placement === key) ? '' : 'Draft editing is available; production calibration is still required.')}>{label}</button>;
           })}</div>
-          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} />
+          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} />
           <p className="text-center text-xs text-muted-foreground">The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.</p>
         </div>
-        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={status?.settings?.default_raster_ppi || 300} /></aside>
+        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="space-y-2">{warnings.length ? warnings.map((warning, index) => <div key={`${warning.code}-${index}`} className={`flex gap-2 rounded-xl border p-3 text-sm ${warning.level === 'blocker' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning.message}</div>) : <div className="flex gap-2 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800"><Check className="h-4 w-4" />Design checks pass for the configured placement data.</div>}</div>
@@ -630,7 +636,7 @@ export default function AdminDesignStudio({ customerMode = false }) {
       <Field label="Provider key"><Input value={areaForm.provider_key} onChange={event => setAreaForm(value => ({ ...value, provider_key: event.target.value }))} /></Field>
       <Field label="Width (inches)"><Input type="number" step=".01" min=".01" value={areaForm.width_in} onChange={event => setAreaForm(value => ({ ...value, width_in: event.target.value }))} /></Field>
       <Field label="Height (inches)"><Input type="number" step=".01" min=".01" value={areaForm.height_in} onChange={event => setAreaForm(value => ({ ...value, height_in: event.target.value }))} /></Field>
-      <Field label="Minimum effective DPI"><Input type="number" min="72" max="1200" value={areaForm.min_dpi} onChange={event => setAreaForm(value => ({ ...value, min_dpi: event.target.value }))} /></Field>
+      <Field label="Minimum effective DPI"><Input type="number" min="300" max="1200" value={areaForm.min_dpi} onChange={event => setAreaForm(value => ({ ...value, min_dpi: event.target.value }))} /></Field>
       <Field label="Verification source note"><Input value={areaForm.source_note} onChange={event => setAreaForm(value => ({ ...value, source_note: event.target.value }))} placeholder="Vendor spec sheet / measured platen" /></Field>
       <div className="sm:col-span-2"><Button type="submit" className="bg-[#4f6b45] text-white">Save verified area</Button></div>
     </form></CardContent></Card>
@@ -663,10 +669,10 @@ export default function AdminDesignStudio({ customerMode = false }) {
       </form></CardContent></Card>
     </main>}
 
-    {tab === 'settings' && <main className="mx-auto max-w-4xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (PPI)" hint="Used for quality feedback; file metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="72" max="1200" defaultValue={status?.settings?.default_raster_ppi || 300} /></Field><Button type="submit">Save target</Button></form></CardContent></Card></main>}
+    {tab === 'settings' && <main className="mx-auto max-w-4xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card></main>}
 
     {tab === 'studio' && <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] lg:hidden">
-      {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={status?.settings?.default_raster_ppi || 300} /></div>}</SheetContent></Sheet>)}
+      {[["variants", Shirt, 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetTrigger asChild><Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]"><Icon className="h-5 w-5" />{label}</Button></SheetTrigger><SheetContent side="bottom" className="max-h-[82dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader><SheetTitle className="sr-only">{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} /></div>}</SheetContent></Sheet>)}
       <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : 'Save'}</Button>
     </div>}
   </div>;

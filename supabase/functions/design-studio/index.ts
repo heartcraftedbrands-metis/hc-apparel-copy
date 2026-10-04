@@ -163,8 +163,9 @@ async function hydrateDocumentAssets(service: ReturnType<typeof createClient>, d
   return copy;
 }
 
-function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[]) {
+function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[], configuredTargetPpi = 300) {
   const warnings: Record<string, unknown>[] = [];
+  const targetPpi = Math.max(300, Number(configuredTargetPpi || 300));
   const selectedSize = safeText(document.size, 100);
   const placements = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
   if (!safeText(document.productId, 100)) warnings.push({ code: 'product_missing', level: 'blocker', message: 'Choose an eligible garment.' });
@@ -174,9 +175,9 @@ function validateDocument(document: Record<string, unknown>, areas: Record<strin
     if (!Array.isArray(rawElements) || !rawElements.length) continue;
     const area = areas.filter(item => item.placement === placement && item.enabled && item.verified)
       .sort((a, b) => Number(b.product_size === selectedSize) - Number(a.product_size === selectedSize))[0];
-    if (!area || !Number(area.width_in) || !Number(area.height_in)) {
+    const hasVerifiedArea = Boolean(area && Number(area.width_in) > 0 && Number(area.height_in) > 0);
+    if (!hasVerifiedArea) {
       warnings.push({ code: 'print_area_unverified', level: 'blocker', placement, message: 'Verified physical print dimensions are required.' });
-      continue;
     }
     for (const value of rawElements) {
       const element = value as Record<string, unknown>;
@@ -184,9 +185,21 @@ function validateDocument(document: Record<string, unknown>, areas: Record<strin
       if (![x,y,width,height].every(Number.isFinite) || x < 0 || y < 0 || x + width > 100 || y + height > 100) {
         warnings.push({ code: 'outside_print_area', level: 'blocker', placement, element_id: element.id, message: 'Artwork extends outside the printable area.' });
       }
-      if (element.type === 'image' && Number(element.pixelWidth) > 0) {
-        const dpi = Math.round(Number(element.pixelWidth) / Math.max(.01, (width / 100) * Number(area.width_in)));
-        if (dpi < Number(area.min_dpi || 150)) warnings.push({ code: 'low_resolution', level: 'warning', placement, element_id: element.id, dpi, message: `Artwork is about ${dpi} DPI at this size.` });
+      if (element.type === 'image' && Number(element.pixelWidth) > 0 && Number(element.pixelHeight) > 0) {
+        const isVector = element.fileKind === 'svg' || element.mimeType === 'image/svg+xml';
+        if (isVector && element.containsEmbeddedRaster !== true) continue;
+        const enteredWidth = Number(element.intendedWidthIn || 0);
+        const enteredHeight = Number(element.intendedHeightIn || 0);
+        const printWidth = enteredWidth > 0 ? enteredWidth : hasVerifiedArea ? (width / 100) * Number(area?.width_in) : 0;
+        const printHeight = enteredHeight > 0 ? enteredHeight : hasVerifiedArea ? (height / 100) * Number(area?.height_in) : 0;
+        if (!printWidth || !printHeight) {
+          warnings.push({ code: 'resolution_size_missing', level: 'blocker', placement, element_id: element.id, message: 'Enter the intended print width and height to verify the 300-DPI minimum.' });
+          continue;
+        }
+        const dpiX = Math.floor((Number(element.pixelWidth) / printWidth) + 1e-9);
+        const dpiY = Math.floor((Number(element.pixelHeight) / printHeight) + 1e-9);
+        const dpi = Math.min(dpiX, dpiY);
+        if (dpi < targetPpi) warnings.push({ code: 'low_resolution', level: 'blocker', placement, element_id: element.id, dpi, dpi_x: dpiX, dpi_y: dpiY, message: `Artwork is ${dpi} DPI at the selected print size. Minimum resolution is ${targetPpi} DPI; reduce print size or upload higher-resolution artwork.` });
       }
     }
   }
@@ -385,7 +398,8 @@ Deno.serve(async request => {
         ? await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', methodKey).in('product_size', ['*', size])
         : { data: [] };
       const areas = areasResult.data || [];
-      const warnings = validateDocument(document, areas || []);
+      const { data: studioSettings } = await service.from('design_studio_settings').select('default_raster_ppi').eq('id', true).maybeSingle();
+      const warnings = validateDocument(document, areas || [], Math.max(300, Number(studioSettings?.default_raster_ppi || 300)));
       const persistedDocument = await storedDocumentCopy(document);
       const record = {
         owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId || null,

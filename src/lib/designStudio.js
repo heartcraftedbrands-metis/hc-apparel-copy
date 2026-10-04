@@ -28,6 +28,8 @@ export const STUDIO_FONTS = [
   'Arial', 'Georgia', 'Trebuchet MS', 'Verdana', 'Courier New', 'Times New Roman',
 ];
 
+export const ARTWORK_OUTPUT_PPI = 300;
+
 export const createStudioDocument = (overrides = {}) => ({
   schemaVersion: 1,
   name: 'Untitled design',
@@ -61,6 +63,10 @@ export const makeElement = (type, overrides = {}) => ({
   width: 50,
   height: type === 'text' ? 16 : 50,
   rotation: 0,
+  sizeUnit: 'inches',
+  aspectRatioLocked: true,
+  intendedWidthIn: null,
+  intendedHeightIn: null,
   opacity: 1,
   visible: true,
   locked: false,
@@ -86,10 +92,94 @@ export const updatePlacement = (document, placement, updater) => ({
 });
 
 export const effectiveDpi = (element, printArea) => {
-  if (element.type !== 'image' || !element.pixelWidth || !printArea?.width_in) return null;
-  const physicalWidth = Math.max(0.01, (Number(element.width) / 100) * Number(printArea.width_in));
-  return Math.round(Number(element.pixelWidth) / physicalWidth);
+  if (element.type !== 'image' || !element.pixelWidth) return null;
+  const size = artworkSizeInches(element, printArea);
+  if (!size.width || !size.height) return null;
+  return Math.floor(Math.min(Number(element.pixelWidth) / size.width, Number(element.pixelHeight || element.pixelWidth) / size.height) + 1e-9);
 };
+
+export const normalizeArtworkUnit = unit => unit === 'pixels' ? 'pixels' : 'inches';
+
+export function artworkSizeInches(element, printArea = null) {
+  const enteredWidth = Number(element?.intendedWidthIn || 0);
+  const enteredHeight = Number(element?.intendedHeightIn || 0);
+  if (enteredWidth > 0 && enteredHeight > 0) return { width: enteredWidth, height: enteredHeight, source: 'selected' };
+  if (printArea?.verified && Number(printArea.width_in) > 0 && Number(printArea.height_in) > 0) {
+    return {
+      width: (Number(element?.width || 0) / 100) * Number(printArea.width_in),
+      height: (Number(element?.height || 0) / 100) * Number(printArea.height_in),
+      source: 'calibrated',
+    };
+  }
+  return { width: null, height: null, source: 'missing' };
+}
+
+export function artworkSizeForUnit(element, printArea = null, targetPpi = ARTWORK_OUTPUT_PPI) {
+  const size = artworkSizeInches(element, printArea);
+  const unit = normalizeArtworkUnit(element?.sizeUnit);
+  const multiplier = unit === 'pixels' ? Number(targetPpi || ARTWORK_OUTPUT_PPI) : 1;
+  return {
+    unit,
+    width: size.width ? size.width * multiplier : null,
+    height: size.height ? size.height * multiplier : null,
+    source: size.source,
+  };
+}
+
+const sourceAspectRatio = element => {
+  const intendedWidth = Number(element?.intendedWidthIn || 0);
+  const intendedHeight = Number(element?.intendedHeightIn || 0);
+  if (intendedWidth > 0 && intendedHeight > 0) return intendedWidth / intendedHeight;
+  const pixelWidth = Number(element?.pixelWidth || 0);
+  const pixelHeight = Number(element?.pixelHeight || 0);
+  if (pixelWidth > 0 && pixelHeight > 0) return pixelWidth / pixelHeight;
+  const previewWidth = Number(element?.width || 0);
+  const previewHeight = Number(element?.height || 0);
+  return previewWidth > 0 && previewHeight > 0 ? previewWidth / previewHeight : 1;
+};
+
+export function updateArtworkDimension(element, axis, rawValue, unit = element?.sizeUnit, printArea = null, targetPpi = ARTWORK_OUTPUT_PPI) {
+  const normalizedUnit = normalizeArtworkUnit(unit);
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || value <= 0) {
+    return { sizeUnit: normalizedUnit, ...(axis === 'width' ? { intendedWidthIn: null } : { intendedHeightIn: null }) };
+  }
+  const nextInches = normalizedUnit === 'pixels' ? value / Number(targetPpi || ARTWORK_OUTPUT_PPI) : value;
+  const current = artworkSizeInches(element, printArea);
+  const ratio = sourceAspectRatio(element);
+  const locked = element?.aspectRatioLocked !== false;
+  const widthIn = axis === 'width' ? nextInches : locked ? nextInches * ratio : current.width;
+  const heightIn = axis === 'height' ? nextInches : locked ? nextInches / ratio : current.height;
+  const patch = {
+    sizeUnit: normalizedUnit,
+    intendedWidthIn: widthIn || null,
+    intendedHeightIn: heightIn || null,
+    aspectRatioLocked: locked,
+  };
+
+  if (printArea?.verified && Number(printArea.width_in) > 0 && Number(printArea.height_in) > 0) {
+    if (widthIn) patch.width = Math.max(1, Math.min(100, (widthIn / Number(printArea.width_in)) * 100));
+    if (heightIn) patch.height = Math.max(1, Math.min(100, (heightIn / Number(printArea.height_in)) * 100));
+  } else if (current.width && current.height) {
+    if (widthIn) patch.width = Math.max(1, Math.min(100, Number(element.width || 1) * (widthIn / current.width)));
+    if (heightIn) patch.height = Math.max(1, Math.min(100, Number(element.height || 1) * (heightIn / current.height)));
+  }
+  return patch;
+}
+
+export function synchronizeArtworkResize(element, nextWidthPercent, nextHeightPercent, printArea = null) {
+  const current = artworkSizeInches(element, printArea);
+  const widthRatio = Number(element?.width) > 0 ? Number(nextWidthPercent) / Number(element.width) : 1;
+  const heightRatio = Number(element?.height) > 0 ? Number(nextHeightPercent) / Number(element.height) : 1;
+  return {
+    width: nextWidthPercent,
+    height: nextHeightPercent,
+    ...(current.width && current.height ? {
+      intendedWidthIn: current.width * widthRatio,
+      intendedHeightIn: current.height * heightRatio,
+    } : {}),
+  };
+}
 
 export function artworkQualityReport(element, printArea = null, targetPpi = 300) {
   if (element?.type !== 'image') return null;
@@ -102,23 +192,24 @@ export function artworkQualityReport(element, printArea = null, targetPpi = 300)
   }
   const pixelsWide = Number(element.pixelWidth || 0);
   const pixelsHigh = Number(element.pixelHeight || 0);
-  const calibratedWidth = printArea?.verified && Number(printArea.width_in) > 0
-    ? (Number(element.width || 0) / 100) * Number(printArea.width_in) : 0;
-  const calibratedHeight = printArea?.verified && Number(printArea.height_in) > 0
-    ? (Number(element.height || 0) / 100) * Number(printArea.height_in) : 0;
-  const intendedWidth = calibratedWidth || Number(element.intendedWidthIn || 0);
-  const intendedHeight = calibratedHeight || Number(element.intendedHeightIn || 0);
+  const size = artworkSizeInches(element, printArea);
+  const intendedWidth = Number(size.width || 0);
+  const intendedHeight = Number(size.height || 0);
   const maxWidth = pixelsWide > 0 ? pixelsWide / Number(targetPpi || 300) : null;
   const maxHeight = pixelsHigh > 0 ? pixelsHigh / Number(targetPpi || 300) : null;
   if (!pixelsWide || !pixelsHigh) return { state: 'unknown', label: 'Resolution unavailable', effectivePpi: null, maxWidth, maxHeight, intendedWidth, intendedHeight };
   if (!intendedWidth || !intendedHeight) {
-    return { state: 'needs_size', label: 'Enter print size to check quality', effectivePpi: null, maxWidth, maxHeight, intendedWidth, intendedHeight };
+    return { state: 'needs_size', label: 'Enter print size to check resolution.', effectivePpi: null, effectivePpiX: null, effectivePpiY: null, maxWidth, maxHeight, intendedWidth, intendedHeight };
   }
-  const effectivePpi = Math.floor(Math.min(pixelsWide / intendedWidth, pixelsHigh / intendedHeight));
+  const effectivePpiX = Math.floor((pixelsWide / intendedWidth) + 1e-9);
+  const effectivePpiY = Math.floor((pixelsHigh / intendedHeight) + 1e-9);
+  const effectivePpi = Math.min(effectivePpiX, effectivePpiY);
   return {
     state: effectivePpi >= Number(targetPpi || 300) ? 'good' : 'low',
-    label: effectivePpi >= Number(targetPpi || 300) ? 'Good resolution' : 'Low resolution',
-    effectivePpi, maxWidth, maxHeight, intendedWidth, intendedHeight,
+    label: effectivePpi >= Number(targetPpi || 300)
+      ? 'Meets 300-DPI minimum.'
+      : 'Below 300-DPI minimum—reduce print size or upload higher-resolution artwork.',
+    effectivePpi, effectivePpiX, effectivePpiY, maxWidth, maxHeight, intendedWidth, intendedHeight,
     message: effectivePpi >= Number(targetPpi || 300)
       ? `About ${effectivePpi} PPI at the intended print size.`
       : `About ${effectivePpi} PPI at the intended print size. Upscaling does not restore missing detail.`,
@@ -136,8 +227,9 @@ export function validatePlacement(elements, printArea) {
       warnings.push({ code: 'outside_print_area', level: 'blocker', elementId: element.id, message: `${element.name || 'Artwork'} extends outside the printable area.` });
     }
     const dpi = effectiveDpi(element, printArea);
-    if (dpi != null && dpi < Number(printArea.min_dpi || 150)) {
-      warnings.push({ code: 'low_resolution', level: 'warning', elementId: element.id, message: `${element.name || 'Artwork'} is about ${dpi} DPI at this size; ${printArea.min_dpi || 150} DPI is required.` });
+    const requiredDpi = Math.max(ARTWORK_OUTPUT_PPI, Number(printArea.min_dpi || ARTWORK_OUTPUT_PPI));
+    if (dpi != null && dpi < requiredDpi) {
+      warnings.push({ code: 'low_resolution', level: 'blocker', elementId: element.id, message: `${element.name || 'Artwork'} is ${dpi} DPI at the selected print size. Minimum resolution is ${requiredDpi} DPI; reduce print size or upload higher-resolution artwork.` });
     }
   }
   return warnings;

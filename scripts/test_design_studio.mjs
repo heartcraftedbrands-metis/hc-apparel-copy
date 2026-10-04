@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
+  artworkQualityReport, artworkSizeForUnit, calculatePrintingCharge, calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
   isRestrictedCustomizationProduct, makeElement, normalizedFileKind,
-  validateDesign, validatePlacement,
+  synchronizeArtworkResize, updateArtworkDimension, validateDesign, validatePlacement,
 } from '../src/lib/designStudio.js';
 import {
   buildMockupViews, getStudioGarmentType, isStudioEligibleProduct,
@@ -12,9 +12,9 @@ import {
 
 const document = createStudioDocument({
   productId: 'gildan-5000', color: 'Black', size: 'L', quantity: 2,
-  placements: { front: [makeElement('image', { pixelWidth: 1800, width: 50, height: 40 })] },
+  placements: { front: [makeElement('image', { pixelWidth: 1800, pixelHeight: 1680, width: 50, height: 40 })] },
 });
-const area = { placement: 'front', verified: true, enabled: true, width_in: 12, height_in: 14, min_dpi: 150 };
+const area = { placement: 'front', verified: true, enabled: true, width_in: 12, height_in: 14, min_dpi: 300 };
 assert.equal(effectiveDpi(document.placements.front[0], area), 300, 'effective DPI uses physical artwork width');
 assert.deepEqual(validatePlacement(document.placements.front, area), [], 'valid placement passes');
 assert.ok(validatePlacement([{ ...document.placements.front[0], x: 80 }], area).some(item => item.code === 'outside_print_area'), 'out-of-bounds artwork blocks production');
@@ -24,6 +24,21 @@ const quality = artworkQualityReport({ type: 'image', pixelWidth: 1800, pixelHei
 assert.equal(quality.effectivePpi, 150, 'quality report uses actual pixels divided by intended physical size');
 assert.equal(quality.state, 'low', '1800px at 12 inches is low at a 300 PPI target');
 assert.equal(quality.maxWidth, 6, 'quality report gives the non-upscaled 300 PPI maximum width');
+const screenshotQuality = artworkQualityReport({ type: 'image', pixelWidth: 512, pixelHeight: 255, intendedWidthIn: 4, intendedHeightIn: 2 }, null, 300);
+assert.equal(Number(screenshotQuality.maxWidth.toFixed(2)), 1.71, '512px artwork recommends about 1.71 inches at 300 DPI');
+assert.equal(Number(screenshotQuality.maxHeight.toFixed(2)), 0.85, '255px artwork recommends 0.85 inches at 300 DPI');
+assert.equal(screenshotQuality.label, 'Below 300-DPI minimum—reduce print size or upload higher-resolution artwork.', 'low-resolution status uses the required plain-language warning');
+assert.equal(screenshotQuality.effectivePpi, 127, 'effective resolution uses both original pixel axes and selected inches');
+const sizingElement = makeElement('image', { pixelWidth: 1800, pixelHeight: 900, width: 50, height: 25 });
+const twelveInches = { ...sizingElement, ...updateArtworkDimension(sizingElement, 'width', 12, 'inches', null, 300) };
+assert.equal(twelveInches.intendedWidthIn, 12, 'inches are stored as the canonical physical width');
+assert.equal(twelveInches.intendedHeightIn, 6, 'aspect lock updates height from the original artwork ratio');
+const pixelsView = artworkSizeForUnit({ ...twelveInches, sizeUnit: 'pixels' }, null, 300);
+assert.equal(pixelsView.width, 3600, '12 inches displays as 3600 output pixels at the 300 DPI reference');
+assert.equal(pixelsView.height, 1800, 'unit switching preserves physical height');
+const resized = synchronizeArtworkResize(twelveInches, 25, 12.5, null);
+assert.equal(resized.intendedWidthIn, 6, 'canvas resizing updates intended physical width');
+assert.equal(resized.intendedHeightIn, 3, 'canvas resizing updates intended physical height');
 const packaged = calculatePrintingCharge({ ...document, decorationMethod: 'dtf', productionRoute: 'hc_transfer_press', placements: { front: [makeElement('text')], back: [makeElement('text')] } }, [
   { active: true, production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: 19.99 },
 ], [{ active: true, method_key: 'dtf', placements: ['front', 'back'], service_price: 34.99 }]);
@@ -69,6 +84,7 @@ const permissionMigration = fs.readFileSync(new URL('../supabase/migrations/2026
 const archiveMigration = fs.readFileSync(new URL('../supabase/migrations/202610030009_archive_design_studio_qa_fixtures.sql', import.meta.url), 'utf8');
 const mobileActionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030012_repair_design_studio_mobile_actions.sql', import.meta.url), 'utf8');
 const vinylMethodMigration = fs.readFileSync(new URL('../supabase/migrations/202610030016_correct_hc_vinyl_methods.sql', import.meta.url), 'utf8');
+const artworkSizingMigration = fs.readFileSync(new URL('../supabase/migrations/202610030018_enforce_design_artwork_300_dpi.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -85,6 +101,8 @@ assert.match(vinylMethodMigration, /draft_selectable = true,[\s\S]*available = f
 assert.match(vinylMethodMigration, /backup_production_route = 'printify'[\s\S]*where method_key = 'dtg'/, 'Printify is only an optional DTG backup route');
 assert.doesNotMatch(vinylMethodMigration, /insert into public\.design_pricing_config/i, 'vinyl method correction does not invent or copy customer prices');
 assert.match(vinylMethodMigration, /preparation_labor_cost numeric/, 'vinyl internal pricing can account for preparation or weeding labor separately');
+assert.match(artworkSizingMigration, /default_raster_ppi between 300 and 1200/, 'raster production readiness cannot be configured below 300 DPI');
+assert.match(artworkSizingMigration, /min_dpi between 300 and 1200/, 'verified print-area DPI requirements cannot fall below 300');
 assert.match(migration, /order_design_snapshots_immutable/, 'ordered snapshots are database-immutable');
 assert.match(migration, /public_studio_enabled boolean not null default false/, 'public studio starts disabled');
 assert.match(migration, /live_vendor_submission_enabled boolean not null default false/, 'vendor submission starts disabled');
@@ -94,6 +112,8 @@ assert.match(edge, /auth\.auth\.getUser\(jwt\)/, 'server validates the exact bea
 assert.match(edge, /\.\.\.\(payload\.explicit \? \{ status: 'saved'/, 'autosave cannot downgrade an explicitly saved design back to draft');
 assert.match(edge, /method\.draft_selectable === false/, 'server separates draft selection from production readiness');
 assert.match(edge, /fulfillment_not_configured/, 'preview cart explains outside-provider readiness without blocking draft attachment');
+assert.match(edge, /code: 'low_resolution', level: 'blocker'/, 'low-resolution raster artwork blocks production readiness without blocking draft persistence');
+assert.match(edge, /enteredWidth[\s\S]*intendedWidthIn[\s\S]*pixelWidth[\s\S]*printWidth/, 'server quality validation uses original upload pixels and selected physical inches');
 assert.doesNotMatch(edge, /code: 'method_unavailable'/, 'production readiness is no longer mislabeled as draft method availability');
 assert.match(edge, /\.is\('archived_at', null\)\.neq\('status', 'archived'\)/, 'confirmed QA fixtures are excluded from active saved designs by both archive markers');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
@@ -113,6 +133,8 @@ assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'pr
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
 assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method selection is controlled by draft eligibility rather than vendor readiness');
 assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
+assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not expose canvas percentages');
+assert.match(page, /Minimum resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
 assert.match(page, /setDocument\(\{ \.\.\.document, decorationMethod: value, printMethod: value/, 'switching methods preserves the rest of the editable design document');
 assert.match(page, /Vinyl pricing still needs approval/, 'admin pricing identifies missing vinyl configuration without inventing values');
 assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');
