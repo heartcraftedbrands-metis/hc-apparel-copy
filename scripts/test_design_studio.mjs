@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   artworkQualityReport, artworkSizeForUnit, calculatePrintingCharge, calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
-  isRestrictedCustomizationProduct, makeElement, normalizedFileKind,
+  initializeArtworkSizing, isRestrictedCustomizationProduct, makeElement, normalizedFileKind,
   synchronizeArtworkResize, updateArtworkDimension, validateDesign, validatePlacement,
 } from '../src/lib/designStudio.js';
 import {
   buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel, getStudioGarmentType, getVariantImage, isStudioEligibleProduct,
-  placementAvailability, previewSurface,
+  placementAvailability, previewPhysicalScale, previewSurface,
 } from '../src/lib/designStudioCatalog.js';
 
 const document = createStudioDocument({
@@ -39,6 +39,18 @@ assert.equal(pixelsView.height, 1800, 'unit switching preserves physical height'
 const resized = synchronizeArtworkResize(twelveInches, 25, 12.5, null);
 assert.equal(resized.intendedWidthIn, 6, 'canvas resizing updates intended physical width');
 assert.equal(resized.intendedHeightIn, 3, 'canvas resizing updates intended physical height');
+const approximateScale = previewPhysicalScale(null, 'front');
+assert.deepEqual([approximateScale.width_in, approximateScale.height_in, approximateScale.verified], [12, 12, false], 'saved HC service limits provide an explicitly approximate front preview scale');
+const initializedArtwork = initializeArtworkSizing(makeElement('image', { pixelWidth: 1000, pixelHeight: 450 }), approximateScale);
+assert.equal(initializedArtwork.intendedWidthIn, 6, 'selected artwork immediately receives a physical width from the preview scale');
+assert.equal(Number(initializedArtwork.intendedHeightIn.toFixed(2)), 2.7, 'initial physical height follows the original raster aspect ratio');
+assert.equal(Number(initializedArtwork.height.toFixed(2)), 22.5, 'the canvas height and physical dimensions share one aspect-correct state');
+const typedFourInches = { ...initializedArtwork, ...updateArtworkDimension(initializedArtwork, 'width', 4, 'inches', approximateScale, 300) };
+assert.equal(Number(typedFourInches.width.toFixed(2)), 33.33, 'typing inches immediately updates canvas width through the same preview scale');
+assert.equal(Number(typedFourInches.intendedHeightIn.toFixed(2)), 1.8, 'aspect lock updates the paired physical dimension');
+const movedOnly = { ...typedFourInches, x: typedFourInches.x + 4, y: typedFourInches.y + 2 };
+assert.equal(movedOnly.intendedWidthIn, typedFourInches.intendedWidthIn, 'moving artwork does not alter its physical width');
+assert.equal(movedOnly.intendedHeightIn, typedFourInches.intendedHeightIn, 'moving artwork does not alter its physical height');
 const packaged = calculatePrintingCharge({ ...document, decorationMethod: 'dtf', productionRoute: 'hc_transfer_press', placements: { front: [makeElement('text')], back: [makeElement('text')] } }, [
   { active: true, production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: 19.99 },
 ], [{ active: true, method_key: 'dtf', placements: ['front', 'back'], service_price: 34.99 }]);
@@ -85,6 +97,13 @@ history = historyReducer(history, { type: 'undo' });
 assert.equal(history.present.name, 'Untitled design', 'undo restores prior document');
 history = historyReducer(history, { type: 'redo' });
 assert.equal(history.present.name, 'Changed', 'redo restores changed document');
+history = historyReducer(history, { type: 'begin_interaction' });
+const beforeDrag = history.present;
+history = historyReducer(history, { type: 'transient', value: { ...history.present, name: 'Dragging 1' } });
+history = historyReducer(history, { type: 'transient', value: { ...history.present, name: 'Dragging 2' } });
+history = historyReducer(history, { type: 'commit_interaction' });
+history = historyReducer(history, { type: 'undo' });
+assert.equal(history.present.name, beforeDrag.name, 'one Undo restores the complete live resize interaction instead of one pointer-move frame');
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610030006_build_design_studio_printify_backup.sql', import.meta.url), 'utf8');
 const repairMigration = fs.readFileSync(new URL('../supabase/migrations/202610030007_finish_design_studio_mobile.sql', import.meta.url), 'utf8');
@@ -172,6 +191,13 @@ assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method sele
 assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
 assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not expose canvas percentages');
 assert.match(page, /Minimum resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
+const canvas = fs.readFileSync(new URL('../src/components/design-studio/DesignCanvas.jsx', import.meta.url), 'utf8');
+const sizeControls = fs.readFileSync(new URL('../src/components/design-studio/ArtworkSizeControls.jsx', import.meta.url), 'utf8');
+assert.match(canvas, /synchronizeArtworkResize\(original, nextWidth, nextHeight, sizingArea\)/, 'live handle resizing updates physical size through the shared preview scale');
+assert.match(canvas, /\{ transient: true \}/, 'pointer movement updates the shared document continuously during a drag');
+assert.match(sizeControls, /Width \(\{suffix\}\)/, 'customer fields explicitly label width units');
+assert.match(sizeControls, /Height \(\{suffix\}\)/, 'customer fields explicitly label height units');
+assert.match(sizeControls, /editingAxis/, 'decimal typing is preserved while physical dimensions update');
 assert.match(page, /setDocument\(\{ \.\.\.document, decorationMethod: value, printMethod: value/, 'switching methods preserves the rest of the editable design document');
 assert.match(page, /Vinyl pricing still needs approval/, 'admin pricing identifies missing vinyl configuration without inventing values');
 assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');

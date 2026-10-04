@@ -15,14 +15,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import {
   ACTIVE_PRODUCTION_ROUTES, DECORATION_METHODS, DESIGN_PLACEMENTS, STUDIO_FONTS,
   artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
-  makeElement, updatePlacement, validateDesign,
+  initializeArtworkSizing, makeElement, updatePlacement, validateDesign,
 } from '@/lib/designStudio';
 import { getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
 import { getProductBrand, getPublicProductName } from '@/lib/productDisplayName';
 import {
   STUDIO_BRANDS, STUDIO_GARMENT_CLASSIFICATIONS, STUDIO_GARMENT_TYPES, buildMockupViews, getApprovedStudioImageMap, getStudioCustomizationColors, getStudioGarmentLabel,
   getOfficialGarmentSource, getStudioProductPreviewImage, getStudioProductSummary, getVariantForColor, getVariantImage, isStudioEligibleProduct, placementAvailability,
-  previewSurface, viewForPlacement,
+  previewPhysicalScale, previewSurface, viewForPlacement,
 } from '@/lib/designStudioCatalog';
 
 const BRAND = { plum: '#4b1236', gold: '#b58d2a', green: '#4f6b45', linen: '#f7f3ea' };
@@ -313,7 +313,9 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const [tab, setTab] = useState('studio');
   const [history, dispatch] = useReducer(historyReducer, createStudioDocument(), createHistory);
   const document = history.present;
-  const setDocument = useCallback(value => dispatch({ type: 'set', value }), []);
+  const setDocument = useCallback((value, options = {}) => dispatch({ type: options.transient ? 'transient' : 'set', value }), []);
+  const beginDocumentInteraction = useCallback(() => dispatch({ type: 'begin_interaction' }), []);
+  const endDocumentInteraction = useCallback(() => dispatch({ type: 'commit_interaction' }), []);
   const [selectedIds, setSelectedIds] = useState([]);
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
@@ -374,6 +376,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const activeView = viewForPlacement(document.activePlacement);
   const activeMockup = views[activeView] || null;
   const canvasArea = previewSurface(product, document.activePlacement, activeMockup?.previewArea);
+  const sizingArea = useMemo(() => previewPhysicalScale(activeArea, document.activePlacement, canvasArea), [activeArea, canvasArea.height, canvasArea.width, document.activePlacement]);
   const areaProduct = products.find(item => item.id === areaForm.product_id) || null;
   const officialAreaSource = getOfficialGarmentSource(areaProduct);
 
@@ -441,6 +444,14 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   }, [document.productId]);
 
   useEffect(() => {
+    const elements = document.placements?.[document.activePlacement] || [];
+    if (!elements.length) return;
+    const normalized = elements.map(element => initializeArtworkSizing(element, sizingArea));
+    if (JSON.stringify(normalized) === JSON.stringify(elements)) return;
+    setDocument(updatePlacement(document, document.activePlacement, () => normalized));
+  }, [document, setDocument, sizingArea]);
+
+  useEffect(() => {
     const changed = JSON.stringify(document) !== savedJsonRef.current;
     if (!changed) return undefined;
     setVersion(null);
@@ -496,14 +507,15 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     setDocument({ ...document, decorationMethod: value, printMethod: value, productionRoute: method.production_route || 'hc_transfer_press', updatedAt: new Date().toISOString() });
   };
   const addElement = element => {
-    setDocument(updatePlacement(document, document.activePlacement, items => [...items, element]));
-    setSelectedIds([element.id]); setMobilePanel('');
+    const normalized = initializeArtworkSizing(element, sizingArea);
+    setDocument(updatePlacement(document, document.activePlacement, items => [...items, normalized]));
+    setSelectedIds([normalized.id]); setMobilePanel('');
   };
   const addTemplate = () => {
     const groupId = crypto.randomUUID();
     const badge = makeElement('shape', { name: 'HC badge', shape: 'circle', groupId, x: 30, y: 22, width: 40, height: 40, fill: BRAND.plum });
     const text = makeElement('text', { name: 'HC badge text', text: 'HC APPAREL', groupId, x: 33, y: 34, width: 34, height: 12, fill: '#f7f3ea', fontFamily: 'Georgia', fontWeight: 700, curve: 26 });
-    setDocument(updatePlacement(document, document.activePlacement, items => [...items, badge, text]));
+    setDocument(updatePlacement(document, document.activePlacement, items => [...items, initializeArtworkSizing(badge, sizingArea), initializeArtworkSizing(text, sizingArea)]));
     setSelectedIds([badge.id, text.id]); setMobilePanel('');
   };
   const patchSelected = values => setDocument(updatePlacement(document, document.activePlacement, items => items.map(item => selectedIds.includes(item.id) ? { ...item, ...values } : item)));
@@ -512,7 +524,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     setBusy('upload');
     try {
       const data = await invoke('upload', { filename: file.name, data: await readFile(file), design_id: designId || null });
-      addElement(makeElement('image', { name: file.name, assetId: data.asset.id, storagePath: data.asset.storage_path, previewUrl: data.preview_url, pixelWidth: data.asset.pixel_width, pixelHeight: data.asset.pixel_height, fileKind: data.asset.file_kind, mimeType: data.asset.mime_type, hasTransparency: data.asset.has_transparency, resolutionX: data.asset.resolution_x_ppi, resolutionY: data.asset.resolution_y_ppi, containsEmbeddedRaster: data.asset.contains_embedded_raster, intendedWidthIn: null, intendedHeightIn: null }));
+      addElement(makeElement('image', { name: file.name, assetId: data.asset.id, storagePath: data.asset.storage_path, previewUrl: data.preview_url, pixelWidth: data.asset.pixel_width, pixelHeight: data.asset.pixel_height, fileKind: data.asset.file_kind, mimeType: data.asset.mime_type, hasTransparency: data.asset.has_transparency, resolutionX: data.asset.resolution_x_ppi, resolutionY: data.asset.resolution_y_ppi, containsEmbeddedRaster: data.asset.contains_embedded_raster }));
       toast.success('Artwork validated and stored privately.');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); event.target.value = ''; }
   };
@@ -538,7 +550,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     setBusy('load'); try {
       const result = await invoke('load', { design_id: id });
       const savedProduct = products.find(item => item.id === result.design.document.productId);
-      const hydrated = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantImage(savedProduct, result.design.document.color, result.design.document.size) || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
+      const base = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantImage(savedProduct, result.design.document.color, result.design.document.size) || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
+      const hydrated = { ...base, placements: Object.fromEntries(Object.entries(base.placements || {}).map(([placement, elements]) => [placement, (elements || []).map(element => initializeArtworkSizing(element, previewPhysicalScale(null, placement, previewSurface(savedProduct, placement))))])) };
       dispatch({ type: 'replace', value: hydrated }); setDesignId(result.design.id); setVersion(null); setSelectedIds([]); savedJsonRef.current = JSON.stringify(hydrated); setSaveState('Saved'); setTab('studio');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); }
   };
@@ -718,10 +731,10 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
             const state = placementState[key] || { enabled: false, reason: 'Choose a garment first.' };
             return <button key={key} type="button" disabled={!state.enabled} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-[#4f6b45] text-white' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={state.reason || (relevantAreas.some(item => item.placement === key) ? '' : 'Draft editing is available; production calibration is still required.')}>{label}</button>;
           })}</div>
-          <DesignCanvas document={document} setDocument={setDocument} printArea={activeArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} />
+          <DesignCanvas document={document} setDocument={setDocument} beginDocumentInteraction={beginDocumentInteraction} endDocumentInteraction={endDocumentInteraction} printArea={activeArea} sizingArea={sizingArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} />
           <p className="text-center text-xs text-muted-foreground">{customerMode ? 'Your preview uses the selected garment and color. Placement shown is approximate until the design is reviewed.' : 'The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.'}</p>
         </div>
-        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>
+        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="space-y-2">{customerMode ? <>
@@ -787,7 +800,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
 
     {tab === 'settings' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card><GarmentReviewPanel review={catalogReview} loading={catalogReviewLoading} error={catalogReviewError} onRefresh={loadCatalogReview} onSave={saveCatalogReview} busy={busy} /></main>}
 
-    {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-[#4b1236]"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={activeArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></div>}</SheetContent></Sheet>)}
+    {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-[#4b1236]"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></div>}</SheetContent></Sheet>)}
       <div className={`fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-white px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] ${customerMode ? 'sm:hidden' : 'lg:hidden'}`}>
         {[["variants", Shirt, customerMode ? 'Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Button key={key} type="button" variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={() => setMobilePanel(key)}><Icon className="h-5 w-5" />{label}</Button>)}
         <Button variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : customerMode ? 'Save Design' : 'Save'}</Button>

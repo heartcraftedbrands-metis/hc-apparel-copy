@@ -204,6 +204,32 @@ export function previewSurface(product, placement, mappedArea = null) {
   return { x: 28, y: 22, width: 44, height: 58 };
 }
 
+const HC_PREVIEW_SCALE_BY_PLACEMENT = {
+  front: { width_in: 12, height_in: 12, source_note: 'HC saved full-front service limit (up to 12 × 12 inches); preview scale only.' },
+  back: { width_in: 12, height_in: 12, source_note: 'HC saved front/back service limit (up to 12 × 12 inches per location); preview scale only.' },
+  left_chest: { width_in: 4, height_in: 4, source_note: 'HC saved left-chest service limit (up to 4 × 4 inches); preview scale only.' },
+  right_chest: { width_in: 4, height_in: 4, source_note: 'HC saved right-chest service limit (up to 4 × 4 inches); preview scale only.' },
+  left_sleeve: { width_in: 3.5, height_in: 3.5, source_note: 'HC saved left-sleeve service limit (up to 3.5 × 3.5 inches); preview scale only.' },
+  right_sleeve: { width_in: 3.5, height_in: 3.5, source_note: 'HC saved right-sleeve service limit (up to 3.5 × 3.5 inches); preview scale only.' },
+};
+
+export function previewPhysicalScale(printArea, placement = 'front', previewArea = null) {
+  if (Number(printArea?.width_in) > 0 && Number(printArea?.height_in) > 0) return printArea;
+  const fallback = HC_PREVIEW_SCALE_BY_PLACEMENT[placement] || HC_PREVIEW_SCALE_BY_PLACEMENT.front;
+  const previewRatio = Number(previewArea?.width) > 0 && Number(previewArea?.height) > 0
+    ? Number(previewArea.height) / Number(previewArea.width)
+    : fallback.height_in / fallback.width_in;
+  return {
+    ...fallback,
+    height_in: fallback.width_in * previewRatio,
+    placement,
+    verified: false,
+    approximate: true,
+    sizing_source: 'hc_saved_service_preview_scale',
+    source_note: `${fallback.source_note} Preview height follows the mapped garment surface aspect ratio and is not a verified fit measurement.`,
+  };
+}
+
 export function getOfficialGarmentSource(product) {
   const identity = lower(`${product?.brand || ''} ${product?.name || ''} ${product?.style_number || ''}`);
   if (identity.includes('gildan') && /\b5000\b/.test(identity)) return { label: 'Gildan 5000 official product specifications', url: 'https://www.gildan.com/us/en/5000-adult-t-shirt-en_us', note: 'Confirms garment construction, sizes, and colors; it does not publish an HC production print-area measurement.' };

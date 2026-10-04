@@ -104,11 +104,11 @@ export function artworkSizeInches(element, printArea = null) {
   const enteredWidth = Number(element?.intendedWidthIn || 0);
   const enteredHeight = Number(element?.intendedHeightIn || 0);
   if (enteredWidth > 0 && enteredHeight > 0) return { width: enteredWidth, height: enteredHeight, source: 'selected' };
-  if (printArea?.verified && Number(printArea.width_in) > 0 && Number(printArea.height_in) > 0) {
+  if (Number(printArea?.width_in) > 0 && Number(printArea?.height_in) > 0) {
     return {
       width: (Number(element?.width || 0) / 100) * Number(printArea.width_in),
       height: (Number(element?.height || 0) / 100) * Number(printArea.height_in),
-      source: 'calibrated',
+      source: printArea?.verified ? 'calibrated' : 'approximate_preview',
     };
   }
   return { width: null, height: null, source: 'missing' };
@@ -142,7 +142,7 @@ export function updateArtworkDimension(element, axis, rawValue, unit = element?.
   const normalizedUnit = normalizeArtworkUnit(unit);
   const value = Number(rawValue);
   if (!Number.isFinite(value) || value <= 0) {
-    return { sizeUnit: normalizedUnit, ...(axis === 'width' ? { intendedWidthIn: null } : { intendedHeightIn: null }) };
+    return { sizeUnit: normalizedUnit };
   }
   const nextInches = normalizedUnit === 'pixels' ? value / Number(targetPpi || ARTWORK_OUTPUT_PPI) : value;
   const current = artworkSizeInches(element, printArea);
@@ -157,14 +157,47 @@ export function updateArtworkDimension(element, axis, rawValue, unit = element?.
     aspectRatioLocked: locked,
   };
 
-  if (printArea?.verified && Number(printArea.width_in) > 0 && Number(printArea.height_in) > 0) {
-    if (widthIn) patch.width = Math.max(1, Math.min(100, (widthIn / Number(printArea.width_in)) * 100));
-    if (heightIn) patch.height = Math.max(1, Math.min(100, (heightIn / Number(printArea.height_in)) * 100));
+  if (Number(printArea?.width_in) > 0 && Number(printArea?.height_in) > 0) {
+    if (widthIn) patch.width = Math.max(1, (widthIn / Number(printArea.width_in)) * 100);
+    if (heightIn) patch.height = Math.max(1, (heightIn / Number(printArea.height_in)) * 100);
+    if (patch.width <= 100) patch.x = Math.max(0, Math.min(Number(element.x || 0), 100 - patch.width));
+    if (patch.height <= 100) patch.y = Math.max(0, Math.min(Number(element.y || 0), 100 - patch.height));
   } else if (current.width && current.height) {
     if (widthIn) patch.width = Math.max(1, Math.min(100, Number(element.width || 1) * (widthIn / current.width)));
     if (heightIn) patch.height = Math.max(1, Math.min(100, Number(element.height || 1) * (heightIn / current.height)));
   }
   return patch;
+}
+
+export function initializeArtworkSizing(element, printArea = null) {
+  if (!element) return element;
+  const areaWidth = Number(printArea?.width_in || 0);
+  const areaHeight = Number(printArea?.height_in || 0);
+  if (!(areaWidth > 0 && areaHeight > 0)) return element;
+
+  let widthIn = Number(element.intendedWidthIn || 0);
+  let heightIn = Number(element.intendedHeightIn || 0);
+  const ratio = sourceAspectRatio(element);
+  if (!(widthIn > 0 && heightIn > 0)) {
+    widthIn = Math.max(.01, (Number(element.width || 0) / 100) * areaWidth);
+    heightIn = element.aspectRatioLocked === false
+      ? Math.max(.01, (Number(element.height || 0) / 100) * areaHeight)
+      : Math.max(.01, widthIn / Math.max(.0001, ratio));
+  }
+
+  const width = Math.max(1, (widthIn / areaWidth) * 100);
+  const height = Math.max(1, (heightIn / areaHeight) * 100);
+  return {
+    ...element,
+    sizeUnit: normalizeArtworkUnit(element.sizeUnit),
+    aspectRatioLocked: element.aspectRatioLocked !== false,
+    intendedWidthIn: widthIn,
+    intendedHeightIn: heightIn,
+    width,
+    height,
+    x: width <= 100 ? Math.max(0, Math.min(Number(element.x || 0), 100 - width)) : Number(element.x || 0),
+    y: height <= 100 ? Math.max(0, Math.min(Number(element.y || 0), 100 - height)) : Number(element.y || 0),
+  };
 }
 
 export function synchronizeArtworkResize(element, nextWidthPercent, nextHeightPercent, printArea = null) {
@@ -322,21 +355,32 @@ export const loadGuestDraft = () => {
 export const clearGuestDraft = () => localStorage.removeItem(GUEST_KEY);
 
 export function createHistory(initial) {
-  return { past: [], present: cloneDocument(initial), future: [] };
+  return { past: [], present: cloneDocument(initial), future: [], interactionStart: null };
 }
 
 export function historyReducer(state, action) {
+  if (action.type === 'begin_interaction') {
+    return state.interactionStart ? state : { ...state, interactionStart: cloneDocument(state.present) };
+  }
+  if (action.type === 'transient') {
+    return { ...state, present: cloneDocument(action.value), future: [] };
+  }
+  if (action.type === 'commit_interaction') {
+    if (!state.interactionStart) return state;
+    if (JSON.stringify(state.interactionStart) === JSON.stringify(state.present)) return { ...state, interactionStart: null };
+    return { past: [...state.past.slice(-49), state.interactionStart], present: state.present, future: [], interactionStart: null };
+  }
   if (action.type === 'set') {
     const next = cloneDocument(action.value);
     if (JSON.stringify(next) === JSON.stringify(state.present)) return state;
-    return { past: [...state.past.slice(-49), state.present], present: next, future: [] };
+    return { past: [...state.past.slice(-49), state.present], present: next, future: [], interactionStart: null };
   }
   if (action.type === 'replace') return createHistory(action.value);
   if (action.type === 'undo' && state.past.length) {
-    return { past: state.past.slice(0, -1), present: state.past.at(-1), future: [state.present, ...state.future] };
+    return { past: state.past.slice(0, -1), present: state.past.at(-1), future: [state.present, ...state.future], interactionStart: null };
   }
   if (action.type === 'redo' && state.future.length) {
-    return { past: [...state.past, state.present], present: state.future[0], future: state.future.slice(1) };
+    return { past: [...state.past, state.present], present: state.future[0], future: state.future.slice(1), interactionStart: null };
   }
   return state;
 }
