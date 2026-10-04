@@ -45,6 +45,35 @@ async function loadEveryProduct(service: ReturnType<typeof createClient>, select
   return rows;
 }
 
+async function loadStudioCatalog(service: ReturnType<typeof createClient>) {
+  const rows: Record<string, unknown>[] = [];
+  const pageSize = 250;
+  const fields = [
+    'id','name','price','sale_price','product_type','visibility','image_url','mockup_images','stock','is_active',
+    'brand','style_number','supplier_sku','primary_garment_type','size_prices',
+    'design_studio_eligible','design_studio_garment_type','design_studio_image_status',
+    'design_studio_image_note','design_studio_approved_colors','design_studio_front_images','design_studio_reviewed_at',
+  ].join(',');
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await service.from('products').select(fields)
+      .eq('product_type', 'physical').eq('visibility', 'public').eq('is_active', true).gt('stock', 0)
+      .eq('design_studio_eligible', true).eq('design_studio_image_status', 'approved')
+      .in('design_studio_garment_type', [...studioGarmentTypes]).order('id').range(from, from + pageSize - 1);
+    if (error) fail('The live Design Studio garment catalog could not be loaded.', 500);
+    rows.push(...((data || []) as Record<string, unknown>[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows.filter(product => studioBrands.has(safeText(product.brand, 100).toLowerCase())).map(product => ({
+    ...product,
+    size_prices: (Array.isArray(product.size_prices) ? product.size_prices : []).map((value: unknown) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      const safeVariant = { ...(value as Record<string, unknown>) };
+      for (const key of ['vendor_cost', 'customer_price', 'piece_price', 'dozen_price', 'case_price']) delete safeVariant[key];
+      return safeVariant;
+    }),
+  }));
+}
+
 function catalogColor(variant: Record<string, unknown>) {
   const raw = safeText(variant.size, 240);
   const separator = raw.indexOf(' / ');
@@ -288,6 +317,11 @@ Deno.serve(async request => {
     if (!isAdmin) {
       const { data: settings } = await service.from('design_studio_settings').select('public_studio_enabled').eq('id', true).single();
       if (!settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
+    }
+
+    if (action === 'catalog') {
+      const products = await loadStudioCatalog(service);
+      return reply({ products, pagination_complete: true, product_count: products.length }, 200, origin);
     }
 
     if (action === 'catalog_review') {

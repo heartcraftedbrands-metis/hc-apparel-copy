@@ -363,13 +363,8 @@ export default function AdminDesignStudio({ customerMode = false }) {
   const loadProducts = useCallback(async () => {
     setProductsLoading(true); setProductsError('');
     try {
-      const rows = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from('design_studio_products').select('*').order('id').range(from, from + 999);
-        if (error) throw error;
-        rows.push(...(data || []));
-        if (!data || data.length < 1000) break;
-      }
+      const result = await invoke('catalog');
+      const rows = result.products || [];
       const garments = rows.filter(isStudioEligibleProduct);
       garments.sort((a, b) => (String(a.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(a.name) ? -1 : String(b.style_number).toUpperCase() === '5000' || /Gildan 5000/i.test(b.name) ? 1 : getPublicProductName(a).localeCompare(getPublicProductName(b))));
       setProducts(garments);

@@ -151,8 +151,10 @@ assert.match(app, /path="\/DesignStudio"[\s\S]*STOREFRONT_FEATURES\.designStudio
 
 const page = fs.readFileSync(new URL('../src/pages/AdminDesignStudio.jsx', import.meta.url), 'utf8');
 assert.match(page, /Choose Garment/, 'garment selection is visible before the canvas');
-assert.match(page, /from\('design_studio_products'\)/, 'new garment selection reads only explicitly approved studio products');
-assert.match(page, /\.range\(from, from \+ 999\)/, 'the garment picker paginates through all approved products');
+assert.match(page, /invoke\('catalog'\)/, 'the garment picker uses the authenticated server catalog rather than a broad public-view query');
+assert.match(edge, /action === 'catalog'/, 'the server exposes the approved Design Studio catalog independently of the admin coverage report');
+assert.match(edge, /loadStudioCatalog\(service/, 'the server paginates the complete approved Studio catalog');
+assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields are stripped from catalog variants before they reach the Studio');
 assert.match(page, /Approved exact-color front photographs/, 'admin coverage provides an exact-photo assignment control');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
