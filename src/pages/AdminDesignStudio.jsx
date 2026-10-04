@@ -314,6 +314,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const [history, dispatch] = useReducer(historyReducer, createStudioDocument(), createHistory);
   const document = history.present;
   const setDocument = useCallback((value, options = {}) => dispatch({ type: options.transient ? 'transient' : 'set', value }), []);
+  const normalizeDocument = useCallback(value => dispatch({ type: 'normalize', value }), []);
   const beginDocumentInteraction = useCallback(() => dispatch({ type: 'begin_interaction' }), []);
   const endDocumentInteraction = useCallback(() => dispatch({ type: 'commit_interaction' }), []);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -448,8 +449,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     if (!elements.length) return;
     const normalized = elements.map(element => initializeArtworkSizing(element, sizingArea));
     if (JSON.stringify(normalized) === JSON.stringify(elements)) return;
-    setDocument(updatePlacement(document, document.activePlacement, () => normalized));
-  }, [document, setDocument, sizingArea]);
+    normalizeDocument(updatePlacement(document, document.activePlacement, () => normalized));
+  }, [document, normalizeDocument, sizingArea]);
 
   useEffect(() => {
     const changed = JSON.stringify(document) !== savedJsonRef.current;

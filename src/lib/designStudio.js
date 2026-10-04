@@ -187,6 +187,13 @@ export function initializeArtworkSizing(element, printArea = null) {
 
   const width = Math.max(1, (widthIn / areaWidth) * 100);
   const height = Math.max(1, (heightIn / areaHeight) * 100);
+  const alreadySynchronized = normalizeArtworkUnit(element.sizeUnit) === element.sizeUnit
+    && element.aspectRatioLocked !== undefined
+    && Math.abs(Number(element.intendedWidthIn || 0) - widthIn) < 1e-8
+    && Math.abs(Number(element.intendedHeightIn || 0) - heightIn) < 1e-8
+    && Math.abs(Number(element.width || 0) - width) < 1e-8
+    && Math.abs(Number(element.height || 0) - height) < 1e-8;
+  if (alreadySynchronized) return element;
   return {
     ...element,
     sizeUnit: normalizeArtworkUnit(element.sizeUnit),
@@ -374,6 +381,11 @@ export function historyReducer(state, action) {
     const next = cloneDocument(action.value);
     if (JSON.stringify(next) === JSON.stringify(state.present)) return state;
     return { past: [...state.past.slice(-49), state.present], present: next, future: [], interactionStart: null };
+  }
+  if (action.type === 'normalize') {
+    const next = cloneDocument(action.value);
+    if (JSON.stringify(next) === JSON.stringify(state.present)) return state;
+    return { ...state, present: next };
   }
   if (action.type === 'replace') return createHistory(action.value);
   if (action.type === 'undo' && state.past.length) {

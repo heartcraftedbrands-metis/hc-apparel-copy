@@ -51,6 +51,8 @@ assert.equal(Number(typedFourInches.intendedHeightIn.toFixed(2)), 1.8, 'aspect l
 const movedOnly = { ...typedFourInches, x: typedFourInches.x + 4, y: typedFourInches.y + 2 };
 assert.equal(movedOnly.intendedWidthIn, typedFourInches.intendedWidthIn, 'moving artwork does not alter its physical width');
 assert.equal(movedOnly.intendedHeightIn, typedFourInches.intendedHeightIn, 'moving artwork does not alter its physical height');
+const liveResizedArtwork = { ...typedFourInches, ...synchronizeArtworkResize(typedFourInches, 68.25, 30.7125, approximateScale) };
+assert.equal(initializeArtworkSizing(liveResizedArtwork, approximateScale), liveResizedArtwork, 'sub-pixel floating-point noise does not create a second history entry during live resizing');
 const packaged = calculatePrintingCharge({ ...document, decorationMethod: 'dtf', productionRoute: 'hc_transfer_press', placements: { front: [makeElement('text')], back: [makeElement('text')] } }, [
   { active: true, production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: 19.99 },
 ], [{ active: true, method_key: 'dtf', placements: ['front', 'back'], service_price: 34.99 }]);
@@ -104,6 +106,12 @@ history = historyReducer(history, { type: 'transient', value: { ...history.prese
 history = historyReducer(history, { type: 'commit_interaction' });
 history = historyReducer(history, { type: 'undo' });
 assert.equal(history.present.name, beforeDrag.name, 'one Undo restores the complete live resize interaction instead of one pointer-move frame');
+history = historyReducer(history, { type: 'redo' });
+const pastBeforeNormalization = history.past.length;
+const futureBeforeNormalization = history.future.length;
+history = historyReducer(history, { type: 'normalize', value: { ...history.present, updatedAt: 'normalized' } });
+assert.equal(history.past.length, pastBeforeNormalization, 'background dimension normalization does not add a customer-visible Undo step');
+assert.equal(history.future.length, futureBeforeNormalization, 'background dimension normalization preserves Redo history');
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610030006_build_design_studio_printify_backup.sql', import.meta.url), 'utf8');
 const repairMigration = fs.readFileSync(new URL('../supabase/migrations/202610030007_finish_design_studio_mobile.sql', import.meta.url), 'utf8');
