@@ -55,7 +55,7 @@ export default function ArtworkSizeControls({ element, patchElement, printArea, 
         <Input aria-label={`Artwork height (${suffix})`} type="number" min="0.01" step={unit === 'pixels' ? 1 : 0.01} value={heightInput} onFocus={() => setEditingAxis('height')} onBlur={() => finishDimension('height')} onChange={event => changeDimension('height', event.target.value)} className="mt-1 h-9" />
       </label>
       <label className="text-[11px] font-medium">Unit
-        <select aria-label="Artwork size unit" value={unit} onChange={event => changeUnit(event.target.value)} className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm">
+        <select aria-label="Artwork size unit" value={unit} onChange={event => changeUnit(event.target.value)} className="mt-1 h-9 w-full rounded-md border bg-card px-2 text-sm">
           <option value="inches">Inches</option>
           <option value="pixels">Pixels</option>
         </select>

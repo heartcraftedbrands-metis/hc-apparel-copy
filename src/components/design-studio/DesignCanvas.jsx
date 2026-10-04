@@ -62,6 +62,7 @@ export default function DesignCanvas({ document, setDocument, beginDocumentInter
   const ungroup = () => patchSelected({ groupId: null });
 
   const startInteraction = (event, element, mode) => {
+    window.document.activeElement?.blur?.();
     event.preventDefault(); event.stopPropagation();
     if (element.locked || previewMode || !mockup?.url) return;
     const svg = svgRef.current;

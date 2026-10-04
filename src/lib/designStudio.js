@@ -71,7 +71,7 @@ export const makeElement = (type, overrides = {}) => ({
   visible: true,
   locked: false,
   groupId: null,
-  fill: '#4b1236',
+  fill: '#4e602e',
   text: type === 'text' ? 'Your text' : '',
   fontFamily: 'Arial',
   fontWeight: 700,
