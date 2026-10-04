@@ -68,6 +68,7 @@ const repairMigration = fs.readFileSync(new URL('../supabase/migrations/20261003
 const permissionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030008_design_studio_service_role_permissions.sql', import.meta.url), 'utf8');
 const archiveMigration = fs.readFileSync(new URL('../supabase/migrations/202610030009_archive_design_studio_qa_fixtures.sql', import.meta.url), 'utf8');
 const mobileActionMigration = fs.readFileSync(new URL('../supabase/migrations/202610030012_repair_design_studio_mobile_actions.sql', import.meta.url), 'utf8');
+const vinylMethodMigration = fs.readFileSync(new URL('../supabase/migrations/202610030016_correct_hc_vinyl_methods.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -78,6 +79,12 @@ assert.match(archiveMigration, /purge_expired_design_studio_test_archives/, 'con
 assert.match(mobileActionMigration, /design_preview_cart_items/, 'preview cart entries persist server-side instead of browser-local only');
 assert.match(mobileActionMigration, /design_decoration_methods/, 'customer methods and internal routes are configured separately');
 assert.match(mobileActionMigration, /default_raster_ppi[^;]+default 300/s, 'raster quality target defaults to configurable 300 PPI');
+assert.match(vinylMethodMigration, /where method_key in \('dtf','soft_vinyl','puff_vinyl','glitter_vinyl','flock_vinyl'\)/, 'DTF and every HC-operated vinyl method share the HC production update');
+assert.match(vinylMethodMigration, /available = true,[\s\S]*production_route = 'hc_transfer_press',[\s\S]*provider_key = 'hc'/, 'HC vinyl production does not depend on an outside vendor');
+assert.match(vinylMethodMigration, /draft_selectable = true,[\s\S]*available = false,[\s\S]*where method_key = 'embroidery'/, 'embroidery remains draft-selectable while production is not configured');
+assert.match(vinylMethodMigration, /backup_production_route = 'printify'[\s\S]*where method_key = 'dtg'/, 'Printify is only an optional DTG backup route');
+assert.doesNotMatch(vinylMethodMigration, /insert into public\.design_pricing_config/i, 'vinyl method correction does not invent or copy customer prices');
+assert.match(vinylMethodMigration, /preparation_labor_cost numeric/, 'vinyl internal pricing can account for preparation or weeding labor separately');
 assert.match(migration, /order_design_snapshots_immutable/, 'ordered snapshots are database-immutable');
 assert.match(migration, /public_studio_enabled boolean not null default false/, 'public studio starts disabled');
 assert.match(migration, /live_vendor_submission_enabled boolean not null default false/, 'vendor submission starts disabled');
@@ -85,6 +92,9 @@ assert.match(edge, /payment_verified_at.*artwork_approved_at.*confirm_submission
 assert.match(edge, /PRINTIFY_API_TOKEN/, 'Printify credential remains server-side');
 assert.match(edge, /auth\.auth\.getUser\(jwt\)/, 'server validates the exact bearer token used by the signed-in HC session');
 assert.match(edge, /\.\.\.\(payload\.explicit \? \{ status: 'saved'/, 'autosave cannot downgrade an explicitly saved design back to draft');
+assert.match(edge, /method\.draft_selectable === false/, 'server separates draft selection from production readiness');
+assert.match(edge, /fulfillment_not_configured/, 'preview cart explains outside-provider readiness without blocking draft attachment');
+assert.doesNotMatch(edge, /code: 'method_unavailable'/, 'production readiness is no longer mislabeled as draft method availability');
 assert.match(edge, /\.is\('archived_at', null\)\.neq\('status', 'archived'\)/, 'confirmed QA fixtures are excluded from active saved designs by both archive markers');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
@@ -101,6 +111,10 @@ assert.match(edge, /\.eq\('design_checksum', version\.checksum\)/, 'reattaching 
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
+assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method selection is controlled by draft eligibility rather than vendor readiness');
+assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
+assert.match(page, /setDocument\(\{ \.\.\.document, decorationMethod: value, printMethod: value/, 'switching methods preserves the rest of the editable design document');
+assert.match(page, /Vinyl pricing still needs approval/, 'admin pricing identifies missing vinyl configuration without inventing values');
 assert.match(page, /aria-label={`Delete \$\{layer\.name\}`}/, 'every layer row has a touch-accessible delete action');
 assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/, 'Design Studio sends the active HC session explicitly to its server API');
 assert.match(page, /JSON\.stringify\(document\) === savedJsonRef\.current/, 'a stale autosave timer exits after an explicit save');

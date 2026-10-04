@@ -379,6 +379,7 @@ Deno.serve(async request => {
       const methodKey = safeText(document.decorationMethod || document.printMethod || 'dtf', 80);
       const { data: method } = await service.from('design_decoration_methods').select('*').eq('method_key', methodKey).maybeSingle();
       if (!method) fail('Choose a recognized print or decoration method.');
+      if (method.draft_selectable === false) fail('This decoration method is not selectable for design drafts.');
       const route = safeText(method.production_route || 'hc_transfer_press', 80);
       const areasResult = productId && size
         ? await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', methodKey).in('product_size', ['*', size])
@@ -411,7 +412,12 @@ Deno.serve(async request => {
         const checksum = await sha256(new TextEncoder().encode(JSON.stringify(record.document)));
         const result = await service.from('design_versions').insert({
           design_id: saved.id, owner_user_id: saved.owner_user_id, version_number: Number(count || 0) + 1,
-          document_snapshot: record.document, production_spec_snapshot: { print_areas: areas || [], route, print_method: record.print_method },
+          document_snapshot: record.document, production_spec_snapshot: {
+            print_areas: areas || [], route, print_method: record.print_method,
+            production_ready: Boolean(method.available), provider_key: method.provider_key || null,
+            backup_production_route: method.backup_production_route || null,
+            backup_provider_key: method.backup_provider_key || null,
+          },
           validation_snapshot: warnings, checksum,
         }).select('id,version_number,checksum,created_at').single();
         if (result.error) fail(`The design saved, but its immutable version could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_version_failed'); version = result.data;
@@ -423,7 +429,7 @@ Deno.serve(async request => {
     }
 
     if (action === 'list') {
-      let query = service.from('design_documents').select('id,name,status,product_id,selected_color,selected_size,quantity,production_route,validation,updated_at,saved_at,owner_user_id').is('archived_at', null).neq('status', 'archived').order('updated_at', { ascending: false }).limit(100);
+      let query = service.from('design_documents').select('id,name,status,product_id,selected_color,selected_size,quantity,production_route,print_method,validation,updated_at,saved_at,owner_user_id').is('archived_at', null).neq('status', 'archived').order('updated_at', { ascending: false }).limit(100);
       if (!isAdmin) query = query.eq('owner_user_id', user.id);
       const { data, error } = await query;
       if (error) fail('Designs could not be loaded.', 500);
@@ -485,7 +491,10 @@ Deno.serve(async request => {
         else printingUnit += Number(candidates[0].service_price || 0);
       }
       const blockers = Array.isArray(version.validation_snapshot) ? [...version.validation_snapshot] : [];
-      if (!method?.available) blockers.push({ code: 'method_unavailable', level: 'blocker', message: `${method?.customer_label || methodKey} is ${method?.availability_label || 'not available yet'}.` });
+      if (!method?.available) blockers.push({
+        code: 'fulfillment_not_configured', level: 'blocker',
+        message: `${method?.customer_label || methodKey} production fulfillment is not configured. The saved design remains available for draft review.`,
+      });
       const compatibleTypes = Array.isArray(method?.compatible_garment_types) ? method.compatible_garment_types : [];
       const compatiblePlacements = Array.isArray(method?.compatible_placements) ? method.compatible_placements : [];
       if (method && compatibleTypes.length && !compatibleTypes.includes(safeText(document.garmentType, 80))) blockers.push({ code: 'method_garment_incompatible', level: 'blocker', message: `${method.customer_label} is not enabled for this garment type.` });
