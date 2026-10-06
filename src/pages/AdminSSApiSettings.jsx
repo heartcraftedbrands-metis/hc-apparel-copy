@@ -23,6 +23,9 @@ export default function AdminSSApiSettings() {
   const [testing, setTesting] = useState(false);
   const [connection, setConnection] = useState(null);
   const [error, setError] = useState('');
+  const [carharttChecking, setCarharttChecking] = useState(false);
+  const [carharttSource, setCarharttSource] = useState(null);
+  const [carharttError, setCarharttError] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -154,6 +157,23 @@ export default function AdminSSApiSettings() {
       setPreview(data);
     }
     setPreviewLoading(false);
+  };
+
+  const handleVerifyCarharttSource = async () => {
+    setCarharttChecking(true);
+    setCarharttSource(null);
+    setCarharttError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'verify_carhartt_source' },
+    });
+    if (invokeError) {
+      setCarharttError(await invokeMessage(invokeError, 'Carhartt sourcing could not be verified.'));
+    } else if (!data?.authenticated) {
+      setCarharttError(data?.error || 'Carhartt sourcing could not be verified.');
+    } else {
+      setCarharttSource(data);
+    }
+    setCarharttChecking(false);
   };
 
   const handleStageStyles = async () => {
@@ -361,6 +381,38 @@ export default function AdminSSApiSettings() {
             {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
             {testing ? 'Testing connection...' : 'Test S&S connection'}
           </Button>
+        </div>
+
+        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="flex gap-3">
+            <Database className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+            <div>
+              <h3 className="font-bold">Carhartt source verification</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Checks this authenticated S&amp;S account for genuine Carhartt styles, purchasable SKU inventory,
+                current vendor pricing, images, and online-retail eligibility. This does not stage or publish products.
+              </p>
+            </div>
+          </div>
+          <Button type="button" variant="outline" className="mt-5 w-full gap-2"
+            onClick={handleVerifyCarharttSource} disabled={carharttChecking}>
+            {carharttChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            {carharttChecking ? 'Checking authenticated catalog...' : 'Verify Carhartt sourcing'}
+          </Button>
+          {carharttError && (
+            <Alert variant="destructive" className="mt-4"><AlertDescription>{carharttError}</AlertDescription></Alert>
+          )}
+          {carharttSource && (
+            <Alert className="mt-4">
+              <AlertDescription>
+                S&amp;S account check: {carharttSource.styles_found} Carhartt styles found;{' '}
+                {carharttSource.qualifying_styles} currently have stocked, priced, imaged, online-retail-eligible SKUs.{' '}
+                {carharttSource.can_source_20_styles
+                  ? 'Twenty-style sourcing is available for private catalog QA.'
+                  : 'Twenty verified styles are not available, so publication must remain blocked.'}
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
 
         <div className="mt-6 bg-white rounded-2xl border shadow-sm p-6">

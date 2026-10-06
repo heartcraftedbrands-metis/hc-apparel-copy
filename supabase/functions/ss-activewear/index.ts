@@ -624,6 +624,7 @@ Deno.serve(async (request) => {
 
   if (![
     'test_connection',
+    'verify_carhartt_source',
     'preview_catalog',
     'stage_styles',
     'stage_brand_styles',
@@ -2181,6 +2182,121 @@ Deno.serve(async (request) => {
 
   if (!accountNumber || !apiKey) {
     return json(request, { error: 'S&S credentials are not configured' }, 503);
+  }
+
+  if (payload.action === 'verify_carhartt_source') {
+    const requestedBrand = 'Carhartt';
+    const requestedKey = normalizeBrand(requestedBrand);
+    const authorizationHeader = `Basic ${btoa(`${accountNumber}:${apiKey}`)}`;
+    try {
+      const brandsUrl = new URL('https://api.ssactivewear.com/v2/brands/');
+      brandsUrl.searchParams.set('mediatype', 'json');
+      const stylesUrl = new URL('https://api.ssactivewear.com/v2/styles/');
+      stylesUrl.searchParams.set('fields', 'StyleID,PartNumber,BrandName,StyleName,Title,BaseCategory,StyleImage');
+      stylesUrl.searchParams.set('mediatype', 'json');
+      const [brandsResponse, stylesResponse] = await Promise.all([
+        fetch(brandsUrl, {
+          headers: { Authorization: authorizationHeader, Accept: 'application/json' },
+          signal: AbortSignal.timeout(30000),
+        }),
+        fetch(stylesUrl, {
+          headers: { Authorization: authorizationHeader, Accept: 'application/json' },
+          signal: AbortSignal.timeout(30000),
+        }),
+      ]);
+      if (!brandsResponse.ok || !stylesResponse.ok) {
+        return json(request, {
+          error: 'The authenticated S&S catalog could not be checked for Carhartt.',
+          upstream_status: !brandsResponse.ok ? brandsResponse.status : stylesResponse.status,
+          storefront_changed: false,
+          ss_order_submitted: false,
+        }, 502);
+      }
+      const brands = flattenSsRecords(await brandsResponse.json());
+      const styles = flattenSsRecords(await stylesResponse.json()).filter((style) =>
+        normalizeBrand(style.brandName ?? style.BrandName) === requestedKey
+      );
+      const brandVisible = brands.some((brand) =>
+        normalizeBrand(brand.name ?? brand.Name ?? brand.brandName ?? brand.BrandName) === requestedKey
+      );
+      const styleIds = styles.map((style) => integerValue(style.styleID ?? style.StyleID)).filter((id): id is number => id !== null);
+      const products: Array<Record<string, unknown>> = [];
+      let apiRequests = 2;
+      for (let index = 0; index < styleIds.length; index += 20) {
+        const productsUrl = new URL('https://api.ssactivewear.com/v2/products/');
+        productsUrl.searchParams.set('styleid', styleIds.slice(index, index + 20).join(','));
+        productsUrl.searchParams.set('fields', 'StyleID,PartNumber,BrandName,StyleName,Sku,ColorName,SizeName,Qty,CustomerPrice,PiecePrice,NoeRetailing,ColorFrontImage,ColorOnModelFrontImage');
+        productsUrl.searchParams.set('mediatype', 'json');
+        const productsResponse = await fetch(productsUrl, {
+          headers: { Authorization: authorizationHeader, Accept: 'application/json' },
+          signal: AbortSignal.timeout(30000),
+        });
+        apiRequests += 1;
+        if (!productsResponse.ok) {
+          return json(request, {
+            error: 'S&S listed Carhartt styles but did not provide account-accessible SKU data.',
+            upstream_status: productsResponse.status,
+            brand_visible: brandVisible,
+            styles_found: styles.length,
+            storefront_changed: false,
+            ss_order_submitted: false,
+          }, 502);
+        }
+        products.push(...flattenSsRecords(await productsResponse.json()));
+      }
+      const styleReports = styles.map((style) => {
+        const styleId = integerValue(style.styleID ?? style.StyleID);
+        const variants = products.filter((product) => integerValue(product.styleID ?? product.StyleID) === styleId);
+        const stocked = variants.filter((variant) => inventoryQuantity(variant) > 0);
+        const priced = stocked.filter((variant) => Number(variant.customerPrice ?? variant.CustomerPrice ?? variant.piecePrice ?? variant.PiecePrice) > 0);
+        const onlineRetailAllowed = priced.some((variant) => {
+          const restricted = variant.noeRetailing ?? variant.NoeRetailing;
+          return restricted !== true && restricted !== 1 && String(restricted || '').toLowerCase() !== 'true';
+        });
+        return {
+          style_id: styleId,
+          part_number: textValue(style.partNumber ?? style.PartNumber),
+          style_name: textValue(style.styleName ?? style.StyleName),
+          title: textValue(style.title ?? style.Title),
+          category: textValue(style.baseCategory ?? style.BaseCategory),
+          image_available: Boolean(imageUrl(style.styleImage ?? style.StyleImage)
+            || stocked.some((variant) => imageUrl(variant.colorFrontImage ?? variant.ColorFrontImage ?? variant.colorOnModelFrontImage ?? variant.ColorOnModelFrontImage))),
+          sku_variants: variants.length,
+          stocked_variants: stocked.length,
+          total_inventory: stocked.reduce((sum, variant) => sum + inventoryQuantity(variant), 0),
+          current_vendor_price_available: priced.length > 0,
+          online_retail_allowed: onlineRetailAllowed,
+        };
+      });
+      const qualifyingStyles = styleReports.filter((style) =>
+        style.stocked_variants > 0
+        && style.current_vendor_price_available
+        && style.image_available
+        && style.online_retail_allowed
+      );
+      return json(request, {
+        supplier: 'S&S Activewear',
+        requested_brand: requestedBrand,
+        authenticated: true,
+        brand_visible: brandVisible,
+        styles_found: styleReports.length,
+        sku_variants_found: products.length,
+        qualifying_styles: qualifyingStyles.length,
+        can_source_20_styles: qualifyingStyles.length >= 20,
+        styles: styleReports,
+        api_requests: apiRequests,
+        checked_at: new Date().toISOString(),
+        storefront_changed: false,
+        ss_order_submitted: false,
+      });
+    } catch (error) {
+      console.error('Authenticated Carhartt source verification failed', error instanceof Error ? error.name : 'unknown');
+      return json(request, {
+        error: 'The authenticated S&S catalog could not be checked for Carhartt.',
+        storefront_changed: false,
+        ss_order_submitted: false,
+      }, 502);
+    }
   }
 
   if (payload.action === 'refresh_public_style_content') {
