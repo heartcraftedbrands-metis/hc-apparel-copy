@@ -71,10 +71,33 @@ const referencedArtworkProducts = rows
   .filter((row) => /212481|A572|\b5028\b/i.test(JSON.stringify(row)))
   .map((row) => ({ id: row.id, brand: row.brand, name: row.name, style_number: row.style_number, supplier_sku: row.supplier_sku }));
 
+const outerwearCandidates = rows
+  .filter((row) => row.primary_garment_type === 'outerwear' && row.visibility === 'public' && row.is_active !== false)
+  .map((row) => {
+    const variants = Array.isArray(row.size_prices) ? row.size_prices : [];
+    const stocked = variants.filter((variant) => Number(variant.inventory || 0) > 0);
+    return {
+      id: row.id,
+      brand: row.brand,
+      name: row.name,
+      style: row.style_number || row.supplier_sku,
+      category: row.category,
+      description: row.description || null,
+      features: row.features || null,
+      tags: row.tags || null,
+      vendor_specs: row.vendor_specs || null,
+      stocked_variants: stocked.length,
+      stock: stocked.reduce((sum, variant) => sum + Number(variant.inventory || 0), 0),
+      image_url: stocked.map((variant) => variant.image_url).find((image) => /\/Images\/Color\//i.test(image || '')) || row.image_url || null,
+    };
+  })
+  .sort((a, b) => `${a.brand} ${a.name}`.localeCompare(`${b.brand} ${b.name}`));
+
 console.log(JSON.stringify({
   checked_at: new Date().toISOString(),
   public_rows: rows.length,
   live_outerwear_rows: rows.filter((row) => row.primary_garment_type === 'outerwear' && row.visibility === 'public' && row.is_active !== false).length,
   selected,
   referenced_artwork_products: referencedArtworkProducts,
+  outerwear_candidates: outerwearCandidates,
 }, null, 2));

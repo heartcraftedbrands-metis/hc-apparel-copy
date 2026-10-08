@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, Download, ExternalLink, Save, Upload } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Copy, Download, ExternalLink, Save, Upload } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 const statuses = ['Idea', 'Draft', 'Ready to Publish', 'Published', 'Archived', 'Needs Update'];
-const scheduleStatuses = ['Planned', 'Ready', 'Scheduled on Pinterest', 'Published', 'Failed'];
+const scheduleStatuses = ['Planned', 'Ready', 'Scheduled via Buffer', 'Published', 'Failed'];
 const platforms = ['TikTok', 'X', 'Pinterest', 'LinkedIn', 'YouTube Shorts', 'Google Business', 'Email', 'SEO / GEO', 'Local Outreach'];
 const activePlatforms = new Set(platforms);
 const filters = ['All', ...platforms];
@@ -20,6 +20,17 @@ const plannedTimeLabel = row => {
   const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, Number(hour), Number(minute)));
   return `${dateLabel(row.planned_date)} · ${time} ${row.planned_timezone || 'America/New_York'}`;
 };
+
+async function studio(action, payload = {}) {
+  const { data, error } = await supabase.functions.invoke('social-media-studio', { body: { action, ...payload } });
+  if (!error) return data;
+  let message = error.message || 'Buffer request failed.';
+  try {
+    const detail = await error.context?.json?.();
+    if (detail?.error) message = detail.error;
+  } catch { /* Keep the safe function error. */ }
+  throw new Error(message);
+}
 
 function Field({ label, value, onChange, type = 'text' }) {
   return <label className="min-w-0 text-xs font-bold text-muted-foreground">{label}<Input className="mt-1 min-h-11 w-full" type={type} value={value ?? ''} onChange={event => onChange(event.target.value)} /></label>;
@@ -124,7 +135,7 @@ function DraftEditor({ source, onSave, onClose, onNotice, onError }) {
       <Field label="Post / Pin title" value={row.headline} onChange={value => change({ headline: value })} />
       <SelectField label="Status" value={row.status} options={statuses.filter(status => status !== 'Published' || row.status === 'Published')} onChange={value => change({ status: value })} />
       <SelectField label="Pinterest workflow" value={row.schedule_status || 'Planned'} options={scheduleStatuses} onChange={value => {
-        if (value === 'Scheduled on Pinterest' && !row.schedule_confirmation_id) { onError('Buffer or Pinterest must confirm the schedule before this status can be used.'); return; }
+        if (value === 'Scheduled via Buffer' && !row.schedule_confirmation_id) { onError('Buffer must confirm the schedule before this status can be used.'); return; }
         change({ schedule_status: value });
       }} />
       {row.platform === 'Pinterest' && <Field label="Pinterest board" value={row.pinterest_board} onChange={value => change({ pinterest_board: value })} />}
@@ -152,11 +163,14 @@ function DraftEditor({ source, onSave, onClose, onNotice, onError }) {
   </div>;
 }
 
-export default function MarketingContentCalendar({ campaigns, drafts, accounts, onSave, onNotice, onError }) {
+export default function MarketingContentCalendar({ campaigns, drafts, accounts, onSave, onReload, onNotice, onError }) {
   const [filter, setFilter] = useState('All');
   const [scope, setScope] = useState('Pinterest plan');
   const [openId, setOpenId] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleProgress, setScheduleProgress] = useState('');
+  const [bufferAudit, setBufferAudit] = useState(null);
   const campaign = campaigns.find(item => item.campaign_key === 'hc_apparel_organic_launch');
   const rows = useMemo(() => campaign ? drafts.filter(item => item.campaign_id === campaign.id).sort((a, b) => String(a.planned_date || '').localeCompare(String(b.planned_date || '')) || a.platform.localeCompare(b.platform)) : [], [campaign, drafts]);
   if (!campaign) return null;
@@ -171,6 +185,38 @@ export default function MarketingContentCalendar({ campaigns, drafts, accounts, 
   const accountFor = platform => accounts.find(item => item.platform === platform);
   const pinterestAccount = accountFor('Pinterest');
   const planStatusCount = status => pinterestPlanRows.filter(item => (item.schedule_status || 'Planned') === status).length;
+  const scheduledCount = pinterestPlanRows.filter(item => ['Scheduled via Buffer', 'Scheduled on Pinterest'].includes(item.schedule_status)).length;
+  const pendingScheduleRows = pinterestPlanRows.filter(item => !['Scheduled via Buffer', 'Scheduled on Pinterest', 'Published'].includes(item.schedule_status));
+  const schedulePlan = async () => {
+    if (!pendingScheduleRows.length) return;
+    if (!window.confirm(`Schedule ${pendingScheduleRows.length} unscheduled organic Pin${pendingScheduleRows.length === 1 ? '' : 's'} through Buffer to heartfamilyco / Apparel Blanks at the calendar's explicit times? Nothing will publish immediately.`)) return;
+    setScheduling(true); setScheduleProgress('Checking Buffer account, board, queue, duplicates, and daily posting limits…'); onError('');
+    const results = [];
+    try {
+      const audit = await studio('audit_pinterest_plan_schedule', { calendar_series_key: octoberPinterestSeries });
+      setBufferAudit(audit);
+      if (audit.conflicting_times?.length) throw new Error(`Buffer has ${audit.conflicting_times.length} different post(s) at planned publication times. No submissions were started.`);
+      for (let index = 0; index < pendingScheduleRows.length; index += 1) {
+        const item = pendingScheduleRows[index];
+        setScheduleProgress(`Scheduling ${index + 1} of ${pendingScheduleRows.length}: ${item.headline}`);
+        try {
+          const result = await studio('schedule_marketing_pinterest_pin', { content_id: item.id, confirmed: true });
+          results.push({ id: item.id, ok: true, postId: result.post_id });
+        } catch (error) {
+          results.push({ id: item.id, ok: false, error: error.message });
+        }
+      }
+      const accepted = results.filter(result => result.ok).length;
+      const failed = results.length - accepted;
+      setScheduleProgress(`Buffer confirmed ${accepted} of ${results.length} Pin${results.length === 1 ? '' : 's'}${failed ? `; ${failed} need attention` : ''}.`);
+      if (failed) onError(results.filter(result => !result.ok).map(result => result.error).join(' '));
+      else onNotice(`Buffer confirmed all ${accepted} Pins for heartfamilyco / Apparel Blanks. They remain scheduled, not published.`);
+      await onReload?.();
+    } catch (error) {
+      setScheduleProgress('Scheduling stopped before submission.');
+      onError(error.message || 'Buffer scheduling failed.');
+    } finally { setScheduling(false); }
+  };
   const renderRow = item => {
     const account = accountFor(item.platform);
     const open = openId === item.id;
@@ -178,7 +224,7 @@ export default function MarketingContentCalendar({ campaigns, drafts, accounts, 
       <div className="grid min-w-0 gap-3 sm:grid-cols-[88px_130px_minmax(0,1fr)_auto] sm:items-start">
         <div><p className="text-[11px] font-bold uppercase text-muted-foreground">Day / Date</p><p className="font-black">Day {item.day_number}</p><p className="text-xs text-muted-foreground">{plannedTimeLabel(item)}</p></div>
         <div><p className="text-[11px] font-bold uppercase text-muted-foreground">Platform / Account</p><p className="font-semibold">{item.platform}</p><p className="break-words text-xs text-muted-foreground">{item.account_handle || account?.handle || account?.status || 'No account assigned'}</p></div>
-        <div className="min-w-0"><p className="text-[11px] font-bold uppercase text-muted-foreground">Content / Product</p><p className="break-words font-semibold">{item.headline}</p><p className="mt-1 break-words text-xs text-muted-foreground">{item.product_name || 'Verified live collection'}</p><div className="mt-2 flex flex-wrap gap-2"><span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-900">{item.schedule_status || item.status}</span>{item.schedule_batch && <span className="rounded-full bg-muted px-2 py-1 text-xs font-bold">Batch {item.schedule_batch}</span>}{item.pinterest_board && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-bold text-primary">{item.pinterest_board}</span>}</div></div>
+        <div className="min-w-0"><p className="text-[11px] font-bold uppercase text-muted-foreground">Content / Product</p><p className="break-words font-semibold">{item.headline}</p><p className="mt-1 break-words text-xs text-muted-foreground">{item.product_name || 'Verified live collection'}</p><div className="mt-2 flex flex-wrap gap-2"><span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-900">{item.schedule_status || item.status}</span>{item.schedule_batch && <span className="rounded-full bg-muted px-2 py-1 text-xs font-bold">Batch {item.schedule_batch}</span>}{item.pinterest_board && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-bold text-primary">{item.pinterest_board}</span>}</div>{item.schedule_confirmation_id && <p className="mt-2 break-all text-[11px] text-muted-foreground">Buffer post ID: {item.schedule_confirmation_id}</p>}{item.schedule_error && <p className="mt-2 break-words rounded-lg bg-red-50 p-2 text-xs font-semibold text-red-800">{item.schedule_error}</p>}</div>
         <Button className="min-h-11 w-full sm:w-auto" size="sm" variant="outline" onClick={() => setOpenId(open ? null : item.id)}>{open ? 'Close' : 'Open / Review'}</Button>
       </div>
       {open && <DraftEditor source={item} onSave={onSave} onClose={() => setOpenId(null)} onNotice={onNotice} onError={onError} />}
@@ -190,13 +236,18 @@ export default function MarketingContentCalendar({ campaigns, drafts, accounts, 
       <h2 className="font-black text-primary">October 9–22 Pinterest Sales Plan</h2>
       <p className="mt-1 text-sm text-muted-foreground">One organic Pin per day at 8:00 p.m. America/New_York. This is an initial posting-time experiment, not a claimed optimal time. Paid spend: $0.</p>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {[['Pins', pinterestPlanRows.length], ['Planned', planStatusCount('Planned')], ['Ready', planStatusCount('Ready')], ['Scheduled on Pinterest', planStatusCount('Scheduled on Pinterest')], ['Published', planStatusCount('Published')], ['Failed', planStatusCount('Failed')]].map(([label, value]) => <div key={label} className="rounded-lg border p-3"><p className="text-[11px] font-bold uppercase text-muted-foreground">{label}</p><p className="mt-1 text-xl font-black text-primary">{value}</p></div>)}
+        {[['Pins', pinterestPlanRows.length], ['Planned', planStatusCount('Planned')], ['Ready', planStatusCount('Ready')], ['Scheduled via Buffer', scheduledCount], ['Published', planStatusCount('Published')], ['Failed', planStatusCount('Failed')]].map(([label, value]) => <div key={label} className="rounded-lg border p-3"><p className="text-[11px] font-bold uppercase text-muted-foreground">{label}</p><p className="mt-1 text-xl font-black text-primary">{value}</p></div>)}
       </div>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <p className="rounded-lg bg-muted p-3"><b>Batch 1:</b> October 9–18 · 10 Pins prepared for the initial scheduler batch.</p>
-        <p className="rounded-lg bg-muted p-3"><b>Batch 2:</b> October 19–22 · 4 Pins held for the second batch as slots become available.</p>
+        <p className="rounded-lg bg-muted p-3"><b>Schedule:</b> October 9–22 · explicit 8:00 p.m. America/New_York times.</p>
+        <p className="rounded-lg bg-muted p-3"><b>Buffer limits:</b> checked against the connected channel before submission; no Pinterest-native 10-Pin assumption is used.</p>
         <p className="rounded-lg bg-muted p-3"><b>Publishing connection:</b> {pinterestAccount?.publishing_connection_status || 'Not checked'}{pinterestAccount?.publishing_verified_at ? ` Verified ${dateLabel(String(pinterestAccount.publishing_verified_at).slice(0, 10))}.` : ''}</p>
         <p className="rounded-lg bg-muted p-3"><b>Measurement:</b> UTM links support outbound website attribution and attributable orders/revenue. Pinterest-native metrics remain unavailable unless entered or synced.</p>
+      </div>
+      <div className="mt-4 rounded-xl border bg-muted/30 p-3">
+        <Button className="min-h-11 w-full gap-2 sm:w-auto" onClick={schedulePlan} disabled={scheduling || !pendingScheduleRows.length}><CalendarClock className="h-4 w-4" />{scheduling ? 'Scheduling through Buffer…' : !pendingScheduleRows.length ? 'All Pins scheduled via Buffer' : `Schedule ${pendingScheduleRows.length} remaining via Buffer`}</Button>
+        {scheduleProgress && <p className="mt-2 text-sm font-semibold">{scheduleProgress}</p>}
+        {bufferAudit && <p className="mt-1 text-xs text-muted-foreground">Buffer account: {bufferAudit.account} · Board: {bufferAudit.board} · Existing posts in window: {bufferAudit.existing_posts_in_window} · Channel daily limit: {bufferAudit.daily_posting_limits?.[0]?.limit ?? 'unlimited'} · Dates checked: {bufferAudit.daily_posting_limits?.length || 0}</p>}
       </div>
     </section>}
     <section className="overflow-hidden rounded-xl border bg-white"><div className="border-b p-4"><h2 className="font-black text-primary">Content Calendar</h2><p className="mt-1 text-sm text-muted-foreground">Mobile agenda view. Opening Pinterest never marks an entry scheduled or published; those statuses require confirmation.</p></div><div className="p-3 sm:p-4"><div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={() => setScope('Pinterest plan')} className={`min-h-11 rounded-full px-4 py-2 text-sm font-bold ${scope === 'Pinterest plan' ? 'bg-primary text-white' : 'bg-muted text-primary'}`}>October Pinterest Plan</button><button type="button" onClick={() => setScope('All active')} className={`min-h-11 rounded-full px-4 py-2 text-sm font-bold ${scope === 'All active' ? 'bg-primary text-white' : 'bg-muted text-primary'}`}>All active content</button></div><div className="mb-4 flex snap-x gap-2 overflow-x-auto pb-2" aria-label="Calendar filters">{filters.map(item => <button key={item} type="button" onClick={() => setFilter(item)} className={`min-h-11 shrink-0 snap-start rounded-full px-4 py-2 text-sm font-bold ${filter === item ? 'bg-primary text-white' : 'bg-muted text-primary'}`}>{item}</button>)}</div><div className="grid gap-3">{visibleRows.map(renderRow)}</div></div></section>

@@ -174,7 +174,13 @@ async function bufferRequest(key: string, query: string) {
     body: JSON.stringify({ query }),
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok) fail(response.status === 401 ? 'Buffer rejected the API key.' : `Buffer request failed (${response.status}).`, 502);
+  if (!response.ok) {
+    if (response.status === 429) {
+      const retry = response.headers.get('retry-after');
+      fail(`Buffer API rate limit reached${retry ? `; retry after ${retry} seconds` : ''}.`, 429);
+    }
+    fail(response.status === 401 ? 'Buffer rejected the API key.' : `Buffer request failed (${response.status}).`, 502);
+  }
   const body = await response.json();
   if (body.errors?.length) fail(`Buffer: ${body.errors[0].message || 'API error'}`, 502);
   return body.data;
@@ -186,7 +192,7 @@ async function channels(key: string) {
   const groups = await Promise.all(organizations.map(async (organization: { id: string; name: string }) => {
     const data = await bufferRequest(key, `query { channels(input: { organizationId: ${JSON.stringify(organization.id)} }) { id name service isDisconnected isLocked } }`);
     return (data?.channels || []).map((channel: Record<string, unknown>) => ({
-      ...channel, organization_name: organization.name,
+      ...channel, organization_id: organization.id, organization_name: organization.name,
     }));
   }));
   return await Promise.all(groups.flat().map(async channel => {
@@ -198,6 +204,127 @@ async function channels(key: string) {
       return { ...channel, boards: [], board_error: (error as Error).message };
     }
   }));
+}
+
+type BufferChannel = {
+  id: string;
+  name: string;
+  service: string;
+  isDisconnected?: boolean;
+  isLocked?: boolean;
+  organization_id: string;
+  organization_name: string;
+  boards?: Array<{ name: string; serviceId: string }>;
+};
+
+type BufferPost = {
+  id: string;
+  text?: string;
+  dueAt?: string;
+  status?: string;
+  channelId?: string;
+  metadata?: { title?: string; url?: string; board?: { name?: string; serviceId?: string } };
+  assets?: Array<{ source?: string; image?: { altText?: string } }>;
+};
+
+function marketingTrackingUrl(row: Record<string, unknown>) {
+  const raw = String(row.tracking_url || '');
+  let url: URL;
+  try { url = new URL(raw); }
+  catch { fail(`Pin ${row.day_number || ''} has an invalid UTM destination URL.`); }
+  if (!['ilovehcapparel.net', 'www.ilovehcapparel.net'].includes(url.hostname.toLowerCase()) || url.protocol !== 'https:') {
+    fail(`Pin ${row.day_number || ''} must use a secure HC Apparel destination.`);
+  }
+  const expected = String(row.utm_content || '');
+  if (url.searchParams.get('utm_source') !== 'pinterest'
+    || url.searchParams.get('utm_medium') !== 'organic_social'
+    || url.searchParams.get('utm_campaign') !== 'hc_apparel_organic_launch'
+    || !expected || url.searchParams.get('utm_content') !== expected) {
+    fail(`Pin ${row.day_number || ''} does not have the required unique Pinterest UTM attribution.`);
+  }
+  return url.toString();
+}
+
+function bufferPinText(row: Record<string, unknown>) {
+  marketingTrackingUrl(row);
+  return [String(row.caption || '').trim(), String(row.hashtags || '').trim()].filter(Boolean).join('\n\n');
+}
+
+function dueAtMatches(left: unknown, right: unknown) {
+  const a = new Date(String(left || '')).getTime();
+  const b = new Date(String(right || '')).getTime();
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1000;
+}
+
+function matchingBufferPin(row: Record<string, unknown>, posts: BufferPost[]) {
+  const trackingUrl = marketingTrackingUrl(row);
+  const contentKey = String(row.utm_content || '');
+  const confirmationId = String(row.schedule_confirmation_id || '');
+  return posts.find(post => (confirmationId && post.id === confirmationId)
+    || (dueAtMatches(post.dueAt, row.planned_at)
+      && (post.metadata?.url === trackingUrl || String(post.text || '').includes(trackingUrl) || String(post.text || '').includes(contentKey))));
+}
+
+function conflictingBufferPin(row: Record<string, unknown>, posts: BufferPost[]) {
+  const matching = matchingBufferPin(row, posts);
+  return matching ? null : posts.find(post => dueAtMatches(post.dueAt, row.planned_at)) || null;
+}
+
+async function pinterestBufferContext(key: string, accountHandle = 'heartfamilyco', boardName = 'Apparel Blanks') {
+  const available = await channels(key) as BufferChannel[];
+  const pinterest = available.filter(channel => String(channel.service).toLowerCase() === 'pinterest');
+  const expected = accountHandle.toLowerCase().replace(/^@/, '');
+  const channel = pinterest.find(item => String(item.name || '').toLowerCase().replace(/^@/, '') === expected)
+    || (pinterest.length === 1 ? pinterest[0] : null);
+  if (!channel || channel.isDisconnected || channel.isLocked) fail(`Buffer Pinterest account ${accountHandle} is not connected and available.`, 503);
+  const board = (channel.boards || []).find(item => item.name.toLowerCase() === boardName.toLowerCase());
+  if (!board) fail(`Pinterest board ${boardName} is not available on Buffer account ${accountHandle}.`, 503);
+  return { channel, board };
+}
+
+async function bufferPostsInWindow(key: string, organizationId: string, channelId: string, start: string, end: string) {
+  const posts: BufferPost[] = [];
+  let after = '';
+  for (let page = 0; page < 5; page += 1) {
+    const afterArg = after ? `, after: ${JSON.stringify(after)}` : '';
+    const query = `query { posts(first: 100${afterArg}, input: { organizationId: ${JSON.stringify(organizationId)}, filter: { channelIds: [${JSON.stringify(channelId)}], dueAt: { start: ${JSON.stringify(start)}, end: ${JSON.stringify(end)} } } }) { edges { node { id text dueAt status channelId metadata { ... on PinterestPostMetadata { title url board { name serviceId } } } assets { ... on ImageAsset { source image { altText } } } } } pageInfo { hasNextPage endCursor } } }`;
+    const result = await bufferRequest(key, query);
+    posts.push(...(result?.posts?.edges || []).map((edge: { node: BufferPost }) => edge.node));
+    if (!result?.posts?.pageInfo?.hasNextPage) break;
+    after = String(result.posts.pageInfo.endCursor || '');
+    if (!after) break;
+  }
+  return posts;
+}
+
+async function bufferPostById(key: string, id: string) {
+  const result = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(id)} }) { id text dueAt status channelId metadata { ... on PinterestPostMetadata { title url board { name serviceId } } } assets { ... on ImageAsset { source image { altText } } } } }`);
+  return result?.post as BufferPost | null;
+}
+
+async function bufferDailyLimit(key: string, channelId: string, plannedAt: string) {
+  const result = await bufferRequest(key, `query { dailyPostingLimits(input: { channelIds: [${JSON.stringify(channelId)}], date: ${JSON.stringify(plannedAt)} }) { channelId isAtLimit limit scheduled sent } }`);
+  return result?.dailyPostingLimits?.[0] || null;
+}
+
+async function deleteBufferPost(key: string, id: string) {
+  const result = await bufferRequest(key, `mutation { deletePost(input: { id: ${JSON.stringify(id)} }) { ... on DeletePostSuccess { id } ... on MutationError { message } } }`);
+  if (result?.deletePost?.message) return { deleted: false, error: String(result.deletePost.message) };
+  return { deleted: result?.deletePost?.id === id, error: '' };
+}
+
+function validateConfirmedBufferPin(row: Record<string, unknown>, post: BufferPost, channelId: string, boardId: string) {
+  const issues: string[] = [];
+  if (!post?.id) issues.push('Buffer post ID is missing');
+  if (post.channelId !== channelId) issues.push('channel does not match heartfamilyco');
+  if (!dueAtMatches(post.dueAt, row.planned_at)) issues.push('scheduled time does not match the calendar');
+  if (post.metadata?.title !== String(row.headline || '')) issues.push('Pin title was not retained');
+  if (post.metadata?.url !== marketingTrackingUrl(row)) issues.push('UTM destination was not retained');
+  if (post.metadata?.board?.serviceId !== boardId) issues.push('Pinterest board does not match Apparel Blanks');
+  const image = post.assets?.find(asset => asset.image);
+  if (!image || image.source !== String(row.recommended_image_url || '')) issues.push('Pin image does not match');
+  if (image?.image?.altText !== String(row.image_alt_text || '')) issues.push('image alt text was not retained');
+  return issues;
 }
 
 async function openaiRequest(url: string, key: string, body: BodyInit, json = true) {
@@ -336,6 +463,150 @@ Deno.serve(async request => {
         catch (error) { bufferError = (error as Error).message; }
       }
       return reply({ openai_configured: Boolean(env('OPENAI_API_KEY')), buffer_configured: Boolean(key), channels: connectedChannels, buffer_error: bufferError }, 200, origin);
+    }
+
+    if (action === 'audit_pinterest_plan_schedule') {
+      const seriesKey = limited(input.calendar_series_key || 'pinterest_october_sales_2026', 100);
+      const { data: plan, error: planError } = await service.from('marketing_social_content')
+        .select('*').eq('calendar_series_key', seriesKey).eq('platform', 'Pinterest').order('planned_at');
+      if (planError) fail('The Pinterest calendar could not be loaded.', 503);
+      if (!plan?.length) fail('No Pinterest calendar entries were found for this plan.');
+      const key = await bufferKey(service);
+      const { channel, board } = await pinterestBufferContext(key, 'heartfamilyco', 'Apparel Blanks');
+      const start = String(plan[0].planned_at || '');
+      const endDate = new Date(String(plan[plan.length - 1].planned_at || ''));
+      endDate.setUTCDate(endDate.getUTCDate() + 1);
+      const existing = await bufferPostsInWindow(key, channel.organization_id, channel.id, start, endDate.toISOString());
+      const limits = [];
+      for (const row of plan) {
+        marketingTrackingUrl(row);
+        if (!row.headline?.trim() || !row.caption?.trim() || !row.image_alt_text?.trim() || !row.recommended_image_url?.trim()) {
+          fail(`Pin ${row.day_number || ''} is missing its title, description, alt text, or image.`);
+        }
+        if (row.account_handle !== 'heartfamilyco' || row.pinterest_board !== 'Apparel Blanks') {
+          fail(`Pin ${row.day_number || ''} is not assigned to heartfamilyco / Apparel Blanks.`);
+        }
+        limits.push({ content_id: row.id, planned_at: row.planned_at, ...(await bufferDailyLimit(key, channel.id, row.planned_at)) });
+      }
+      return reply({
+        series_key: seriesKey,
+        calendar_entries: plan.length,
+        account: channel.name,
+        board: board.name,
+        channel_id: channel.id,
+        board_service_id: board.serviceId,
+        existing_posts_in_window: existing.length,
+        confirmed_entries: plan.filter(row => row.schedule_confirmation_id).length,
+        duplicate_matches: plan.filter(row => matchingBufferPin(row, existing)).map(row => row.id),
+        conflicting_times: plan.filter(row => conflictingBufferPin(row, existing)).map(row => row.id),
+        daily_posting_limits: limits,
+      }, 200, origin);
+    }
+
+    if (action === 'schedule_marketing_pinterest_pin') {
+      if (input.confirmed !== true) fail('Confirm this Buffer scheduling action before continuing.');
+      const id = String(input.content_id || '');
+      const { data: row, error: rowError } = await service.from('marketing_social_content')
+        .select('*').eq('id', id).eq('calendar_series_key', 'pinterest_october_sales_2026').eq('platform', 'Pinterest').maybeSingle();
+      if (rowError || !row) fail('The Pinterest calendar entry was not found.');
+      const mark = async (patch: Record<string, unknown>) => {
+        const { data, error } = await service.from('marketing_social_content').update({ ...patch, updated_at: new Date().toISOString() })
+          .eq('id', id).select().single();
+        if (error) fail('The Buffer result could not be saved to the Marketing Center. Do not retry until the Buffer queue is reconciled.', 503);
+        return data;
+      };
+      if (!row.planned_at || new Date(row.planned_at).getTime() <= Date.now()) fail('The planned publication time must be in the future.');
+      if (row.account_handle !== 'heartfamilyco' || row.pinterest_board !== 'Apparel Blanks') fail('This Pin is not assigned to heartfamilyco / Apparel Blanks.');
+      if (!row.headline?.trim() || !row.caption?.trim() || !row.image_alt_text?.trim() || !row.recommended_image_url?.trim()) {
+        fail('The Pin needs a title, description, alt text, and image before scheduling.');
+      }
+      const trackingUrl = marketingTrackingUrl(row);
+      const imageUrl = new URL(String(row.recommended_image_url));
+      if (imageUrl.protocol !== 'https:') fail('The Pin image must use a secure HTTPS URL.');
+      const { data: product, error: productError } = await service.from('products')
+        .select('id,name,visibility,is_active,product_type,size_prices').eq('id', String(row.product_id || '')).maybeSingle();
+      if (productError || !product || product.visibility !== 'public' || !product.is_active || product.product_type !== 'physical') {
+        fail('The linked product is not currently public and active. Nothing was sent to Buffer.');
+      }
+      const stocked = Array.isArray(product.size_prices) && product.size_prices.some((variant: Record<string, unknown>) => Number(variant.inventory || 0) > 0);
+      if (!stocked) fail('The linked product does not have a stocked live variant. Nothing was sent to Buffer.');
+      const destinationResponse = await fetch(trackingUrl, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(15000) }).catch(() => null);
+      if (!destinationResponse?.ok) fail('The Pin destination page is not reachable. Nothing was sent to Buffer.', 502);
+      await destinationResponse.body?.cancel();
+      const imageResponse = await fetch(imageUrl.toString(), { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(15000) }).catch(() => null);
+      const imageType = imageResponse?.headers.get('content-type')?.split(';')[0] || '';
+      if (!imageResponse?.ok || !['image/jpeg', 'image/png', 'image/webp'].includes(imageType)) {
+        await imageResponse?.body?.cancel();
+        fail('The Pin image is not reachable as a supported image. Nothing was sent to Buffer.', 502);
+      }
+      await imageResponse.body?.cancel();
+
+      const key = await bufferKey(service);
+      const { channel, board } = await pinterestBufferContext(key, 'heartfamilyco', 'Apparel Blanks');
+      const dayStart = new Date(row.planned_at);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+      let existing = await bufferPostsInWindow(key, channel.organization_id, channel.id, dayStart.toISOString(), dayEnd.toISOString());
+      const already = matchingBufferPin(row, existing);
+      if (already) {
+        const issues = validateConfirmedBufferPin(row, already, channel.id, board.serviceId);
+        if (issues.length) {
+          await mark({ schedule_status: 'Failed', schedule_confirmation_id: already.id, schedule_error: `Buffer post ${already.id} does not match the approved Pin: ${issues.join('; ')}.` });
+          fail(`Existing Buffer post ${already.id} needs review: ${issues.join('; ')}. No duplicate was created.`, 409);
+        }
+        const updated = await mark({ schedule_status: 'Scheduled via Buffer', schedule_confirmation_id: already.id, schedule_error: null, destination_verified_at: new Date().toISOString() });
+        return reply({ post_id: already.id, reconciled: true, content: updated, due_at: already.dueAt }, 200, origin);
+      }
+      const conflict = conflictingBufferPin(row, existing);
+      if (conflict) {
+        await mark({ schedule_status: 'Failed', schedule_error: `Buffer already has a different post (${conflict.id}) at this exact publication time. No duplicate was created.` });
+        fail(`Buffer already has a different post (${conflict.id}) at this exact publication time. No duplicate was created.`, 409);
+      }
+      const limit = await bufferDailyLimit(key, channel.id, row.planned_at);
+      if (limit?.isAtLimit) {
+        const message = `Buffer reports the Pinterest daily posting limit is reached (${limit.sent} sent, ${limit.scheduled} scheduled, limit ${limit.limit ?? 'unlimited'}) for this date.`;
+        await mark({ schedule_status: 'Failed', schedule_error: message });
+        fail(message, 409);
+      }
+      const text = bufferPinText(row);
+      const mutation = `mutation { createPost(input: { text: ${JSON.stringify(text)}, channelId: ${JSON.stringify(channel.id)}, schedulingType: automatic, mode: customScheduled, dueAt: ${JSON.stringify(new Date(row.planned_at).toISOString())}, assets: [{ image: { url: ${JSON.stringify(imageUrl.toString())}, metadata: { altText: ${JSON.stringify(String(row.image_alt_text))} } } }], metadata: { pinterest: { boardServiceId: ${JSON.stringify(board.serviceId)}, title: ${JSON.stringify(String(row.headline))}, url: ${JSON.stringify(trackingUrl)} } } }) { ... on PostActionSuccess { post { id dueAt status } } ... on MutationError { message } } }`;
+      let createdId = '';
+      try {
+        const result = await bufferRequest(key, mutation);
+        if (result?.createPost?.message) {
+          const message = `Buffer: ${String(result.createPost.message)}`;
+          await mark({ schedule_status: 'Failed', schedule_error: message });
+          fail(message, 502);
+        }
+        createdId = String(result?.createPost?.post?.id || '');
+        if (!createdId) fail('Buffer did not confirm the post ID.', 502);
+      } catch (error) {
+        existing = await bufferPostsInWindow(key, channel.organization_id, channel.id, dayStart.toISOString(), dayEnd.toISOString()).catch(() => []);
+        const recovered = matchingBufferPin(row, existing);
+        if (!recovered) {
+          const message = `Buffer response was uncertain and no matching queued post could be confirmed. The request was not retried: ${(error as Error).message}`;
+          await mark({ schedule_status: 'Failed', schedule_error: message });
+          fail(message, 502);
+        }
+        createdId = recovered.id;
+      }
+      const confirmed = await bufferPostById(key, createdId);
+      if (!confirmed) {
+        const message = `Buffer returned post ${createdId}, but it could not be read back for verification. Do not resubmit until the Buffer queue is checked.`;
+        await mark({ schedule_status: 'Failed', schedule_confirmation_id: createdId, schedule_error: message });
+        fail(message, 502);
+      }
+      const issues = validateConfirmedBufferPin(row, confirmed, channel.id, board.serviceId);
+      if (issues.length) {
+        const cleanup = await deleteBufferPost(key, createdId).catch(error => ({ deleted: false, error: (error as Error).message }));
+        const cleanupMessage = cleanup.deleted ? 'The incomplete Buffer post was removed.' : `Manual Buffer removal is required: ${cleanup.error || 'delete was not confirmed'}.`;
+        const message = `Buffer did not retain the complete approved Pin: ${issues.join('; ')}. ${cleanupMessage}`;
+        await mark({ schedule_status: 'Failed', schedule_confirmation_id: cleanup.deleted ? null : createdId, schedule_error: message });
+        fail(message, 502);
+      }
+      const updated = await mark({ schedule_status: 'Scheduled via Buffer', schedule_confirmation_id: createdId, schedule_error: null, destination_verified_at: new Date().toISOString() });
+      return reply({ post_id: createdId, reconciled: false, content: updated, due_at: confirmed.dueAt, buffer_status: confirmed.status }, 200, origin);
     }
 
     if (action === 'connect_buffer') {

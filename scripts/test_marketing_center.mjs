@@ -5,6 +5,8 @@ const [page,calendar,weekly,migration,baselineMigration,campaignMigration,conten
  readFile(new URL('../src/pages/AdminMarketingCenter.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/MarketingContentCalendar.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/WeeklyOrganicReview.jsx',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280001_build_organic_marketing_center.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280002_establish_marketing_analytics_baseline.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280003_create_first_organic_marketing_campaign.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280004_prepare_organic_launch_content_packs.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609280005_add_weekly_organic_marketing_review.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290001_update_marketing_social_accounts.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290002_remove_inactive_meta_from_calendar.sql',import.meta.url),'utf8'),readFile(new URL('../supabase/migrations/202609290003_add_mobile_marketing_artwork_drafts.sql',import.meta.url),'utf8'),readFile(new URL('../src/lib/marketingAnalytics.js',import.meta.url),'utf8'),readFile(new URL('../src/pages/OrderConfirmation.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/marketing/NewsletterSignup.jsx',import.meta.url),'utf8'),readFile(new URL('../src/lib/NavigationTracker.jsx',import.meta.url),'utf8'),readFile(new URL('../src/components/shop/CartContext.jsx',import.meta.url),'utf8'),readFile(new URL('../src/pages/Checkout.jsx',import.meta.url),'utf8'),readFile(new URL('../src/App.jsx',import.meta.url),'utf8'),readFile(new URL('../src/pages/AdminDashboard.jsx',import.meta.url),'utf8'),readFile(new URL('../src/Layout.jsx',import.meta.url),'utf8')]);
 const jacketsMigration=await readFile(new URL('../supabase/migrations/202609290006_add_jackets_without_hoods_marketing_drafts.sql',import.meta.url),'utf8');
 const pinterestPlanMigration=await readFile(new URL('../supabase/migrations/202610080001_create_october_pinterest_sales_plan.sql',import.meta.url),'utf8');
+const bufferScheduleMigration=await readFile(new URL('../supabase/migrations/202610080002_prepare_buffer_pinterest_schedule.sql',import.meta.url),'utf8');
+const socialStudioFunction=await readFile(new URL('../supabase/functions/social-media-studio/index.ts',import.meta.url),'utf8');
 const jacketsArtwork=await readFile(new URL('../public/marketing/hc-apparel-organic-launch/jackets-without-hoods.jpg',import.meta.url));
 for(const tab of ['Overview','Marketing Plan','Action Plan','Performance','Weekly Review','Content Calendar','SEO & GEO','Social Content','Email Marketing','Google Business','Competitors','Settings'])assert.match(page,new RegExp(tab.replace(/[&]/g,'&')));
 assert.match(migration,/monthly_paid_budget numeric\(12,2\) not null default 0/);
@@ -71,6 +73,20 @@ assert.doesNotMatch(pinterestPlanMigration,/set\s+schedule_status='Scheduled on 
 assert.match(calendar,/pinterest_october_sales_2026/);
 assert.match(calendar,/initial posting-time experiment/);
 assert.match(calendar,/Pinterest-native metrics remain unavailable/);
+assert.match(calendar,/Schedule .*remaining via Buffer/);
+assert.match(calendar,/Scheduled via Buffer/);
+for(const style of ['AT600','A268','5020'])assert.match(bufferScheduleMigration,new RegExp(style));
+for(const original of ['puffers-insulated.jpg','rain-jackets.jpg','outerwear-overview.jpg'])assert.match(bufferScheduleMigration,new RegExp(original.replace('.','\\.')));
+assert.match(bufferScheduleMigration,/original_artwork_url/);
+for(const action of ['audit_pinterest_plan_schedule','schedule_marketing_pinterest_pin'])assert.match(socialStudioFunction,new RegExp(action));
+assert.match(socialStudioFunction,/dailyPostingLimits/);
+assert.match(socialStudioFunction,/bufferPostsInWindow/);
+assert.match(socialStudioFunction,/metadata: \{ altText:/);
+assert.match(socialStudioFunction,/title: \$\{JSON\.stringify\(String\(row\.headline\)\)\}/);
+assert.match(socialStudioFunction,/url: \$\{JSON\.stringify\(trackingUrl\)\}/);
+assert.match(socialStudioFunction,/function bufferPinText/);
+assert.doesNotMatch(socialStudioFunction,/function bufferPinText[\s\S]{0,400}tracking_url/);
+assert.match(socialStudioFunction,/schedule_confirmation_id: createdId/);
 assert.match(weekly,/activeRecommendationPlatforms/);assert.match(weekly,/account.status==='Active'&&activeRecommendationPlatforms.has/);
 assert.match(weekly,/currentChannels=channels\.filter/);assert.match(weekly,/Current active channels only/);
 assert.doesNotMatch(socialMigration,/insert into public\.marketing_campaigns/i);
@@ -78,4 +94,4 @@ assert.doesNotMatch(page,/publish\(|sendEmail|checkout\.sessions|api\.ssactivewe
 assert.doesNotMatch(calendar,/sendEmail|checkout\.sessions|api\.ssactivewear|USPS_CLIENT_SECRET|STRIPE_|paid_advertising_enabled\s*=\s*true/i);
 assert.doesNotMatch(weekly,/sendEmail|checkout\.sessions|api\.ssactivewear|USPS_CLIENT_SECRET|STRIPE_|paid_advertising_enabled\s*=\s*true/i);
 console.log('PASS: organic-first Marketing Center, $0 paid guardrail, persistence model, admin navigation, and safe analytics coverage.');
-console.log('SAFETY: no post, email, ad, payment, S&S order, or USPS label action is present.');
+console.log('SAFETY: Buffer scheduling is confirmation-gated and idempotent; no immediate publish, email, ad, payment, S&S order, or USPS label action is present.');
