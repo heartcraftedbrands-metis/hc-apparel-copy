@@ -8,6 +8,7 @@ const mixedMigration = read('supabase/migrations/202610090002_mixed_digital_phys
 const serviceMigration = read('supabase/migrations/202610090003_digital_mockup_service_permissions.sql');
 const testIsolationMigration = read('supabase/migrations/202610090004_digital_mockup_test_order_isolation.sql');
 const cleanPreviewMigration = read('supabase/migrations/202610090005_digital_mockup_clean_previews.sql');
+const viewPricingMigration = read('supabase/migrations/202610090006_digital_mockup_view_types_and_pricing.sql');
 const edge = read('supabase/functions/digital-mockups/index.ts');
 const webhook = read('supabase/functions/stripeWebhook/index.ts');
 const checkoutPricing = read('supabase/functions/checkout-pricing/index.ts');
@@ -16,7 +17,7 @@ const routes = read('src/App.jsx');
 const client = read('src/lib/digitalMockups.js');
 const storefront = read('src/pages/DigitalMockups.jsx');
 
-const item = { id: 'product-1', product_id: 'product-1', product_name: 'Black T-Shirt Mockup', product_type: 'digital', quantity: 1, price: 1.2 };
+const item = { id: 'product-1', product_id: 'product-1', product_name: 'Black T-Shirt Mockup', product_type: 'digital', quantity: 1, price: 0.99 };
 assert.equal(item.product_type, 'digital');
 assert.equal(item.quantity, 1);
 assert.deepEqual(validateCheckoutCart([item]), []);
@@ -51,10 +52,21 @@ assert.match(client, /createPublicHero/);
 assert.doesNotMatch(client, /positions = \[/);
 assert.doesNotMatch(client, /fillRect/);
 assert.match(cleanPreviewMigration, /digital_mockup_replace_preview/);
+assert.match(viewPricingMigration, /view_type in \('single_view', 'front_back'\)/);
+assert.match(viewPricingMigration, /single_view_price numeric\(10,2\) not null default 0\.99/);
+assert.match(viewPricingMigration, /front_back_price numeric\(10,2\) not null default 1\.20/);
+assert.match(viewPricingMigration, /price_override is null or price_override > 0/);
+assert.match(viewPricingMigration, /asset\.view_type/);
+assert.doesNotMatch(viewPricingMigration.slice(viewPricingMigration.indexOf('create or replace view public.storefront_digital_mockups')), /original_storage_path|original_sha256/);
 assert.match(edge, /action === 'admin_replace_derivatives'/);
 assert.match(edge, /action === 'admin_original_source'/);
 assert.match(storefront, /hero\?\.hero_image_url/);
 assert.match(storefront, /bg-gradient-to-t/);
+assert.match(storefront, /aria-label="View type"/);
+assert.match(storefront, /Front \+ Back/);
+assert.match(storefront, /object-contain/);
+assert.match(edge, /configuredPrice\(priceSettings/);
+assert.match(edge, /price_mismatch/);
 assert.match(routes, /path="\/DigitalMockups"/);
 assert.match(routes, /path="\/MyDownloads"/);
 

@@ -32,6 +32,16 @@ const fail = (message: string, status = 400, code = 'invalid_request'): never =>
 };
 const text = (value: unknown, max = 1000) => String(value ?? '').trim().slice(0, max);
 const money = (value: unknown) => Math.round(Number(value || 0) * 100) / 100;
+const viewType = (value: unknown) => value === 'front_back' ? 'front_back' : 'single_view';
+const validPrice = (value: unknown, field = 'price') => {
+  const parsed = money(value);
+  if (!Number.isFinite(parsed) || parsed < 0.01 || parsed > 10000) fail(`Enter a valid ${field}.`, 400, 'invalid_price');
+  return parsed;
+};
+const configuredPrice = (settings: Row | null, type: string, override: unknown = null) => {
+  if (override !== null && override !== undefined && String(override).trim() !== '') return validPrice(override, 'price override');
+  return validPrice(type === 'front_back' ? settings?.front_back_price : settings?.single_view_price, 'default price');
+};
 const safeEmail = (value: unknown) => text(value, 254).toLowerCase();
 const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const htmlEscape = (value: unknown) => text(value, 2000)
@@ -107,20 +117,23 @@ async function loadCatalog(service: ReturnType<typeof createClient>, input: Row)
   if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,sku.ilike.%${search}%`);
   const garmentType = text(input.garment_type, 80);
   const colorName = text(input.color_name, 80);
+  const selectedViewType = text(input.view_type, 30);
   if (garmentType) query = query.eq('garment_type', garmentType);
   if (colorName) query = query.eq('color_name', colorName);
+  if (selectedViewType && ['single_view', 'front_back'].includes(selectedViewType)) query = query.eq('view_type', selectedViewType);
   const sort = text(input.sort, 30);
   if (sort === 'price_low') query = query.order('price', { ascending: true }).order('created_at', { ascending: false });
   else if (sort === 'price_high') query = query.order('price', { ascending: false }).order('created_at', { ascending: false });
   else query = query.order('published_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
   const [{ data, count, error }, { data: options }, { data: settings }] = await Promise.all([
     query.range(start, start + perPage - 1),
-    service.from('storefront_digital_mockups').select('garment_type,color_name').limit(1000),
-    service.from('digital_mockup_settings').select('heading,description,button_label,supporting_text,right_headline,quality_label,launch_detail,featured_asset_id,hero_image_url,hero_image_width,hero_image_height,default_price,raster_format,license_terms,license_status').eq('id', true).maybeSingle(),
+    service.from('storefront_digital_mockups').select('garment_type,color_name,view_type').limit(1000),
+    service.from('digital_mockup_settings').select('heading,description,button_label,supporting_text,right_headline,quality_label,launch_detail,featured_asset_id,hero_image_url,hero_image_width,hero_image_height,default_price,single_view_price,front_back_price,raster_format,license_terms,license_status').eq('id', true).maybeSingle(),
   ]);
   if (error) fail('The Digital Mockups catalog is temporarily unavailable.', 503, 'catalog_unavailable');
   const garments = [...new Set((options || []).map(row => row.garment_type).filter(Boolean))].sort();
   const colors = [...new Set((options || []).map(row => row.color_name).filter(Boolean))].sort();
+  const viewTypes = [...new Set((options || []).map(row => row.view_type).filter(Boolean))].sort();
   let featured = (data || []).find(row => row.is_featured) || (data || [])[0] || null;
   if (settings?.featured_asset_id) {
     const featuredResult = await service.from('storefront_digital_mockups').select('*').eq('id', settings.featured_asset_id).maybeSingle();
@@ -132,7 +145,7 @@ async function loadCatalog(service: ReturnType<typeof createClient>, input: Row)
     per_page: perPage,
     total: count || 0,
     has_more: start + perPage < (count || 0),
-    filters: { garment_types: garments, colors },
+    filters: { garment_types: garments, colors, view_types: viewTypes },
     hero: { ...(settings || {}), featured },
   };
 }
@@ -288,15 +301,19 @@ Deno.serve(async request => {
         return response({ duplicate: true, asset, version: duplicate, message: 'This exact file is already in Digital Mockups. No duplicate was created.' }, 200, origin);
       }
       const metadata = JSON.parse(text(input.metadata, 8000) || '{}');
+      const selectedViewType = viewType(metadata.view_type);
+      const { data: priceSettings } = await service.from('digital_mockup_settings').select('single_view_price,front_back_price').eq('id', true).single();
       const assetId = crypto.randomUUID();
       const productId = crypto.randomUUID();
       const versionId = crypto.randomUUID();
       const title = text(metadata.title, 180) || `Blank ${text(metadata.color_name, 80) || 'Apparel'} T-Shirt Mockup`;
       const sku = text(metadata.sku, 80).toUpperCase().replace(/[^A-Z0-9-]+/g, '-') || `HCM-${digest.slice(0, 10).toUpperCase()}`;
       const slug = `${slugify(text(metadata.slug, 100) || title)}-${digest.slice(0, 7)}`;
-      const description = text(metadata.description, 2000) || `${title}. Full-resolution PNG digital image download for presenting your artwork. No physical garment included.`;
-      const price = money(metadata.price || 1.20);
-      if (price <= 0) fail('Enter a valid price.', 400, 'invalid_price');
+      const description = text(metadata.description, 2000) || (selectedViewType === 'front_back'
+        ? `${title}. Front and back views included in one PNG. Digital image download. No physical garment included.`
+        : `${title}. Full-resolution PNG digital image download for presenting your artwork. Digital image download. No physical garment included.`);
+      const priceOverride = metadata.price_override === null || metadata.price_override === undefined || String(metadata.price_override).trim() === '' ? null : validPrice(metadata.price_override, 'price override');
+      const price = configuredPrice(priceSettings, selectedViewType, priceOverride);
       const originalPath = `${assetId}/v1/${digest}.png`;
       const previewPath = `digital-mockups/${assetId}/v1-preview.png`;
       const [originalUpload, previewUpload] = await Promise.all([
@@ -324,7 +341,7 @@ Deno.serve(async request => {
       const { error: assetError } = await service.from('digital_mockup_assets').insert({
         id: assetId, product_id: productId, slug, sku,
         garment_type: text(metadata.garment_type, 80) || 't_shirt', color_name: text(metadata.color_name, 80) || 'Unspecified',
-        tags, publication_status: 'draft', created_by: admin.id,
+        tags, view_type: selectedViewType, price_override: priceOverride, publication_status: 'draft', created_by: admin.id,
       });
       const { error: versionError } = assetError ? { error: assetError } : await service.from('digital_mockup_versions').insert({
         id: versionId, asset_id: assetId, version_number: 1, original_storage_path: originalPath,
@@ -338,7 +355,7 @@ Deno.serve(async request => {
         fail('The mockup metadata could not be saved. Retry is safe.', 500, 'metadata_save_failed');
       }
       await service.from('digital_mockup_assets').update({ current_version_id: versionId }).eq('id', assetId);
-      return response({ created: true, duplicate: false, asset_id: assetId, product_id: productId, version_id: versionId, slug, sku, dimensions, file_size_bytes: original.size, preview_url: previewUrl }, 201, origin);
+      return response({ created: true, duplicate: false, asset_id: assetId, product_id: productId, version_id: versionId, slug, sku, view_type: selectedViewType, price, dimensions, file_size_bytes: original.size, preview_url: previewUrl }, 201, origin);
     }
 
     if (action === 'admin_list') {
@@ -434,8 +451,10 @@ Deno.serve(async request => {
       const status = ['draft', 'published', 'unpublished', 'archived'].includes(input.publication_status) ? input.publication_status : asset.publication_status;
       const title = text(input.title, 180) || product.name;
       const description = text(input.description, 2000) || product.description;
-      const price = money(input.price ?? product.price);
-      if (price <= 0) fail('Enter a valid price.', 400, 'invalid_price');
+      const selectedViewType = viewType(input.view_type ?? asset.view_type);
+      const priceOverride = input.price_override === null || input.price_override === undefined || String(input.price_override).trim() === '' ? null : validPrice(input.price_override, 'price override');
+      const { data: priceSettings } = await service.from('digital_mockup_settings').select('single_view_price,front_back_price').eq('id', true).single();
+      const price = configuredPrice(priceSettings, selectedViewType, priceOverride);
       const tags = Array.isArray(input.tags) ? input.tags.map((tag: unknown) => text(tag, 60)).filter(Boolean).slice(0, 20) : asset.tags;
       const visibility = status === 'published' ? 'public' : status === 'archived' ? 'admin_archive' : 'draft';
       const [{ error: productError }, { error: assetError }] = await Promise.all([
@@ -444,7 +463,7 @@ Deno.serve(async request => {
           p_price: price, p_visibility: visibility,
           p_is_active: status === 'published', p_tags: tags,
         }),
-        service.from('digital_mockup_assets').update({ garment_type: text(input.garment_type, 80) || asset.garment_type, color_name: text(input.color_name, 80) || asset.color_name, tags, publication_status: status, published_at: status === 'published' ? (asset.published_at || new Date().toISOString()) : asset.published_at }).eq('id', asset.id),
+        service.from('digital_mockup_assets').update({ garment_type: text(input.garment_type, 80) || asset.garment_type, color_name: text(input.color_name, 80) || asset.color_name, tags, view_type: selectedViewType, price_override: priceOverride, publication_status: status, published_at: status === 'published' ? (asset.published_at || new Date().toISOString()) : asset.published_at }).eq('id', asset.id),
       ]);
       if (productError || assetError) fail('The mockup changes could not be saved.', 500, 'update_failed');
       if (input.is_featured === true) {
@@ -463,7 +482,10 @@ Deno.serve(async request => {
         if (input[key] !== undefined) values[key] = text(input[key], key === 'license_terms' ? 5000 : 1000);
       }
       if (input.license_status && ['proposed', 'approved'].includes(input.license_status)) values.license_status = input.license_status;
-      if (input.default_price !== undefined) values.default_price = money(input.default_price);
+      if (input.single_view_price !== undefined) values.single_view_price = validPrice(input.single_view_price, 'single-view price');
+      if (input.front_back_price !== undefined) values.front_back_price = validPrice(input.front_back_price, 'front-and-back price');
+      if (input.default_price !== undefined) values.default_price = validPrice(input.default_price, 'legacy default price');
+      if (values.single_view_price !== undefined) values.default_price = values.single_view_price;
       const { error } = await service.from('digital_mockup_settings').update(values).eq('id', true);
       if (error) fail('Hero settings could not be saved.', 500, 'settings_failed');
       return response({ saved: true }, 200, origin);
@@ -501,7 +523,7 @@ Deno.serve(async request => {
       if (!testStripe.configured || !testStripe.secretKey) fail('Stripe test checkout requires its server key and signed webhook secret.', 503, 'stripe_test_unavailable');
       if (!validEmail(safeEmail(admin.email))) fail('Your admin account needs a valid email address for the confirmation-email test.', 409, 'admin_email_required');
       const requestedProductId = text(input.product_id, 80);
-      let assetQuery = service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,is_featured').eq('publication_status', 'published');
+      let assetQuery = service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,is_featured,view_type').eq('publication_status', 'published');
       if (requestedProductId) assetQuery = assetQuery.eq('product_id', requestedProductId);
       const { data: assets, error: assetError } = await assetQuery.order('is_featured', { ascending: false }).order('published_at', { ascending: true }).limit(1);
       const asset = assets?.[0];
@@ -522,6 +544,7 @@ Deno.serve(async request => {
         product_type: 'digital',
         digital_mockup_asset_id: asset.id,
         digital_mockup_version_id: asset.current_version_id,
+        view_type: viewType(asset.view_type),
         delivery: 'secure_download',
       };
       const { error: orderError } = await service.rpc('digital_mockup_create_order', { p_order: {
@@ -598,14 +621,20 @@ Deno.serve(async request => {
         }
       }
       const { data: products, error: productError } = await service.from('products').select('id,name,description,price,sale_price,visibility,is_active,product_type').in('id', productIds);
-      const { data: assets } = await service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status').in('product_id', productIds);
+      const [{ data: assets }, { data: priceSettings }] = await Promise.all([
+        service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,view_type,price_override').in('product_id', productIds),
+        service.from('digital_mockup_settings').select('single_view_price,front_back_price').eq('id', true).single(),
+      ]);
       if (productError || !products || products.length !== productIds.length || !assets || assets.length !== productIds.length) fail('One or more mockups are no longer available.', 409, 'product_unavailable');
       const byProduct = new Map(assets.map(asset => [asset.product_id, asset]));
       const items = productIds.map(id => {
         const product = products.find(row => row.id === id);
         const asset = byProduct.get(id);
         if (!product || product.product_type !== 'digital' || product.visibility !== 'public' || !product.is_active || asset?.publication_status !== 'published' || !asset.current_version_id) fail('One or more mockups are no longer available.', 409, 'product_unavailable');
-        return { product_id: product.id, product_name: product.name, quantity: 1, price: money(product.sale_price ?? product.price), product_type: 'digital', digital_mockup_asset_id: asset.id, digital_mockup_version_id: asset.current_version_id, delivery: 'secure_download' };
+        const price = money(product.sale_price ?? product.price);
+        const expectedPrice = configuredPrice(priceSettings, viewType(asset.view_type), asset.price_override);
+        if (price !== expectedPrice) fail('A mockup price changed while you were shopping. Refresh the catalog and try again.', 409, 'price_mismatch');
+        return { product_id: product.id, product_name: product.name, quantity: 1, price, product_type: 'digital', digital_mockup_asset_id: asset.id, digital_mockup_version_id: asset.current_version_id, view_type: viewType(asset.view_type), delivery: 'secure_download' };
       });
       const subtotal = money(items.reduce((sum, item) => sum + item.price, 0));
       let tax = 0;

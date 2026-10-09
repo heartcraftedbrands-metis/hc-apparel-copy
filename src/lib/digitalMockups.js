@@ -109,6 +109,7 @@ export function mockupCartItem(item) {
     price: Number(item.price),
     customer_price: Number(item.price),
     product_type: 'digital',
+    view_type: item.view_type || 'single_view',
     image_url: item.preview_url,
     quantity: 1,
     file_details: { width: item.pixel_width, height: item.pixel_height, format: item.file_extension },
