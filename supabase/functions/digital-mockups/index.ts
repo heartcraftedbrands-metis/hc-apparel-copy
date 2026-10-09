@@ -184,15 +184,16 @@ async function finalizePayment(service: ReturnType<typeof createClient>, stripe:
   if ((order.stripe_mode || 'test') !== (session.livemode ? 'live' : 'test')) fail('The Stripe mode does not match this order.', 409, 'mode_mismatch');
   if (order.payment_status !== 'paid') {
     const details = await stripePaymentDetails(stripe, session);
-    const { error: updateError } = await service.from('orders').update({
-      payment_status: 'paid', status: mixed ? 'awaiting_fulfillment' : 'completed', fulfillment_status: mixed ? 'not_started' : 'completed',
-      payment_method: details.label, payment_method_type: details.type,
-      actual_processing_cost: details.actualProcessingCost,
-      amount_paid: order.total_amount, balance_due: 0,
-      payment_date: new Date().toISOString(), payment_confirmed_at: new Date().toISOString(),
-      payment_confirmation_source: source, payment_provider_event_id: eventId,
-      stripe_session_id: session.id, stripe_payment_intent_id: String(session.payment_intent || ''),
-    }).eq('id', order.id).neq('payment_status', 'paid');
+    const { error: updateError } = await service.rpc('digital_mockup_mark_paid', {
+      p_order_id: order.id,
+      p_payment_method: details.label,
+      p_payment_method_type: details.type,
+      p_actual_processing_cost: details.actualProcessingCost,
+      p_confirmation_source: source,
+      p_provider_event_id: eventId,
+      p_session_id: session.id,
+      p_payment_intent_id: String(session.payment_intent || ''),
+    });
     if (updateError) fail('Payment was verified, but the order could not be updated.', 500, 'order_update_failed');
   }
   const digitalItems = (Array.isArray(order.order_items) ? order.order_items : []).filter((item: Row) => item.product_type === 'digital');
@@ -217,7 +218,21 @@ async function finalizePayment(service: ReturnType<typeof createClient>, stripe:
   await service.from('digital_mockup_order_access').update({ delivery_status: 'available' }).eq('order_id', order.id);
   const token = await guestAccessToken(accessSecret, order.id, order.customer_email);
   const emailStatus = await sendConfirmationEmail(service, order, token);
-  return { paid: true, order_id: order.id, email_status: emailStatus, access_token: token };
+  let testArchive: Row | null = null;
+  if (order.is_sample === true) {
+    const { data: archived, error: archiveError } = await service.rpc('archive_confirmed_test_order', {
+      p_order_id: order.id,
+      p_reason: 'Digital Mockups Stripe sandbox checkout verification',
+      p_provenance: 'verified Stripe test checkout session',
+      p_environment: 'test',
+    });
+    if (archiveError) {
+      console.error('Digital Mockups test order archive failed', { order_id: order.id, code: archiveError.code || 'unknown' });
+    } else {
+      testArchive = archived;
+    }
+  }
+  return { paid: true, order_id: order.id, email_status: emailStatus, access_token: token, test_archive: testArchive };
 }
 
 Deno.serve(async request => {
@@ -294,16 +309,17 @@ Deno.serve(async request => {
       }
       const previewUrl = publicPreviewUrl(url, previewPath);
       const tags = Array.isArray(metadata.tags) ? metadata.tags.map((tag: unknown) => text(tag, 60)).filter(Boolean).slice(0, 20) : [];
-      const { error: productError } = await service.from('products').insert({
-        id: productId, owner_user_id: admin.id, created_by_email: admin.email, name: title, description,
-        price, product_type: 'digital', product_subtype: 'other', design_type: '', visibility: 'draft',
-        image_url: previewUrl, mockup_images: [previewUrl], file_url: null, stock: 1,
-        category: 'digital_designs', categories: ['digital_designs'], tags,
-        is_active: false, supplier_sku: sku, shipping_note: 'Digital image download. No physical garment included.',
+      const { error: productError } = await service.rpc('digital_mockup_create_product', {
+        p_id: productId, p_owner_user_id: admin.id, p_created_by_email: admin.email,
+        p_name: title, p_description: description, p_price: price,
+        p_image_url: previewUrl, p_tags: tags, p_supplier_sku: sku,
       });
       if (productError) {
         await Promise.all([service.storage.from('digital-mockup-originals').remove([originalPath]), service.storage.from('storefront-assets').remove([previewPath])]);
-        fail('The product record could not be created. Retry is safe.', 500, 'product_save_failed');
+        // This branch is admin-only. Include the database's safe diagnostic text so
+        // production catalog drift is actionable without exposing credentials or
+        // leaving operators with an unhelpful generic upload failure.
+        fail(`The product record could not be created: ${text(productError.message, 500)} Retry is safe.`, 500, `product_save_failed:${text(productError.code, 60)}`);
       }
       const { error: assetError } = await service.from('digital_mockup_assets').insert({
         id: assetId, product_id: productId, slug, sku,
@@ -317,7 +333,7 @@ Deno.serve(async request => {
         pixel_height: dimensions.height, file_size_bytes: original.size, created_by: admin.id,
       });
       if (assetError || versionError) {
-        await service.from('products').delete().eq('id', productId);
+        await service.rpc('digital_mockup_hide_orphan_product', { p_product_id: productId });
         await Promise.all([service.storage.from('digital-mockup-originals').remove([originalPath]), service.storage.from('storefront-assets').remove([previewPath])]);
         fail('The mockup metadata could not be saved. Retry is safe.', 500, 'metadata_save_failed');
       }
@@ -327,26 +343,46 @@ Deno.serve(async request => {
 
     if (action === 'admin_list') {
       await requireAdmin(request, url, publishableKey);
-      const { data: assets, error } = await service.from('digital_mockup_assets').select('*,products(*),digital_mockup_versions(*)').order('created_at', { ascending: false }).limit(500);
+      const { data: assets, error } = await service.from('digital_mockup_assets').select('*').order('created_at', { ascending: false }).limit(500);
       const { data: settings } = await service.from('digital_mockup_settings').select('*').eq('id', true).single();
-      if (error) fail('The Digital Mockups admin catalog could not be loaded.', 500, 'admin_catalog_failed');
-      return response({ assets: assets || [], settings }, 200, origin);
+      if (error) fail(`The Digital Mockups admin catalog could not be loaded: ${text(error.message, 500)}`, 500, `admin_catalog_failed:${text(error.code, 60)}`);
+      const assetRows = assets || [];
+      const productIds = assetRows.map(asset => asset.product_id);
+      const assetIds = assetRows.map(asset => asset.id);
+      const [{ data: products, error: productsError }, { data: versions, error: versionsError }] = await Promise.all([
+        productIds.length ? service.from('products').select('*').in('id', productIds) : { data: [], error: null },
+        assetIds.length ? service.from('digital_mockup_versions').select('*').in('asset_id', assetIds) : { data: [], error: null },
+      ]);
+      if (productsError || versionsError) fail(`The Digital Mockups admin catalog details could not be loaded: ${text(productsError?.message || versionsError?.message, 500)}`, 500, 'admin_catalog_details_failed');
+      const productMap = new Map((products || []).map(product => [product.id, product]));
+      const hydrated = assetRows.map(asset => ({
+        ...asset,
+        products: productMap.get(asset.product_id) || null,
+        digital_mockup_versions: (versions || []).filter(version => version.asset_id === asset.id),
+      }));
+      return response({ assets: hydrated, settings }, 200, origin);
     }
 
     if (action === 'admin_update') {
       const admin = await requireAdmin(request, url, publishableKey);
       const assetId = text(input.asset_id, 80);
-      const { data: asset } = await service.from('digital_mockup_assets').select('*,products(*)').eq('id', assetId).maybeSingle();
+      const { data: asset } = await service.from('digital_mockup_assets').select('*').eq('id', assetId).maybeSingle();
       if (!asset) fail('Mockup not found.', 404, 'not_found');
+      const { data: product } = await service.from('products').select('*').eq('id', asset.product_id).maybeSingle();
+      if (!product) fail('The mockup product record is missing.', 409, 'product_missing');
       const status = ['draft', 'published', 'unpublished', 'archived'].includes(input.publication_status) ? input.publication_status : asset.publication_status;
-      const title = text(input.title, 180) || asset.products.name;
-      const description = text(input.description, 2000) || asset.products.description;
-      const price = money(input.price ?? asset.products.price);
+      const title = text(input.title, 180) || product.name;
+      const description = text(input.description, 2000) || product.description;
+      const price = money(input.price ?? product.price);
       if (price <= 0) fail('Enter a valid price.', 400, 'invalid_price');
       const tags = Array.isArray(input.tags) ? input.tags.map((tag: unknown) => text(tag, 60)).filter(Boolean).slice(0, 20) : asset.tags;
       const visibility = status === 'published' ? 'public' : status === 'archived' ? 'admin_archive' : 'draft';
       const [{ error: productError }, { error: assetError }] = await Promise.all([
-        service.from('products').update({ name: title, description, price, sale_price: null, visibility, is_active: status === 'published', tags }).eq('id', asset.product_id),
+        service.rpc('digital_mockup_update_product', {
+          p_product_id: asset.product_id, p_name: title, p_description: description,
+          p_price: price, p_visibility: visibility,
+          p_is_active: status === 'published', p_tags: tags,
+        }),
         service.from('digital_mockup_assets').update({ garment_type: text(input.garment_type, 80) || asset.garment_type, color_name: text(input.color_name, 80) || asset.color_name, tags, publication_status: status, published_at: status === 'published' ? (asset.published_at || new Date().toISOString()) : asset.published_at }).eq('id', asset.id),
       ]);
       if (productError || assetError) fail('The mockup changes could not be saved.', 500, 'update_failed');
@@ -369,6 +405,106 @@ Deno.serve(async request => {
       const { error } = await service.from('digital_mockup_settings').update(values).eq('id', true);
       if (error) fail('Hero settings could not be saved.', 500, 'settings_failed');
       return response({ saved: true }, 200, origin);
+    }
+
+    if (action === 'admin_test_readiness') {
+      await requireAdmin(request, url, publishableKey);
+      const [{ count: publishedCount }, { data: firstVersion }, bucketResult] = await Promise.all([
+        service.from('digital_mockup_assets').select('id', { count: 'exact', head: true }).eq('publication_status', 'published'),
+        service.from('digital_mockup_versions').select('original_storage_path').order('created_at', { ascending: true }).limit(1).maybeSingle(),
+        service.storage.getBucket('digital-mockup-originals'),
+      ]);
+      let anonymousStatus: number | null = null;
+      if (firstVersion?.original_storage_path) {
+        const publicOriginalUrl = `${url}/storage/v1/object/public/digital-mockup-originals/${firstVersion.original_storage_path.split('/').map(encodeURIComponent).join('/')}`;
+        const anonymousCheck = await fetch(publicOriginalUrl, { method: 'HEAD', signal: AbortSignal.timeout(10000) }).catch(() => null);
+        anonymousStatus = anonymousCheck?.status ?? null;
+      }
+      const testStripe = getStripeCredentials('test');
+      return response({
+        published_count: publishedCount || 0,
+        private_originals: bucketResult.data?.public === false && anonymousStatus !== 200,
+        original_bucket_public: bucketResult.data?.public ?? null,
+        anonymous_original_http_status: anonymousStatus,
+        stripe_test_checkout_ready: testStripe.configured && testStripe.secretKeyFormatValid,
+        stripe_test_webhook_ready: testStripe.webhookSecretFormatValid,
+        brevo_ready: Boolean(text(Deno.env.get('BREVO_API_KEY'), 500)),
+        checked_at: new Date().toISOString(),
+      }, 200, origin);
+    }
+
+    if (action === 'admin_create_test_checkout') {
+      const admin = await requireAdmin(request, url, publishableKey);
+      const testStripe = getStripeCredentials('test');
+      if (!testStripe.configured || !testStripe.secretKey) fail('Stripe test checkout requires its server key and signed webhook secret.', 503, 'stripe_test_unavailable');
+      if (!validEmail(safeEmail(admin.email))) fail('Your admin account needs a valid email address for the confirmation-email test.', 409, 'admin_email_required');
+      const requestedProductId = text(input.product_id, 80);
+      let assetQuery = service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,is_featured').eq('publication_status', 'published');
+      if (requestedProductId) assetQuery = assetQuery.eq('product_id', requestedProductId);
+      const { data: assets, error: assetError } = await assetQuery.order('is_featured', { ascending: false }).order('published_at', { ascending: true }).limit(1);
+      const asset = assets?.[0];
+      if (assetError || !asset?.current_version_id) fail('Publish at least one Digital Mockup before running checkout verification.', 409, 'test_product_missing');
+      const { data: product } = await service.from('products').select('id,name,price,sale_price,visibility,is_active,product_type').eq('id', asset.product_id).maybeSingle();
+      if (!product || product.product_type !== 'digital' || product.visibility !== 'public' || !product.is_active) fail('The selected test mockup is not available.', 409, 'test_product_unavailable');
+      const price = money(product.sale_price ?? product.price);
+      const orderId = crypto.randomUUID();
+      const customerEmail = safeEmail(admin.email);
+      const customerName = 'HC Apparel QA';
+      const attemptKey = `admin-qa-${crypto.randomUUID()}`;
+      const token = await guestAccessToken(accessSecret, orderId, customerEmail);
+      const item = {
+        product_id: product.id,
+        product_name: product.name,
+        quantity: 1,
+        price,
+        product_type: 'digital',
+        digital_mockup_asset_id: asset.id,
+        digital_mockup_version_id: asset.current_version_id,
+        delivery: 'secure_download',
+      };
+      const { error: orderError } = await service.rpc('digital_mockup_create_order', { p_order: {
+        id: orderId,
+        owner_user_id: admin.id,
+        customer_email: customerEmail,
+        customer_name: customerName,
+        order_items: [item],
+        total_amount: price,
+        product_subtotal: price,
+        sales_tax_amount: 0,
+        sales_tax_rate_percent: 0,
+        billing_address: { city: 'QA fixture', state: 'NY', zip: '10001', country: 'USA' },
+        stripe_mode: 'test',
+        is_sample: true,
+        pricing_snapshot: { digital_product: true, shipping: 0, tax: { method: 'isolated admin QA fixture' }, server_validated_prices: true, is_sample: true },
+      } });
+      if (orderError) fail('The isolated test order could not be prepared.', 500, 'test_order_create_failed');
+      const { error: accessError } = await service.from('digital_mockup_order_access').insert({ order_id: orderId, customer_email: customerEmail, checkout_attempt_key: attemptKey, stripe_mode: 'test' });
+      if (accessError) {
+        await service.rpc('digital_mockup_fail_checkout', { p_order_id: orderId, p_reason: 'Digital Mockups QA checkout registration failed' });
+        fail('The isolated test checkout could not be prepared. Retry is safe.', 409, 'test_attempt_conflict');
+      }
+      const stripe = new Stripe(testStripe.secretKey);
+      const metadata = { app_name: 'HC Apparel', source: 'hc_apparel_digital_mockups', internal_order_id: orderId, owner_user_id: admin.id, stripe_mode: 'test', is_sample: 'true' };
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer_email: customerEmail,
+          billing_address_collection: 'required',
+          client_reference_id: orderId,
+          line_items: [{ price_data: { currency: 'usd', product_data: { name: `${product.name} — QA test`, description: 'Stripe test-mode Digital Mockups checkout' }, unit_amount: Math.round(price * 100) }, quantity: 1 }],
+          success_url: `${allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net'}/DigitalOrderConfirmation?orderId=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}&access=${encodeURIComponent(token)}`,
+          cancel_url: `${allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net'}/AdminDigitalMockups`,
+          metadata,
+          payment_intent_data: { description: `HC Apparel Digital Mockups QA ${orderId}`, metadata },
+        }, { idempotencyKey: `hc-digital-mockups-${attemptKey}` });
+      } catch {
+        await service.rpc('digital_mockup_fail_checkout', { p_order_id: orderId, p_reason: 'Digital Mockups QA Stripe session failed to start' });
+        fail('Stripe test checkout could not be started.', 502, 'stripe_test_session_failed');
+      }
+      if (!session.url || session.livemode) fail('Stripe did not return a test-mode checkout session.', 502, 'invalid_test_session');
+      await service.rpc('digital_mockup_set_checkout_session', { p_order_id: orderId, p_session_id: session.id, p_payment_method: 'Stripe-hosted checkout (test)' });
+      return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, amount: price, stripe_mode: 'test', is_sample: true }, 201, origin);
     }
 
     if (action === 'create_checkout') {
@@ -426,21 +562,20 @@ Deno.serve(async request => {
       if (!credentials.configured || !credentials.secretKey) fail('Online checkout is not configured.', 503, 'checkout_unavailable');
       const orderId = crypto.randomUUID();
       const token = await guestAccessToken(accessSecret, orderId, email);
-      const { error: orderError } = await service.from('orders').insert({
-        id: orderId, owner_user_id: user?.id || null, created_by_email: email, customer_email: email, customer_name: name,
-        order_items: items, total_amount: total, product_subtotal: subtotal, shipping_amount: 0,
-        shipping_charged_to_customer: 0, sales_tax_amount: tax, sales_tax_rate_percent: Number(taxDetail.rate_percent || 0),
-        sales_tax_jurisdiction_code: taxDetail.jurisdiction_code || null, sales_tax_jurisdiction_name: taxDetail.jurisdiction_name || null,
-        sales_tax_rate_source: taxDetail.rate_source || null, amount_paid: 0, balance_due: total,
-        status: 'awaiting_payment', payment_status: 'awaiting_payment', fulfillment_status: 'not_started',
-        has_physical_items: false, shipping_address: {}, billing_address: { city, state, zip, country: 'USA' },
-        checkout_source: 'digital_mockup_order', quantity: items.length, stripe_mode: stripeMode,
+      const { error: orderError } = await service.rpc('digital_mockup_create_order', { p_order: {
+        id: orderId, owner_user_id: user?.id || null, customer_email: email, customer_name: name,
+        order_items: items, total_amount: total, product_subtotal: subtotal,
+        sales_tax_amount: tax, sales_tax_rate_percent: Number(taxDetail.rate_percent || 0),
+        sales_tax_jurisdiction_code: taxDetail.jurisdiction_code || null,
+        sales_tax_jurisdiction_name: taxDetail.jurisdiction_name || null,
+        sales_tax_rate_source: taxDetail.rate_source || null,
+        billing_address: { city, state, zip, country: 'USA' }, stripe_mode: stripeMode,
         pricing_snapshot: { digital_product: true, shipping: 0, tax: taxDetail, server_validated_prices: true },
-      });
+      } });
       if (orderError) fail('The secure order could not be prepared.', 500, 'order_create_failed');
       const { error: accessError } = await service.from('digital_mockup_order_access').insert({ order_id: orderId, customer_email: email, checkout_attempt_key: attemptKey, stripe_mode: stripeMode });
       if (accessError) {
-        await service.from('orders').delete().eq('id', orderId);
+        await service.rpc('digital_mockup_fail_checkout', { p_order_id: orderId, p_reason: 'Digital checkout attempt registration failed' });
         fail('The secure checkout could not be prepared. Retry is safe.', 409, 'attempt_conflict');
       }
       const stripe = new Stripe(credentials.secretKey);
@@ -457,11 +592,11 @@ Deno.serve(async request => {
           metadata, payment_intent_data: { description: `HC Apparel digital mockups ${orderId}`, metadata },
         }, { idempotencyKey: `hc-digital-mockups-${attemptKey}` });
       } catch (error) {
-        await service.from('orders').update({ status: 'checkout_failed', payment_status: 'checkout_failed', checkout_failure_reason: 'Digital checkout session failed to start' }).eq('id', orderId);
+        await service.rpc('digital_mockup_fail_checkout', { p_order_id: orderId, p_reason: 'Digital checkout session failed to start' });
         fail('Payment checkout could not be started.', 502, 'stripe_session_failed');
       }
       if (!session.url || session.livemode !== (stripeMode === 'live')) fail('Payment checkout returned an invalid session.', 502, 'invalid_stripe_session');
-      await service.from('orders').update({ stripe_session_id: session.id, payment_method: 'Stripe-hosted checkout' }).eq('id', orderId);
+      await service.rpc('digital_mockup_set_checkout_session', { p_order_id: orderId, p_session_id: session.id, p_payment_method: 'Stripe-hosted checkout' });
       return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, subtotal, tax, total, shipping: 0, reused: false }, 201, origin);
     }
 

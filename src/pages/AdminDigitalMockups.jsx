@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Archive, CheckCircle2, FileImage, ImagePlus, Loader2, Save, Star, UploadCloud, XCircle } from 'lucide-react';
+import { Archive, CheckCircle2, CreditCard, FileImage, ImagePlus, Loader2, LockKeyhole, MailCheck, Save, Star, UploadCloud, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -49,6 +49,9 @@ export default function AdminDigitalMockups() {
   const [uploads, setUploads] = useState([]);
   const [hero, setHero] = useState(null);
   const [savingHero, setSavingHero] = useState(false);
+  const [readiness, setReadiness] = useState(null);
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
+  const [startingTest, setStartingTest] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -101,11 +104,37 @@ export default function AdminDigitalMockups() {
   };
   const heroUpdate = key => event => setHero(current => ({ ...current, [key]: event.target.value }));
 
+  const checkReadiness = async () => {
+    setCheckingReadiness(true);
+    try {
+      const result = await digitalMockupsRequest({ action: 'admin_test_readiness' });
+      setReadiness(result);
+      toast.success('Digital Mockups readiness checked.');
+    } catch (error) { toast.error(error.message); }
+    finally { setCheckingReadiness(false); }
+  };
+
+  const startTestCheckout = async () => {
+    setStartingTest(true);
+    try {
+      const result = await digitalMockupsRequest({ action: 'admin_create_test_checkout' });
+      if (!result.checkout_url || result.stripe_mode !== 'test' || result.is_sample !== true) throw new Error('The server did not return an isolated Stripe test checkout.');
+      window.location.assign(result.checkout_url);
+    } catch (error) {
+      toast.error(error.message);
+      setStartingTest(false);
+    }
+  };
+
   return <main className="min-h-screen bg-muted/30">
     <header className="bg-primary px-4 py-7 text-primary-foreground"><div className="container mx-auto max-w-7xl"><Link to="/AdminDashboard" className="text-sm text-primary-foreground/75 hover:text-primary-foreground">← Admin Dashboard</Link><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-3xl font-black"><FileImage className="text-accent" />Digital Mockups</h1><p className="mt-1 text-sm text-primary-foreground/75">Private originals, watermarked previews, reusable product records, publishing, and hero settings.</p></div><Button asChild variant="outline" className="border-primary-foreground/35 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"><Link to="/DigitalMockups">View storefront</Link></Button></div></div></header>
     <div className="container mx-auto max-w-7xl space-y-7 px-4 py-7">
       <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><UploadCloud className="text-primary" />Upload mockups</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Select one or many PNGs. Originals go to private storage; reduced HC-logo watermarked previews are generated automatically. Exact-file retries are detected by SHA-256 and do not create duplicates.</p></div><label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-lg bg-primary px-5 font-bold text-primary-foreground hover:bg-primary/90"><ImagePlus className="mr-2 h-5 w-5" />Choose PNG files<input type="file" accept="image/png,.png" multiple className="sr-only" onChange={uploadFiles} /></label></div>
         {uploads.length > 0 && <div className="mt-5 space-y-2">{uploads.map((row, index) => <div key={`${row.name}-${index}`} className="rounded-lg border bg-background p-3"><div className="flex items-start gap-3">{row.status === 'complete' ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" /> : row.status === 'error' ? <XCircle className="mt-0.5 h-5 w-5 text-destructive" /> : row.status === 'duplicate' ? <Archive className="mt-0.5 h-5 w-5 text-amber-600" /> : <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" />}<div className="min-w-0 flex-1"><p className="break-all text-sm font-semibold">{row.name}</p><p className="text-xs text-muted-foreground">{row.message || row.status}</p><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${row.progress}%` }} /></div></div></div></div>)}</div>}
+      </section>
+
+      <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><CreditCard className="text-primary" />Safe purchase verification</h2><p className="mt-1 max-w-3xl text-sm text-muted-foreground">Runs one isolated Stripe sandbox purchase using a published mockup. It never changes the storefront's live Stripe setting or creates a live charge. The QA order is excluded from reports, then archived for six-month test-data cleanup after payment verification.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={checkReadiness} disabled={checkingReadiness || startingTest}>{checkingReadiness ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LockKeyhole className="mr-2 h-4 w-4" />}Check readiness</Button><Button onClick={startTestCheckout} disabled={startingTest || checkingReadiness}>{startingTest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Start Stripe test checkout</Button></div></div>
+        {readiness && <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div className="rounded-lg bg-muted p-3"><p className="font-bold">Published catalog</p><p>{readiness.published_count} mockups</p></div><div className="rounded-lg bg-muted p-3"><p className="flex items-center gap-2 font-bold"><LockKeyhole className="h-4 w-4" />Private originals</p><p>{readiness.private_originals ? 'Verified private' : 'Needs attention'}</p></div><div className="rounded-lg bg-muted p-3"><p className="font-bold">Stripe sandbox</p><p>{readiness.stripe_test_checkout_ready && readiness.stripe_test_webhook_ready ? 'Checkout and webhook ready' : 'Needs configuration'}</p></div><div className="rounded-lg bg-muted p-3"><p className="flex items-center gap-2 font-bold"><MailCheck className="h-4 w-4" />Confirmation email</p><p>{readiness.brevo_ready ? 'Brevo configured' : 'Needs configuration'}</p></div></div>}
       </section>
 
       {hero && <section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="text-xl font-bold">Hero and download terms</h2><p className="mt-1 text-sm text-muted-foreground">This copy is database-managed, so future collection changes do not require a code deployment.</p><div className="mt-5 grid gap-4 md:grid-cols-2"><div><Label>Heading</Label><Input value={hero.heading || ''} onChange={heroUpdate('heading')} /></div><div><Label>Button</Label><Input value={hero.button_label || ''} onChange={heroUpdate('button_label')} /></div><div className="md:col-span-2"><Label>Description</Label><Textarea value={hero.description || ''} onChange={heroUpdate('description')} /></div><div><Label>Supporting text</Label><Input value={hero.supporting_text || ''} onChange={heroUpdate('supporting_text')} /></div><div><Label>Right headline</Label><Textarea value={hero.right_headline || ''} onChange={heroUpdate('right_headline')} /></div><div><Label>Quality label</Label><Input value={hero.quality_label || ''} onChange={heroUpdate('quality_label')} /></div><div><Label>Launch detail</Label><Input value={hero.launch_detail || ''} onChange={heroUpdate('launch_detail')} /></div><div><Label>Default price</Label><Input type="number" min="0.01" step="0.01" value={hero.default_price || 1.2} onChange={heroUpdate('default_price')} /></div><div><Label>Terms status</Label><select className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm" value={hero.license_status || 'proposed'} onChange={heroUpdate('license_status')}><option value="proposed">Proposed — review required</option><option value="approved">Approved</option></select></div><div className="md:col-span-2"><Label>Digital mockup license terms</Label><Textarea rows={5} value={hero.license_terms || ''} onChange={heroUpdate('license_terms')} /></div></div><Button className="mt-4" onClick={saveHero} disabled={savingHero}><Save className="mr-2 h-4 w-4" />{savingHero ? 'Saving…' : 'Save hero and terms'}</Button></section>}
