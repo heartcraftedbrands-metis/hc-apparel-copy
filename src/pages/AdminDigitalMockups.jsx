@@ -59,6 +59,7 @@ export default function AdminDigitalMockups() {
   const [previewProgress, setPreviewProgress] = useState('');
   const [uploadViewType, setUploadViewType] = useState('single_view');
   const [uploadPriceOverride, setUploadPriceOverride] = useState('');
+  const [testProductId, setTestProductId] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -71,6 +72,12 @@ export default function AdminDigitalMockups() {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (testProductId || !assets.length) return;
+    const published = assets.filter(asset => asset.publication_status === 'published' && productOf(asset)?.id);
+    const preferred = published.find(asset => asset.garment_type === 'youth') || published[0];
+    if (preferred) setTestProductId(productOf(preferred).id);
+  }, [assets, testProductId]);
 
   const regenerateAsset = async (assetId, includeHero = false) => {
     const source = await digitalMockupsRequest({ action: 'admin_original_source', asset_id: assetId });
@@ -166,7 +173,8 @@ export default function AdminDigitalMockups() {
   const startTestCheckout = async () => {
     setStartingTest(true);
     try {
-      const result = await digitalMockupsRequest({ action: 'admin_create_test_checkout' });
+      if (!testProductId) throw new Error('Choose a published mockup for the sandbox checkout.');
+      const result = await digitalMockupsRequest({ action: 'admin_create_test_checkout', product_id: testProductId });
       if (!result.checkout_url || result.stripe_mode !== 'test' || result.is_sample !== true) throw new Error('The server did not return an isolated Stripe test checkout.');
       window.location.assign(result.checkout_url);
     } catch (error) {
@@ -183,7 +191,8 @@ export default function AdminDigitalMockups() {
         {uploads.length > 0 && <div className="mt-5 space-y-2">{uploads.map((row, index) => <div key={`${row.name}-${index}`} className="rounded-lg border bg-background p-3"><div className="flex items-start gap-3">{row.status === 'complete' ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" /> : row.status === 'error' ? <XCircle className="mt-0.5 h-5 w-5 text-destructive" /> : row.status === 'duplicate' ? <Archive className="mt-0.5 h-5 w-5 text-amber-600" /> : <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" />}<div className="min-w-0 flex-1"><p className="break-all text-sm font-semibold">{row.name}</p><p className="text-xs text-muted-foreground">{row.message || row.status}</p><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${row.progress}%` }} /></div></div></div></div>)}</div>}
       </section>
 
-      <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><CreditCard className="text-primary" />Safe purchase verification</h2><p className="mt-1 max-w-3xl text-sm text-muted-foreground">Runs one isolated Stripe sandbox purchase using a published mockup. It never changes the storefront's live Stripe setting or creates a live charge. The QA order is excluded from reports, then archived for six-month test-data cleanup after payment verification.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={checkReadiness} disabled={checkingReadiness || startingTest}>{checkingReadiness ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LockKeyhole className="mr-2 h-4 w-4" />}Check readiness</Button><Button onClick={startTestCheckout} disabled={startingTest || checkingReadiness}>{startingTest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Start Stripe test checkout</Button></div></div>
+      <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><CreditCard className="text-primary" />Safe purchase verification</h2><p className="mt-1 max-w-3xl text-sm text-muted-foreground">Runs one isolated Stripe sandbox purchase using the published mockup selected below. It never changes the storefront's live Stripe setting or creates a live charge. The QA order is excluded from reports, then archived for six-month test-data cleanup after payment verification.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={checkReadiness} disabled={checkingReadiness || startingTest}>{checkingReadiness ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LockKeyhole className="mr-2 h-4 w-4" />}Check readiness</Button><Button onClick={startTestCheckout} disabled={startingTest || checkingReadiness || !testProductId}>{startingTest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Start Stripe test checkout</Button></div></div>
+        <div className="mt-4 max-w-2xl"><Label htmlFor="test-mockup-product">Published mockup to test</Label><select id="test-mockup-product" className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm" value={testProductId} onChange={event => setTestProductId(event.target.value)}><option value="">Choose a published mockup</option>{assets.filter(asset => asset.publication_status === 'published' && productOf(asset)?.id).map(asset => <option key={asset.id} value={productOf(asset).id}>{productOf(asset).name} — ${Number(productOf(asset).price || 0).toFixed(2)}</option>)}</select></div>
         {readiness && <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div className="rounded-lg bg-muted p-3"><p className="font-bold">Published catalog</p><p>{readiness.published_count} mockups</p></div><div className="rounded-lg bg-muted p-3"><p className="flex items-center gap-2 font-bold"><LockKeyhole className="h-4 w-4" />Private originals</p><p>{readiness.private_originals ? 'Verified private' : 'Needs attention'}</p></div><div className="rounded-lg bg-muted p-3"><p className="font-bold">Stripe sandbox</p><p>{readiness.stripe_test_checkout_ready && readiness.stripe_test_webhook_ready ? 'Checkout and webhook ready' : 'Needs configuration'}</p></div><div className="rounded-lg bg-muted p-3"><p className="flex items-center gap-2 font-bold"><MailCheck className="h-4 w-4" />Confirmation email</p><p>{readiness.brevo_ready ? 'Brevo configured' : 'Needs configuration'}</p></div></div>}
       </section>
 

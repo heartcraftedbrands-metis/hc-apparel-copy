@@ -88,6 +88,25 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72) || 'digital-mockup';
 }
 
+function customerDownloadFileName(title: unknown, originalFileName: unknown, fileExtension: unknown = '') {
+  const original = text(originalFileName, 255);
+  const extension = text(fileExtension, 12).replace(/^\.+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+    || original.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase()
+    || 'png';
+  let base = text(title, 180).normalize('NFKD')
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+    .replace(/[\u201c\u201d\u201e\u201f]/g, '"')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e]/g, '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+  if (!base) base = 'HC Apparel Digital Mockup';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = `HC Apparel ${base}`;
+  return `${base}.${extension}`;
+}
+
 function publicPreviewUrl(supabaseUrl: string, path: string) {
   return `${supabaseUrl}/storage/v1/object/public/storefront-assets/${path.split('/').map(encodeURIComponent).join('/')}`;
 }
@@ -733,14 +752,19 @@ Deno.serve(async request => {
       if (action === 'download') {
         const entitlement = (entitlements || []).find(row => row.id === requestedId);
         if (!entitlement) fail('This download is not included in the paid order.', 403, 'entitlement_missing');
-        const { data: version } = await service.from('digital_mockup_versions').select('original_storage_path,original_file_name,mime_type').eq('id', entitlement.version_id).single();
+        const [{ data: version }, { data: product }] = await Promise.all([
+          service.from('digital_mockup_versions').select('original_storage_path,original_file_name,file_extension,mime_type').eq('id', entitlement.version_id).single(),
+          service.from('products').select('name').eq('id', entitlement.product_id).single(),
+        ]);
         if (!version) fail('The purchased file version is unavailable.', 404, 'version_missing');
+        if (!product?.name) fail('The purchased product title is unavailable.', 404, 'product_missing');
+        const downloadFileName = customerDownloadFileName(product.name, version.original_file_name, version.file_extension);
         const expiresIn = 120;
-        const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(version.original_storage_path, expiresIn, { download: version.original_file_name });
+        const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(version.original_storage_path, expiresIn, { download: downloadFileName });
         if (signedError || !signed?.signedUrl) fail('A secure download link could not be created.', 503, 'signed_url_failed');
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         await service.from('digital_download_audit').insert({ entitlement_id: entitlement.id, order_id: entitlement.order_id, requested_by: user?.id || null, access_kind: accessKind, signed_url_expires_at: expiresAt });
-        return response({ download_url: signed.signedUrl, expires_at: expiresAt, file_name: version.original_file_name }, 200, origin);
+        return response({ download_url: signed.signedUrl, expires_at: expiresAt, file_name: downloadFileName }, 200, origin);
       }
       const productIds = [...new Set((entitlements || []).map(row => row.product_id))];
       const versionIds = [...new Set((entitlements || []).map(row => row.version_id))];

@@ -50,7 +50,10 @@ export default function DigitalMockups() {
     return () => { active = false; window.clearTimeout(timer); };
   }, [queryKey, page]);
 
-  useEffect(() => setPage(1), [queryKey]);
+  useEffect(() => {
+    setPage(1);
+    setItems([]);
+  }, [queryKey]);
 
   const add = item => {
     addToCart(mockupCartItem(item));
