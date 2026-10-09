@@ -116,7 +116,7 @@ async function loadCatalog(service: ReturnType<typeof createClient>, input: Row)
   const [{ data, count, error }, { data: options }, { data: settings }] = await Promise.all([
     query.range(start, start + perPage - 1),
     service.from('storefront_digital_mockups').select('garment_type,color_name').limit(1000),
-    service.from('digital_mockup_settings').select('heading,description,button_label,supporting_text,right_headline,quality_label,launch_detail,featured_asset_id,default_price,raster_format,license_terms,license_status').eq('id', true).maybeSingle(),
+    service.from('digital_mockup_settings').select('heading,description,button_label,supporting_text,right_headline,quality_label,launch_detail,featured_asset_id,hero_image_url,hero_image_width,hero_image_height,default_price,raster_format,license_terms,license_status').eq('id', true).maybeSingle(),
   ]);
   if (error) fail('The Digital Mockups catalog is temporarily unavailable.', 503, 'catalog_unavailable');
   const garments = [...new Set((options || []).map(row => row.garment_type).filter(Boolean))].sort();
@@ -363,6 +363,67 @@ Deno.serve(async request => {
       return response({ assets: hydrated, settings }, 200, origin);
     }
 
+    if (action === 'admin_original_source') {
+      await requireAdmin(request, url, publishableKey);
+      const assetId = text(input.asset_id, 80);
+      const { data: asset } = await service.from('digital_mockup_assets').select('id,current_version_id').eq('id', assetId).maybeSingle();
+      if (!asset?.current_version_id) fail('Mockup original not found.', 404, 'not_found');
+      const { data: version } = await service.from('digital_mockup_versions').select('id,original_storage_path,original_file_name,pixel_width,pixel_height').eq('id', asset.current_version_id).maybeSingle();
+      if (!version) fail('Mockup original not found.', 404, 'not_found');
+      const { data: signed, error } = await service.storage.from('digital-mockup-originals').createSignedUrl(version.original_storage_path, 300);
+      if (error || !signed?.signedUrl) fail('A temporary source link could not be created.', 503, 'source_link_failed');
+      return response({ source_url: signed.signedUrl, original_file_name: version.original_file_name, pixel_width: version.pixel_width, pixel_height: version.pixel_height, expires_in: 300 }, 200, origin);
+    }
+
+    if (action === 'admin_replace_derivatives') {
+      const admin = await requireAdmin(request, url, publishableKey);
+      const assetId = text(input.asset_id, 80);
+      const preview = input.preview;
+      const hero = input.hero;
+      if (!(preview instanceof File)) fail('Choose a generated product preview.', 400, 'preview_required');
+      if (preview.size > 8 * 1024 * 1024) fail('The product preview exceeds 8 MB.', 413, 'preview_too_large');
+      if (hero !== undefined && !(hero instanceof File)) fail('The hero derivative is invalid.', 400, 'hero_invalid');
+      if (hero instanceof File && hero.size > 12 * 1024 * 1024) fail('The hero derivative exceeds 12 MB.', 413, 'hero_too_large');
+      const { data: asset } = await service.from('digital_mockup_assets').select('id,product_id,current_version_id').eq('id', assetId).maybeSingle();
+      if (!asset?.current_version_id) fail('Mockup not found.', 404, 'not_found');
+      const { data: version } = await service.from('digital_mockup_versions').select('id,version_number,pixel_width,pixel_height').eq('id', asset.current_version_id).maybeSingle();
+      if (!version) fail('The current mockup version is missing.', 409, 'version_missing');
+      const previewBytes = new Uint8Array(await preview.arrayBuffer());
+      const previewDimensions = pngDimensions(previewBytes);
+      if (Math.max(previewDimensions.width, previewDimensions.height) > 1200) fail('The product preview is larger than the protected-preview limit.', 400, 'preview_dimensions_invalid');
+      const originalRatio = Number(version.pixel_width) / Number(version.pixel_height);
+      if (Math.abs(previewDimensions.width / previewDimensions.height - originalRatio) > 0.01) fail('The product preview proportions do not match the original.', 400, 'preview_ratio_mismatch');
+      const previewDigest = await sha256(previewBytes);
+      const previewPath = `digital-mockups/${asset.id}/v${version.version_number}-preview-clean-v2-${previewDigest.slice(0, 12)}.png`;
+      const { error: previewUploadError } = await service.storage.from('storefront-assets').upload(previewPath, previewBytes, { contentType: 'image/png', upsert: true });
+      if (previewUploadError) fail('The product preview could not be stored.', 503, 'preview_storage_failed');
+      const previewUrl = publicPreviewUrl(url, previewPath);
+      let heroValues: Row = {};
+      if (hero instanceof File) {
+        const heroBytes = new Uint8Array(await hero.arrayBuffer());
+        const heroDimensions = pngDimensions(heroBytes);
+        if (Math.max(heroDimensions.width, heroDimensions.height) > 1600) fail('The hero derivative is larger than the public-hero limit.', 400, 'hero_dimensions_invalid');
+        if (Math.abs(heroDimensions.width / heroDimensions.height - originalRatio) > 0.01) fail('The hero proportions do not match the original.', 400, 'hero_ratio_mismatch');
+        const heroDigest = await sha256(heroBytes);
+        const heroPath = `digital-mockups/${asset.id}/v${version.version_number}-hero-clean-v1-${heroDigest.slice(0, 12)}.png`;
+        const { error: heroUploadError } = await service.storage.from('storefront-assets').upload(heroPath, heroBytes, { contentType: 'image/png', upsert: true });
+        if (heroUploadError) fail('The public hero image could not be stored.', 503, 'hero_storage_failed');
+        heroValues = { hero_preview_storage_path: heroPath, hero_preview_url: publicPreviewUrl(url, heroPath), hero_preview_width: heroDimensions.width, hero_preview_height: heroDimensions.height };
+      }
+      const [{ error: versionError }, { error: productError }] = await Promise.all([
+        service.from('digital_mockup_versions').update({ preview_storage_path: previewPath, preview_url: previewUrl, ...heroValues }).eq('id', version.id),
+        service.rpc('digital_mockup_replace_preview', { p_product_id: asset.product_id, p_image_url: previewUrl }),
+      ]);
+      if (versionError || productError) fail('The regenerated public preview could not be linked to the existing product.', 500, 'preview_link_failed');
+      if (heroValues.hero_preview_url) {
+        const { data: settings } = await service.from('digital_mockup_settings').select('featured_asset_id').eq('id', true).single();
+        if (settings?.featured_asset_id === asset.id) {
+          await service.from('digital_mockup_settings').update({ hero_image_url: heroValues.hero_preview_url, hero_image_width: heroValues.hero_preview_width, hero_image_height: heroValues.hero_preview_height, updated_by: admin.id }).eq('id', true);
+        }
+      }
+      return response({ saved: true, preview_url: previewUrl, preview_dimensions: previewDimensions, hero: heroValues.hero_preview_url ? { url: heroValues.hero_preview_url, width: heroValues.hero_preview_width, height: heroValues.hero_preview_height } : null }, 200, origin);
+    }
+
     if (action === 'admin_update') {
       const admin = await requireAdmin(request, url, publishableKey);
       const assetId = text(input.asset_id, 80);
@@ -389,7 +450,8 @@ Deno.serve(async request => {
       if (input.is_featured === true) {
         await service.from('digital_mockup_assets').update({ is_featured: false }).neq('id', asset.id);
         await service.from('digital_mockup_assets').update({ is_featured: true }).eq('id', asset.id);
-        await service.from('digital_mockup_settings').update({ featured_asset_id: asset.id, updated_by: admin.id }).eq('id', true);
+        const { data: featuredVersion } = await service.from('digital_mockup_versions').select('hero_preview_url,hero_preview_width,hero_preview_height').eq('id', asset.current_version_id).maybeSingle();
+        await service.from('digital_mockup_settings').update({ featured_asset_id: asset.id, hero_image_url: featuredVersion?.hero_preview_url || null, hero_image_width: featuredVersion?.hero_preview_width || null, hero_image_height: featuredVersion?.hero_preview_height || null, updated_by: admin.id }).eq('id', true);
       }
       return response({ saved: true }, 200, origin);
     }

@@ -7,13 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { createWatermarkedPreview, digitalMockupsRequest, formatFileSize } from '@/lib/digitalMockups';
+import { createPublicHero, createWatermarkedPreview, digitalMockupsRequest, formatFileSize } from '@/lib/digitalMockups';
 
 const productOf = asset => Array.isArray(asset.products) ? asset.products[0] : asset.products;
 const currentVersion = asset => (asset.digital_mockup_versions || []).find(version => version.id === asset.current_version_id) || (asset.digital_mockup_versions || []).sort((a, b) => b.version_number - a.version_number)[0];
 const splitTags = value => String(value || '').split(',').map(tag => tag.trim()).filter(Boolean);
 
-function AssetEditor({ asset, onSaved }) {
+function AssetEditor({ asset, onSaved, onFeature }) {
   const product = productOf(asset) || {};
   const version = currentVersion(asset) || {};
   const [form, setForm] = useState({ title: product.name || '', description: product.description || '', price: product.price || 1.2, garment_type: asset.garment_type || 't_shirt', color_name: asset.color_name || '', tags: (asset.tags || []).join(', '), publication_status: asset.publication_status, is_featured: asset.is_featured });
@@ -23,6 +23,7 @@ function AssetEditor({ asset, onSaved }) {
     setSaving(true);
     try {
       await digitalMockupsRequest({ action: 'admin_update', asset_id: asset.id, ...form, tags: splitTags(form.tags), is_featured: featured === true || form.is_featured });
+      if (featured) await onFeature(asset.id);
       toast.success(featured ? 'Featured mockup updated.' : 'Mockup saved.');
       onSaved();
     } catch (error) { toast.error(error.message); }
@@ -52,6 +53,8 @@ export default function AdminDigitalMockups() {
   const [readiness, setReadiness] = useState(null);
   const [checkingReadiness, setCheckingReadiness] = useState(false);
   const [startingTest, setStartingTest] = useState(false);
+  const [refreshingPreviews, setRefreshingPreviews] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -64,6 +67,48 @@ export default function AdminDigitalMockups() {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+
+  const regenerateAsset = async (assetId, includeHero = false) => {
+    const source = await digitalMockupsRequest({ action: 'admin_original_source', asset_id: assetId });
+    const response = await fetch(source.source_url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('The private original could not be loaded. Retry from a stable connection.');
+    const original = new File([await response.blob()], source.original_file_name || 'mockup-original.png', { type: 'image/png' });
+    const preview = await createWatermarkedPreview(original);
+    const heroImage = includeHero ? await createPublicHero(original) : null;
+    const formData = new FormData();
+    formData.set('action', 'admin_replace_derivatives');
+    formData.set('asset_id', assetId);
+    formData.set('preview', preview);
+    if (heroImage) formData.set('hero', heroImage);
+    return digitalMockupsRequest(formData);
+  };
+
+  const refreshPublicPreviews = async () => {
+    setRefreshingPreviews(true);
+    try {
+      for (let index = 0; index < assets.length; index += 1) {
+        const asset = assets[index];
+        setPreviewProgress(`Refreshing ${index + 1} of ${assets.length}: ${productOf(asset)?.name || asset.sku}`);
+        await regenerateAsset(asset.id, asset.id === settings?.featured_asset_id);
+      }
+      toast.success(`${assets.length} public previews refreshed from their private originals.`);
+      await load();
+    } catch (error) {
+      toast.error(error.message || 'Public previews could not be refreshed.');
+    } finally {
+      setRefreshingPreviews(false);
+      setPreviewProgress('');
+    }
+  };
+
+  const featureAsset = async assetId => {
+    setPreviewProgress('Creating a clean public hero from the private original…');
+    try {
+      await regenerateAsset(assetId, true);
+    } finally {
+      setPreviewProgress('');
+    }
+  };
 
   const uploadFiles = async event => {
     const files = [...(event.target.files || [])];
@@ -129,7 +174,8 @@ export default function AdminDigitalMockups() {
   return <main className="min-h-screen bg-muted/30">
     <header className="bg-primary px-4 py-7 text-primary-foreground"><div className="container mx-auto max-w-7xl"><Link to="/AdminDashboard" className="text-sm text-primary-foreground/75 hover:text-primary-foreground">← Admin Dashboard</Link><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-3xl font-black"><FileImage className="text-accent" />Digital Mockups</h1><p className="mt-1 text-sm text-primary-foreground/75">Private originals, watermarked previews, reusable product records, publishing, and hero settings.</p></div><Button asChild variant="outline" className="border-primary-foreground/35 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"><Link to="/DigitalMockups">View storefront</Link></Button></div></div></header>
     <div className="container mx-auto max-w-7xl space-y-7 px-4 py-7">
-      <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><UploadCloud className="text-primary" />Upload mockups</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Select one or many PNGs. Originals go to private storage; reduced HC-logo watermarked previews are generated automatically. Exact-file retries are detected by SHA-256 and do not create duplicates.</p></div><label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-lg bg-primary px-5 font-bold text-primary-foreground hover:bg-primary/90"><ImagePlus className="mr-2 h-5 w-5" />Choose PNG files<input type="file" accept="image/png,.png" multiple className="sr-only" onChange={uploadFiles} /></label></div>
+      <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-bold"><UploadCloud className="text-primary" />Upload mockups</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Select one or many PNGs. Originals go to private storage; reduced previews receive one centered transparent HC Apparel logo. Exact-file retries are detected by SHA-256 and do not create duplicates.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" variant="outline" disabled={refreshingPreviews || !assets.length} onClick={refreshPublicPreviews}>{refreshingPreviews ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileImage className="mr-2 h-4 w-4" />}Refresh public previews</Button><label className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg bg-primary px-5 font-bold text-primary-foreground hover:bg-primary/90"><ImagePlus className="mr-2 h-5 w-5" />Choose PNG files<input type="file" accept="image/png,.png" multiple className="sr-only" onChange={uploadFiles} /></label></div></div>
+        {previewProgress && <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-sm font-semibold">{previewProgress}</p>}
         {uploads.length > 0 && <div className="mt-5 space-y-2">{uploads.map((row, index) => <div key={`${row.name}-${index}`} className="rounded-lg border bg-background p-3"><div className="flex items-start gap-3">{row.status === 'complete' ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" /> : row.status === 'error' ? <XCircle className="mt-0.5 h-5 w-5 text-destructive" /> : row.status === 'duplicate' ? <Archive className="mt-0.5 h-5 w-5 text-amber-600" /> : <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" />}<div className="min-w-0 flex-1"><p className="break-all text-sm font-semibold">{row.name}</p><p className="text-xs text-muted-foreground">{row.message || row.status}</p><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${row.progress}%` }} /></div></div></div></div>)}</div>}
       </section>
 
@@ -139,7 +185,7 @@ export default function AdminDigitalMockups() {
 
       {hero && <section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="text-xl font-bold">Hero and download terms</h2><p className="mt-1 text-sm text-muted-foreground">This copy is database-managed, so future collection changes do not require a code deployment.</p><div className="mt-5 grid gap-4 md:grid-cols-2"><div><Label>Heading</Label><Input value={hero.heading || ''} onChange={heroUpdate('heading')} /></div><div><Label>Button</Label><Input value={hero.button_label || ''} onChange={heroUpdate('button_label')} /></div><div className="md:col-span-2"><Label>Description</Label><Textarea value={hero.description || ''} onChange={heroUpdate('description')} /></div><div><Label>Supporting text</Label><Input value={hero.supporting_text || ''} onChange={heroUpdate('supporting_text')} /></div><div><Label>Right headline</Label><Textarea value={hero.right_headline || ''} onChange={heroUpdate('right_headline')} /></div><div><Label>Quality label</Label><Input value={hero.quality_label || ''} onChange={heroUpdate('quality_label')} /></div><div><Label>Launch detail</Label><Input value={hero.launch_detail || ''} onChange={heroUpdate('launch_detail')} /></div><div><Label>Default price</Label><Input type="number" min="0.01" step="0.01" value={hero.default_price || 1.2} onChange={heroUpdate('default_price')} /></div><div><Label>Terms status</Label><select className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm" value={hero.license_status || 'proposed'} onChange={heroUpdate('license_status')}><option value="proposed">Proposed — review required</option><option value="approved">Approved</option></select></div><div className="md:col-span-2"><Label>Digital mockup license terms</Label><Textarea rows={5} value={hero.license_terms || ''} onChange={heroUpdate('license_terms')} /></div></div><Button className="mt-4" onClick={saveHero} disabled={savingHero}><Save className="mr-2 h-4 w-4" />{savingHero ? 'Saving…' : 'Save hero and terms'}</Button></section>}
 
-      <section><div className="mb-4 flex items-end justify-between"><div><h2 className="text-2xl font-black">Mockup catalog</h2><p className="text-sm text-muted-foreground">Review every upload before publishing. Replacing a purchased original creates a new immutable version.</p></div><p className="text-sm font-semibold text-muted-foreground">{assets.length} record{assets.length === 1 ? '' : 's'}</p></div>{loading ? <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">Loading catalog…</p> : assets.length === 0 ? <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">No mockups uploaded yet.</p> : <div className="space-y-5">{assets.map(asset => <AssetEditor key={asset.id} asset={asset} onSaved={load} />)}</div>}</section>
+      <section><div className="mb-4 flex items-end justify-between"><div><h2 className="text-2xl font-black">Mockup catalog</h2><p className="text-sm text-muted-foreground">Review every upload before publishing. Replacing a purchased original creates a new immutable version.</p></div><p className="text-sm font-semibold text-muted-foreground">{assets.length} record{assets.length === 1 ? '' : 's'}</p></div>{loading ? <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">Loading catalog…</p> : assets.length === 0 ? <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">No mockups uploaded yet.</p> : <div className="space-y-5">{assets.map(asset => <AssetEditor key={asset.id} asset={asset} onSaved={load} onFeature={featureAsset} />)}</div>}</section>
     </div>
   </main>;
 }

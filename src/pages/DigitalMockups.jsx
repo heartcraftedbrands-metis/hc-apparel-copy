@@ -80,12 +80,11 @@ export default function DigitalMockups() {
           <div className="absolute -left-5 -top-5 h-[72%] w-[54%] bg-primary/90" aria-hidden="true" />
           <div className="absolute -bottom-5 -right-5 h-[58%] w-[58%] bg-secondary" aria-hidden="true" />
           <div className="relative overflow-hidden border-8 border-background bg-card shadow-2xl">
-            {featured?.preview_url ? <img src={featured.preview_url} alt={`Watermarked preview of ${featured.title}`} className="aspect-[4/5] w-full object-cover object-top" /> : <div className="flex aspect-[4/5] items-center justify-center bg-muted"><FileImage className="h-16 w-16 text-muted-foreground/40" /></div>}
-          </div>
-          <div className="relative mt-7 space-y-2 text-center md:text-left">
-            <h2 className="whitespace-pre-line text-3xl font-black leading-tight text-primary">{hero?.right_headline || 'Crafted with Heart.\nReady for Your Art.'}</h2>
-            <p className="font-bold text-foreground">{hero?.quality_label || 'Quality 2000px Images'}</p>
-            <p className="text-sm text-muted-foreground">{hero?.launch_detail || 'Launch collection: measured full-resolution PNG downloads'}</p>
+            {(hero?.hero_image_url || featured?.preview_url) ? <img src={hero?.hero_image_url || featured.preview_url} alt={featured ? `${featured.title} digital mockup collection` : 'HC Apparel digital mockup collection'} className="aspect-[4/5] w-full object-cover object-top" /> : <div className="flex aspect-[4/5] items-center justify-center bg-muted"><FileImage className="h-16 w-16 text-muted-foreground/40" /></div>}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-6 pt-24 text-white sm:px-7 sm:pb-8 sm:pt-32">
+              <h2 className="whitespace-pre-line text-3xl font-black leading-[0.95] tracking-tight drop-shadow-sm sm:text-4xl lg:text-5xl">{hero?.right_headline || 'Crafted with Heart.\nReady for Your Art.'}</h2>
+              <p className="mt-3 text-base font-extrabold tracking-wide text-white/95 drop-shadow-sm sm:text-lg">{hero?.quality_label || 'Quality 2000px Images'}</p>
+            </div>
           </div>
         </div>
       </div>

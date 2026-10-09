@@ -7,12 +7,14 @@ const migration = read('supabase/migrations/202610090001_digital_mockups_storefr
 const mixedMigration = read('supabase/migrations/202610090002_mixed_digital_physical_checkout.sql');
 const serviceMigration = read('supabase/migrations/202610090003_digital_mockup_service_permissions.sql');
 const testIsolationMigration = read('supabase/migrations/202610090004_digital_mockup_test_order_isolation.sql');
+const cleanPreviewMigration = read('supabase/migrations/202610090005_digital_mockup_clean_previews.sql');
 const edge = read('supabase/functions/digital-mockups/index.ts');
 const webhook = read('supabase/functions/stripeWebhook/index.ts');
 const checkoutPricing = read('supabase/functions/checkout-pricing/index.ts');
 const cart = read('src/components/shop/CartContext.jsx');
 const routes = read('src/App.jsx');
 const client = read('src/lib/digitalMockups.js');
+const storefront = read('src/pages/DigitalMockups.jsx');
 
 const item = { id: 'product-1', product_id: 'product-1', product_name: 'Black T-Shirt Mockup', product_type: 'digital', quantity: 1, price: 1.2 };
 assert.equal(item.product_type, 'digital');
@@ -45,6 +47,14 @@ assert.match(mixedMigration, /Digital mockups can be purchased once per order/);
 assert.match(cart, /product_type === 'digital' \? 1/);
 assert.match(client, /product_type: 'digital'/);
 assert.match(client, /HC_LOGO_URL/);
+assert.match(client, /createPublicHero/);
+assert.doesNotMatch(client, /positions = \[/);
+assert.doesNotMatch(client, /fillRect/);
+assert.match(cleanPreviewMigration, /digital_mockup_replace_preview/);
+assert.match(edge, /action === 'admin_replace_derivatives'/);
+assert.match(edge, /action === 'admin_original_source'/);
+assert.match(storefront, /hero\?\.hero_image_url/);
+assert.match(storefront, /bg-gradient-to-t/);
 assert.match(routes, /path="\/DigitalMockups"/);
 assert.match(routes, /path="\/MyDownloads"/);
 

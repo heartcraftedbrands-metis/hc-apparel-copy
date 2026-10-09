@@ -52,34 +52,43 @@ export async function createWatermarkedPreview(file, onProgress = () => {}) {
   context.drawImage(image, 0, 0, width, height);
   onProgress(55);
 
-  const logoWidth = Math.round(width * 0.42);
+  const logoWidth = Math.round(width * 0.5);
   const logoHeight = Math.max(1, Math.round(logoWidth * logo.height / logo.width));
   const x = Math.round((width - logoWidth) / 2);
-  const positions = [0.36, 0.53, 0.7].map(value => Math.round(height * value - logoHeight / 2));
-  positions.forEach((y, index) => {
-    context.save();
-    context.globalAlpha = index === 1 ? 0.62 : 0.42;
-    context.fillStyle = '#f8f4ee';
-    context.fillRect(x - 16, y - 10, logoWidth + 32, logoHeight + 20);
-    context.globalAlpha = index === 1 ? 0.72 : 0.5;
-    context.drawImage(logo, x, y, logoWidth, logoHeight);
-    context.restore();
-  });
+  const y = Math.round(height * 0.56 - logoHeight / 2);
   context.save();
-  context.translate(width / 2, height / 2);
-  context.rotate(-Math.PI / 7);
-  context.globalAlpha = 0.25;
-  context.fillStyle = '#ffffff';
-  context.font = `700 ${Math.max(18, Math.round(width * 0.034))}px Arial, sans-serif`;
-  context.textAlign = 'center';
-  context.fillText('HC APPAREL PREVIEW', 0, Math.round(height * 0.09));
+  context.globalAlpha = 0.4;
+  context.shadowColor = 'rgba(255, 255, 255, 0.62)';
+  context.shadowBlur = Math.max(2, Math.round(width * 0.006));
+  context.drawImage(logo, x, y, logoWidth, logoHeight);
   context.restore();
   onProgress(80);
   const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('The protected preview could not be encoded.')), 'image/png', 0.9));
   image.close?.();
   logo.close?.();
   onProgress(100);
-  return new File([blob], `${file.name.replace(/\.png$/i, '')}-watermarked-preview.png`, { type: 'image/png' });
+  return new File([blob], `${file.name.replace(/\.png$/i, '')}-protected-preview.png`, { type: 'image/png' });
+}
+
+export async function createPublicHero(file, onProgress = () => {}) {
+  onProgress(10);
+  const image = await loadBitmap(file);
+  onProgress(35);
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('This browser cannot create the storefront hero image.');
+  context.drawImage(image, 0, 0, width, height);
+  onProgress(75);
+  const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('The storefront hero image could not be encoded.')), 'image/png'));
+  image.close?.();
+  onProgress(100);
+  return new File([blob], `${file.name.replace(/\.png$/i, '')}-public-hero.png`, { type: 'image/png' });
 }
 
 export function formatFileSize(bytes) {
