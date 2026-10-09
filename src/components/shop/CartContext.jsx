@@ -12,7 +12,8 @@ const mergeItems = (existing, incoming) => {
   for (const item of existing) map[getCartItemKey(item)] = { ...item };
   for (const item of incoming) {
     const key = getCartItemKey(item);
-    if (map[key]) map[key].quantity += item.quantity;
+    if (map[key] && item.product_type === 'digital') map[key].quantity = 1;
+    else if (map[key]) map[key].quantity += item.quantity;
     else map[key] = { ...item };
   }
   return Object.values(map);
@@ -83,8 +84,10 @@ export function CartProvider({ children }) {
       const currentQty = existing ? existing.quantity : 0;
       if (pricedProduct.product_type === 'physical' && pricedProduct.stock !== undefined && currentQty >= pricedProduct.stock) return current;
       const newCart = existing
-        ? current.map(item => getCartItemKey(item) === productKey ? { ...item, quantity: item.quantity + incomingQuantity } : item)
-        : [...current, { ...pricedProduct, quantity: incomingQuantity }];
+        ? (pricedProduct.product_type === 'digital'
+          ? current
+          : current.map(item => getCartItemKey(item) === productKey ? { ...item, quantity: item.quantity + incomingQuantity } : item))
+        : [...current, { ...pricedProduct, quantity: pricedProduct.product_type === 'digital' ? 1 : incomingQuantity }];
       persist(newCart, cartRecord);
       trackMarketingEvent('add_to_cart', { id: pricedProduct.id || pricedProduct.product_id, name: pricedProduct.name || pricedProduct.product_name }, 'cart');
       return newCart;
@@ -94,7 +97,7 @@ export function CartProvider({ children }) {
   const updateQuantity = useCallback((itemKey, quantity) => {
     setCart(current => {
       const currentItem = current.find(item => getCartItemKey(item) === itemKey);
-      let safeQuantity = quantity;
+      let safeQuantity = currentItem?.product_type === 'digital' && quantity > 0 ? 1 : quantity;
       if ((currentItem?.product_type || 'physical') === 'physical' && quantity > 0) {
         const otherGarmentQuantity = getSmallOrderCartQuantity(current) - Number(currentItem.quantity || 0);
         safeQuantity = Math.min(quantity, Math.max(1, 49 - otherGarmentQuantity));

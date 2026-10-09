@@ -436,7 +436,7 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   const items = Array.isArray(payload.items) ? payload.items as Item[] : [];
   if (!items.length) throw new Error('Your cart is empty.');
   const ids = [...new Set(items.map((item) => String(item.product_id || '')).filter(Boolean))];
-  const { data: products, error } = await admin.from('products').select('id,name,price,sale_price,size_prices,vendor_cost,blank_garment_cost,print_cost_estimate,fulfillment_source,ss_exclude_free_freight,shipping_weight_oz,package_length_in,package_width_in,package_height_in,visibility,is_active').in('id', ids);
+  const { data: products, error } = await admin.from('products').select('id,name,price,sale_price,product_type,size_prices,vendor_cost,blank_garment_cost,print_cost_estimate,fulfillment_source,ss_exclude_free_freight,shipping_weight_oz,package_length_in,package_width_in,package_height_in,visibility,is_active').in('id', ids);
   if (error) throw new Error('Products could not be validated.');
   const byId = new Map((products || []).map((product: Product) => [String(product.id), product]));
   let merchandise = 0;
@@ -448,6 +448,13 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     if (!product || product.visibility !== 'public' || product.is_active !== true) throw new Error('A checkout product is unavailable.');
     const quantity = Math.floor(safeNumber(item.quantity));
     if (quantity < 1) throw new Error('Cart quantity is invalid.');
+    if (product.product_type === 'digital') {
+      if (quantity !== 1) throw new Error('Digital mockups can be purchased once per order.');
+      const price = safeNumber(product.sale_price || product.price);
+      if (price <= 0) throw new Error('A digital mockup price is unavailable.');
+      merchandise += price;
+      continue;
+    }
     const variant = variantFor(product, item);
     const price = safeNumber(variant?.price || product.sale_price || product.price);
     const cost = safeNumber(variant?.vendor_cost || variant?.cost || product.vendor_cost || product.blank_garment_cost);
@@ -580,7 +587,11 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   const processing = processingMethod.amount;
   const beforeShipping = money(merchandise - vendorCost - printCost - processing);
   const estimatedMargin = money(beforeShipping + shipping - estimatedVendorShipping - uspsQuotedShipping);
-  const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * items.reduce((sum, item) => sum + safeNumber(item.quantity), 0));
+  const physicalQuantity = items.reduce((sum, item) => {
+    const product = byId.get(String(item.product_id || ''));
+    return sum + (product?.product_type === 'digital' ? 0 : safeNumber(item.quantity));
+  }, 0);
+  const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * physicalQuantity);
   if (estimatedMargin < requiredMargin) throw new Error('This cart requires a pricing review before checkout. Please contact support@ilovehcapparel.net.');
   return { merchandise, shipping, tax, taxDetail: taxResult.detail, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
 }

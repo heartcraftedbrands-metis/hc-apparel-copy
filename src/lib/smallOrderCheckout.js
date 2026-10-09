@@ -17,13 +17,14 @@ export function isPrivateArtworkReference(value) {
 export function validateCheckoutCart(cart) {
   const errors = [];
   const items = Array.isArray(cart) ? cart : [];
-  const totalQuantity = items.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+  const totalQuantity = items.reduce((sum, item) => sum + ((item?.product_type || 'physical') === 'physical' ? (Number(item?.quantity) || 0) : 0), 0);
 
   if (!items.length) errors.push('Your cart is empty.');
   if (totalQuantity >= 50) errors.push(BULK_QUOTE_MESSAGE);
 
   items.forEach((item, index) => {
     const label = text(item?.product_name || item?.name) || `Item ${index + 1}`;
+    const isDigital = item?.product_type === 'digital';
     const isCustomized = (
       item?.is_customized === true
       || item?.purchase_mode === 'customized'
@@ -35,11 +36,12 @@ export function validateCheckoutCart(cart) {
       )
     );
     if (!text(item?.product_id || item?.id)) errors.push(`${label}: product is missing.`);
-    if (!text(item?.color || item?.selectedColor)) errors.push(`${label}: color is missing.`);
-    if (!text(item?.size || item?.selectedSize)) errors.push(`${label}: size is missing.`);
+    if (!isDigital && !text(item?.color || item?.selectedColor)) errors.push(`${label}: color is missing.`);
+    if (!isDigital && !text(item?.size || item?.selectedSize)) errors.push(`${label}: size is missing.`);
     if (!Number.isInteger(Number(item?.quantity)) || Number(item.quantity) < 1) {
       errors.push(`${label}: quantity must be a whole number of at least 1.`);
     }
+    if (isDigital && Number(item.quantity) !== 1) errors.push(`${label}: digital images can be purchased once per order.`);
     if (isCustomized) {
       if (!isPrivateArtworkReference(item?.artwork_file_url)) {
         errors.push(`${label}: private artwork upload is missing.`);

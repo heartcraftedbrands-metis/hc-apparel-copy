@@ -345,16 +345,14 @@ export default function OrderConfirmation() {
               {digitalItems.map((item, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                   <span className="font-medium text-sm">{item.product_name}</span>
-                  {item.file_url ? (
-                    <a href={item.file_url} target="_blank" rel="noopener noreferrer">
-                      <Button size="sm">
+                  {order?.payment_status === 'paid' ? (
+                    <Button size="sm" asChild>
+                      <Link to="/MyDownloads">
                         <Download className="w-4 h-4 mr-2" />
-                        Download
-                      </Button>
-                    </a>
-                  ) : (
-                    <span className="text-xs text-gray-500">Download link will be sent via email</span>
-                  )}
+                        My Downloads
+                      </Link>
+                    </Button>
+                  ) : <span className="text-xs text-gray-500">Available after verified payment</span>}
                 </div>
               ))}
             </CardContent>

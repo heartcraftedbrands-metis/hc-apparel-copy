@@ -20,6 +20,7 @@ import {
 import { getOrCreateCheckoutAttempt, markCheckoutPending } from '@/lib/checkoutCompletion';
 import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { checkoutErrorMessage, CHECKOUT_CONNECT, PAYMENT_UNAVAILABLE, SIGN_IN_AGAIN } from '@/lib/checkoutErrors';
+import DigitalCheckout from '@/components/shop/DigitalCheckout';
 
 const emptyAddress = {
   street: '',
@@ -81,6 +82,8 @@ export default function Checkout() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [shippingServiceId, setShippingServiceId] = useState('');
   const checkoutTracked = useRef(false);
+  const digitalOnly = cart.length > 0 && cart.every(item => item.product_type === 'digital');
+  const hasDigital = cart.some(item => item.product_type === 'digital');
 
   useEffect(() => {
     if (checkoutTracked.current || !cart.length) return;
@@ -100,6 +103,7 @@ export default function Checkout() {
   );
 
   useEffect(() => {
+    if (digitalOnly) { setLoading(false); return undefined; }
     let active = true;
     Promise.all([
       base44.auth.me(),
@@ -120,9 +124,10 @@ export default function Checkout() {
       else setPrepareError(message);
     }).finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, []);
+  }, [digitalOnly]);
 
   useEffect(() => {
+    if (digitalOnly) { setQuote(null); return undefined; }
     const billingAddress = form.billing_same_as_shipping ? { ...form.shipping_address } : form.billing_address;
     const customer = { ...form, billing_address: billingAddress };
     const validationErrors = [...cartErrors, ...validateCheckoutCustomer(customer)];
@@ -145,7 +150,7 @@ export default function Checkout() {
       } finally { if (active) setQuoteLoading(false); }
     }, 400);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [cart, cartErrors, form, loading, shippingServiceId]);
+  }, [cart, cartErrors, digitalOnly, form, loading, shippingServiceId]);
 
   const setField = (key) => (event) => {
     setForm(current => ({ ...current, [key]: event.target.value }));
@@ -226,6 +231,8 @@ export default function Checkout() {
       setSubmitting(false);
     }
   };
+
+  if (digitalOnly) return <DigitalCheckout cart={cart} />;
 
   if (loading) {
     return <div className="container mx-auto px-4 py-16 text-center">Preparing secure checkout…</div>;
@@ -326,7 +333,7 @@ export default function Checkout() {
 
           <div className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>Customized order</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{hasDigital ? 'Order summary' : 'Customized order'}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 {cart.map((item, index) => (
                   <div key={item.customization_id || index} className="border-b pb-4 last:border-0">
@@ -341,7 +348,9 @@ export default function Checkout() {
                           </p>
                         )}
                         <p className="text-xs text-muted-foreground">
-                          {item.color || item.selectedColor} / {item.size || item.selectedSize} · Qty {item.quantity}
+                          {item.product_type === 'digital'
+                            ? 'Full-resolution PNG download · Qty 1'
+                            : `${item.color || item.selectedColor} / ${item.size || item.selectedSize} · Qty ${item.quantity}`}
                         </p>
                       </div>
                       <p className="font-semibold">
@@ -349,7 +358,9 @@ export default function Checkout() {
                       </p>
                     </div>
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      {item.is_customized ? (
+                      {item.product_type === 'digital' ? (
+                        <p>Secure download unlocks only after payment is confirmed.</p>
+                      ) : item.is_customized ? (
                         <>
                           <p>Artwork: {item.artwork_file_name || 'Missing'}</p>
                           <p>Method: {String(item.decoration_method || '').replace(/_/g, ' ')}</p>
@@ -357,8 +368,8 @@ export default function Checkout() {
                       ) : (
                         <p>Blank garment — no artwork required</p>
                       )}
-                      <p>Placement: {String(item.print_placement || '').replace(/_/g, ' ')}</p>
-                      <p>Print size: {String(item.print_size_option || '').replace(/_/g, ' ')}</p>
+                      {item.product_type !== 'digital' && <p>Placement: {String(item.print_placement || '').replace(/_/g, ' ')}</p>}
+                      {item.product_type !== 'digital' && <p>Print size: {String(item.print_size_option || '').replace(/_/g, ' ')}</p>}
                       {item.print_notes && <p>Notes: {item.print_notes}</p>}
                     </div>
                   </div>

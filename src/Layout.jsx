@@ -25,6 +25,7 @@ import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 
 const NAV_LINKS = [
   { to: '/ShopGarments', label: 'Shop Garments' },
+  { to: '/DigitalMockups', label: 'Digital Mockups' },
   ...(STOREFRONT_FEATURES.customPrinting ? [{ to: '/CustomPrinting', label: 'Custom Printing' }] : []),
   { to: '/PrintSupport', label: 'Print Support' },
   { to: '/RequestQuote', label: 'Bulk Quote 50+' },
@@ -165,6 +166,7 @@ function LayoutInner({ children }) {
                         <Link to="/AdminOperationsDashboard"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Customer Orders</DropdownMenuItem></Link>
                         <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />S&amp;S Fulfillment Orders</DropdownMenuItem></Link>
                         <Link to="/AdminGarmentCatalog"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Garment Catalog</DropdownMenuItem></Link>
+                        <Link to="/AdminDigitalMockups"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Digital Mockups</DropdownMenuItem></Link>
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Marketing</DropdownMenuLabel>
                         <Link to="/AdminMarketingCenter"><DropdownMenuItem><Megaphone className="w-4 h-4 mr-2" />Marketing Center</DropdownMenuItem></Link>
@@ -227,6 +229,7 @@ function LayoutInner({ children }) {
               <h4 className="font-bold text-sm uppercase tracking-wider mb-3 text-accent">Shop</h4>
               <ul className="space-y-2 text-sm text-primary-foreground/70">
                 <li><Link to="/ShopGarments" className="hover:text-primary-foreground transition-colors">All Garments</Link></li>
+                <li><Link to="/DigitalMockups" className="hover:text-primary-foreground transition-colors">Digital Mockups</Link></li>
                 {STOREFRONT_FEATURES.customPrinting && <li><Link to="/CustomPrinting" className="hover:text-primary-foreground transition-colors">Custom Printing</Link></li>}
                 <li><Link to="/PrintSupport" className="hover:text-primary-foreground transition-colors">Print Support</Link></li>
                 <li><Link to="/RequestQuote" className="hover:text-primary-foreground transition-colors">Bulk Quote 50+</Link></li>

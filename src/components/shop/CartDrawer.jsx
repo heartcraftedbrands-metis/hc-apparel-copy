@@ -54,6 +54,7 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                       {item.selectedColor && <p className="text-xs text-gray-600">Color: {item.selectedColor}</p>}
                       {item.selectedSize && <p className="text-xs text-gray-600">Size: {item.selectedSize}</p>}
                       {item.sku && <p className="text-xs text-gray-400">SKU: {item.sku}</p>}
+                      {item.product_type === 'digital' && <p className="mt-1 text-xs font-semibold text-primary">Digital PNG download · no shipping</p>}
 
                       {item.is_customized && (
                         <div className="mt-2 rounded-lg bg-muted/60 p-2 text-xs text-gray-600">
@@ -74,6 +75,7 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                         ${item.price?.toFixed(2)} × {item.quantity} = ${lineTotal.toFixed(2)}
                       </p>
                       <div className="mt-2 flex items-center gap-1">
+                        {item.product_type !== 'digital' && <>
                         <Button
                           size="icon"
                           variant="outline"
@@ -94,6 +96,8 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                         >
                           <Plus className="h-3 w-3" />
                         </Button>
+                        </>}
+                        {item.product_type === 'digital' && <span className="text-xs text-muted-foreground">One copy per order</span>}
                         <Button
                           size="icon"
                           variant="ghost"

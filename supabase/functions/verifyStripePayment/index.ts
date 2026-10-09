@@ -59,7 +59,7 @@ Deno.serve(async (request) => {
     const admin = createClient(supabaseUrl, serviceRoleKey, { db: { schema: 'public' } });
     const { data: order, error: orderError } = await admin
       .from('orders')
-      .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,shipping_charged_to_customer,sales_tax_amount,vendor_cost_estimate,actual_s_and_s_shipping,actual_vendor_shipping,actual_shipping_cost,estimated_s_and_s_shipping,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,stripe_mode,payment_processing_estimate,pricing_snapshot')
+      .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,shipping_charged_to_customer,sales_tax_amount,vendor_cost_estimate,actual_s_and_s_shipping,actual_vendor_shipping,actual_shipping_cost,estimated_s_and_s_shipping,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,stripe_mode,payment_processing_estimate,pricing_snapshot,checkout_source')
       .eq('id', orderId)
       .maybeSingle();
     if (orderError) {
@@ -112,6 +112,17 @@ Deno.serve(async (request) => {
       // The database trigger now creates the private vendor draft and notification drafts.
     }
 
+    let digitalDelivery = null;
+    if (order.checkout_source === 'mixed_storefront_order' && session.metadata?.source === 'hc_apparel_mixed_storefront') {
+      const finalized = await fetch(`${supabaseUrl}/functions/v1/digital-mockups`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'webhook_finalize', session_id: session.id, event_id: session.id, stripe_mode: stripeMode }),
+      });
+      digitalDelivery = await finalized.json().catch(() => ({}));
+      if (!finalized.ok) return json({ error: digitalDelivery?.error || 'Payment was confirmed, but digital delivery could not be prepared.' }, 500);
+    }
+
     return json({
       paid: true,
       order_id: order.id,
@@ -120,6 +131,7 @@ Deno.serve(async (request) => {
       vendor_draft_prepared_by_database: true,
       live_ss_submission_enabled: false,
       zerotouch_live_submission_enabled: false,
+      digital_delivery: digitalDelivery,
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Unable to verify payment' }, 500);

@@ -36,7 +36,8 @@
     "test:privacy-policy": "node scripts/test_privacy_policy.mjs",
     "test:custom-printing-visibility": "node scripts/test_custom_printing_visibility.mjs",
     "test:order-reconciliation": "node scripts/test_order_reconciliation_archiving.mjs",
-    "test:design-studio": "node scripts/test_design_studio.mjs"
+    "test:design-studio": "node scripts/test_design_studio.mjs",
+    "test:digital-mockups": "node scripts/test_digital_mockups.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.39",

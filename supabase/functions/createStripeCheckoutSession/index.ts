@@ -96,7 +96,7 @@ Deno.serve(async (request) => {
         checkout_failure_at: new Date().toISOString(),
         checkout_issue_resolved_at: null,
         checkout_issue_archived_at: null,
-      }).eq('id', orderId.trim()).eq('checkout_source', 'customized_small_order')
+      }).eq('id', orderId.trim()).in('checkout_source', ['customized_small_order', 'mixed_storefront_order'])
         .is('stripe_session_id', null).in('payment_status', ['checkout_pending', 'checkout_failed', 'awaiting_payment'])
         .eq('owner_user_id', failureOwnerId);
       if (failureUpdateError) console.error('Checkout failure state update failed', { request_id: requestId, code: failureUpdateError.code });
@@ -176,7 +176,7 @@ Deno.serve(async (request) => {
     if (adminRetry && !['checkout_pending', 'checkout_failed'].includes(order.payment_status)) {
       return respond({ error: 'This order is not a checkout issue', code: 'NOT_CHECKOUT_ISSUE' }, 409);
     }
-    if (order.checkout_source !== 'customized_small_order') {
+    if (!['customized_small_order', 'mixed_storefront_order'].includes(order.checkout_source)) {
       return respond({ error: 'Unsupported checkout order', code: 'UNSUPPORTED_ORDER' }, 400);
     }
     if (order.payment_status === 'paid') return respond({ error: 'Order is already paid', code: 'ORDER_ALREADY_PAID' }, 409);
@@ -187,9 +187,10 @@ Deno.serve(async (request) => {
     }
 
     const stripe = new Stripe(stripeCredentials.secretKey);
+    const isMixedOrder = order.checkout_source === 'mixed_storefront_order';
     const stripeOrderMetadata = {
       app_name: 'HC Apparel',
-      source: 'hc_apparel_customized_small_order',
+      source: isMixedOrder ? 'hc_apparel_mixed_storefront' : 'hc_apparel_customized_small_order',
       internal_order_id: order.id,
       owner_user_id: order.owner_user_id,
       stripe_mode: stripeMode,
@@ -201,7 +202,7 @@ Deno.serve(async (request) => {
         currency: 'usd',
         product_data: {
           name: String(item.product_name || 'HC Apparel garment'),
-          description: 'HC Apparel storefront order',
+          description: item.product_type === 'digital' ? 'Full-resolution PNG digital image download' : 'HC Apparel storefront order',
           metadata: { app_name: 'HC Apparel', internal_order_id: order.id },
         },
         unit_amount: Math.round(Number(item.price) * 100),

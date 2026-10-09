@@ -59,11 +59,12 @@ Deno.serve(async (request) => {
 
   const orderId = session.metadata?.internal_order_id;
   const ownerUserId = session.metadata?.owner_user_id;
+  const checkoutSource = session.metadata?.source;
   if (
-    session.metadata?.source !== 'hc_apparel_customized_small_order'
+    !['hc_apparel_customized_small_order', 'hc_apparel_digital_mockups', 'hc_apparel_mixed_storefront'].includes(String(checkoutSource || ''))
     || session.metadata?.stripe_mode !== stripeMode
     || !orderId
-    || !ownerUserId
+    || (checkoutSource === 'hc_apparel_customized_small_order' && !ownerUserId)
   ) {
     return json({ error: 'Checkout metadata is invalid' }, 400);
   }
@@ -105,6 +106,39 @@ Deno.serve(async (request) => {
       last_error: message,
     }).eq('event_id', event.id);
   };
+
+  if (checkoutSource === 'hc_apparel_digital_mockups' || checkoutSource === 'hc_apparel_mixed_storefront') {
+    try {
+      const finalize = await fetch(`${supabaseUrl}/functions/v1/digital-mockups`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'webhook_finalize',
+          session_id: session.id,
+          event_id: event.id,
+          stripe_mode: stripeMode,
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const result = await finalize.json().catch(() => ({}));
+      if (!finalize.ok || result?.paid !== true) {
+        await failEvent(String(result?.error || 'Digital entitlement finalization failed'));
+        return json({ error: 'Unable to finalize digital delivery' }, 502);
+      }
+      await admin.from('stripe_webhook_events').update({
+        processing_status: 'processed', processed_at: new Date().toISOString(), last_error: null,
+      }).eq('event_id', event.id);
+      return json({ received: true, processed: true, duplicate: false, order_id: orderId, digital_delivery: true, email_status: result.email_status });
+    } catch (error) {
+      await failEvent(error instanceof Error ? error.message : 'Digital entitlement finalization failed');
+      return json({ error: 'Unable to finalize digital delivery' }, 502);
+    }
+  }
+
   const { data: order, error: orderError } = await admin
     .from('orders')
     .select('id,owner_user_id,total_amount,product_subtotal,shipping_amount,shipping_charged_to_customer,sales_tax_amount,vendor_cost_estimate,actual_s_and_s_shipping,actual_vendor_shipping,actual_shipping_cost,estimated_s_and_s_shipping,estimated_vendor_shipping,printing_cost_estimate,other_vendor_fees,payment_status,checkout_source,stripe_mode,payment_processing_estimate,pricing_snapshot')

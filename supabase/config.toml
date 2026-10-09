@@ -397,6 +397,9 @@ verify_jwt = true
 [functions.stripeWebhook]
 verify_jwt = false
 
+[functions.digital-mockups]
+verify_jwt = false # Public catalog and guest checkout; privileged actions self-verify admin/service credentials.
+
 [functions.productivity-calendar]
 verify_jwt = false # Google callback is public; every POST action verifies the admin JWT itself.
 
