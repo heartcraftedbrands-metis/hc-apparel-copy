@@ -17,17 +17,16 @@ const { selectBrandProduct } = await import('../src/lib/homeCatalogImages.js');
 assert.ok(hero.includes('HeartCrafted Apparel'), 'hero uses the approved introductory line');
 assert.ok(hero.includes('HC Apparel'), 'hero uses the approved oversized headline');
 assert.ok(hero.includes('HeartCrafted for Champions. Inspired by Love.'), 'hero uses the approved supporting headline');
-assert.ok(hero.includes('From everyday essentials to team-ready apparel'), 'hero uses the approved supporting description');
-assert.ok(hero.includes('Everyday essentials and team-ready apparel for creators, champions, and the communities they love.'), 'hero uses the approved compact mobile description');
+assert.ok(hero.includes('Everyday essentials and team-ready apparel for creators, champions, and the communities they love.'), 'hero uses the approved supporting description');
 assert.ok(hero.includes('Shop Apparel'), 'primary CTA says Shop Apparel');
 assert.ok(hero.includes('to="/ShopGarments"'), 'Shop Apparel links to the public garment shop');
 assert.ok(hero.includes('Explore Champion'), 'secondary CTA says Explore Champion');
 assert.ok(hero.includes('to="/brand/champion"'), 'Explore Champion links to the existing Champion collection');
-assert.ok(hero.includes('champion-rw01w-white.jpg'), 'the clean supplier Champion image is the hero portrait');
+assert.ok(hero.includes('champion-cropped-hoodie-hero.jpg'), 'the requested Champion headphones model is the immersive hero background');
 assert.ok(hero.includes('aria-roledescription="carousel"'), 'the apparel cards expose an accessible carousel');
 assert.ok(hero.includes("event.key === 'ArrowLeft'") && hero.includes("event.key === 'ArrowRight'"), 'the carousel supports keyboard navigation');
 assert.ok(hero.includes('onTouchStart') && hero.includes('onTouchEnd'), 'the carousel supports touch swiping');
-assert.ok(hero.includes('Editorial inspiration') && hero.includes('shop undecorated apparel'), 'the card treatment does not imply decorated team uniforms are sold');
+assert.ok(hero.includes('Explore adidas blanks') && hero.includes('Shop sportswear blanks'), 'the card links point to undecorated apparel destinations');
 for (const label of ['Together in Love', 'Heart of a Champion', 'Built for the Team', 'Move with Purpose', 'Carry Your Passion', 'Ready for What’s Next']) {
   assert.ok(hero.includes(label), `${label} remains in the hero carousel`);
 }
@@ -35,8 +34,8 @@ assert.ok(brands.includes("name: 'adidas'") && brands.includes("name: 'Berne'") 
 assert.ok(!brands.includes("name: 'Columbia'") && !brands.includes("name: 'Shaka Wear'") && !brands.includes("name: 'Champion'"), 'lower featured section no longer repeats the hero brands');
 assert.ok(brands.includes("preferredStyles: ['A230']") && brands.includes("preferredStyles: ['CH416']") && brands.includes("preferredStyles: ['RF496']"), 'lower cards prefer approved live catalog styles');
 assert.ok(home.includes('<HomeFeaturedBrands products={publicProducts} />'), 'featured brand collections render with public catalog products');
-assert.ok(hero.includes('grid-cols-1') && hero.includes('lg:grid-cols-['), 'hero adapts from a compact mobile stack to an immersive desktop split');
-assert.ok(hero.includes('min-w-0'), 'hero grid cells may shrink without causing horizontal overflow');
+assert.ok(hero.includes('hc-immersive-hero') && hero.includes('hc-immersive-carousel'), 'the background, copy, and floating carousel share one immersive hero');
+assert.ok(!hero.includes('The team edit') && !hero.includes('Ideas made to move'), 'the old separate Team Edit section stays removed');
 assert.ok(!hero.includes('100vw'), 'hero does not use viewport-width padding that can overflow the page');
 assert.ok(hero.includes('disabled={activeIndex === 0}') && hero.includes('disabled={activeIndex === maxIndex}'), 'carousel controls expose their disabled boundaries');
 
