@@ -14,29 +14,30 @@ const home = read('src/pages/Home.jsx');
 const layout = read('src/Layout.jsx');
 const { selectBrandProduct } = await import('../src/lib/homeCatalogImages.js');
 
-assert.ok(hero.includes('Affordable Apparel Blanks for Brands, Teams &amp; Creators'), 'hero uses the approved affordable apparel headline');
-assert.ok(!hero.includes('Made Simple'), 'hero no longer says Made Simple');
-assert.ok(!hero.includes('Custom Garments'), 'hero no longer says Custom Garments');
-assert.ok(hero.includes('Shop brand-name blanks for creators, brands, families, teams, and businesses'), 'hero uses the approved blank-first subheadline');
-assert.ok(hero.includes('Shop Blanks'), 'primary CTA says Shop Blanks');
-assert.ok(hero.includes('to="/ShopGarments"'), 'Shop Blanks links to the public garment shop');
-assert.ok(hero.includes('Bulk Quote 50+'), 'secondary CTA remains Bulk Quote 50+');
-assert.ok(hero.includes('to="/RequestQuote"'), 'bulk quote CTA links to the quote page');
-assert.ok(hero.includes('Upload your artwork'), 'custom printing is retained as secondary support text');
+assert.ok(hero.includes('HeartCrafted Apparel'), 'hero uses the approved introductory line');
+assert.ok(hero.includes('HC Apparel'), 'hero uses the approved oversized headline');
+assert.ok(hero.includes('HeartCrafted for Champions. Inspired by Love.'), 'hero uses the approved supporting headline');
+assert.ok(hero.includes('From everyday essentials to team-ready apparel'), 'hero uses the approved supporting description');
+assert.ok(hero.includes('Shop Apparel'), 'primary CTA says Shop Apparel');
+assert.ok(hero.includes('to="/ShopGarments"'), 'Shop Apparel links to the public garment shop');
+assert.ok(hero.includes('Explore Champion'), 'secondary CTA says Explore Champion');
+assert.ok(hero.includes('to="/brand/champion"'), 'Explore Champion links to the existing Champion collection');
+assert.ok(hero.includes('champion-cropped-hoodie-hero.jpg'), 'the supplied Champion image is the hero background');
+assert.ok(hero.includes('aria-roledescription="carousel"'), 'the apparel cards expose an accessible carousel');
+assert.ok(hero.includes("event.key === 'ArrowLeft'") && hero.includes("event.key === 'ArrowRight'"), 'the carousel supports keyboard navigation');
+assert.ok(hero.includes('onTouchStart') && hero.includes('onTouchEnd'), 'the carousel supports touch swiping');
+assert.ok(hero.includes('Editorial inspiration') && hero.includes('shop undecorated apparel'), 'the card treatment does not imply decorated team uniforms are sold');
+for (const label of ['Together in Love', 'Heart of a Champion', 'Built for the Team', 'Move with Purpose', 'Carry Your Passion', 'Ready for What’s Next']) {
+  assert.ok(hero.includes(label), `${label} remains in the hero carousel`);
+}
 assert.ok(brands.includes("name: 'adidas'") && brands.includes("name: 'Berne'") && brands.includes("name: 'American Apparel'"), 'lower featured section uses the approved adidas, Berne, and American Apparel order');
 assert.ok(!brands.includes("name: 'Columbia'") && !brands.includes("name: 'Shaka Wear'") && !brands.includes("name: 'Champion'"), 'lower featured section no longer repeats the hero brands');
 assert.ok(brands.includes("preferredStyles: ['A230']") && brands.includes("preferredStyles: ['CH416']") && brands.includes("preferredStyles: ['RF496']"), 'lower cards prefer approved live catalog styles');
 assert.ok(home.includes('<HomeFeaturedBrands products={publicProducts} />'), 'featured brand collections render with public catalog products');
-assert.ok(hero.includes('lg:grid-cols-2'), 'desktop hero uses a true two-column split');
-assert.ok(hero.includes('data-testid="hero-visual-panel"'), 'hero includes a dedicated visual panel');
-assert.ok(hero.includes("const HERO_BRANDS = ['Columbia', 'Shaka Wear', 'Champion']"), 'hero visual retains Columbia, Shaka Wear, and Champion');
-assert.ok(hero.includes('lg:grid-cols-2'), 'desktop hero uses a bounded 50/50 split at desktop widths');
-assert.ok(hero.includes('grid-cols-1'), 'hero stacks into one column below desktop widths');
+assert.ok(hero.includes('grid-cols-1') && hero.includes('lg:grid-cols-['), 'hero adapts from a mobile stack to an immersive desktop split');
 assert.ok(hero.includes('min-w-0'), 'hero grid cells may shrink without causing horizontal overflow');
-assert.ok(!hero.includes('100vw'), 'hero does not use viewport-width padding that can overflow a split column');
-assert.ok(hero.includes('getHeroProductImage'), 'hero resolves approved images from product and variant image fields');
-assert.ok(hero.includes('onError={() => setImageFailed(true)}'), 'broken catalog images fall back to a styled brand panel');
-assert.ok(hero.includes('Shop {brand} Blanks'), 'featured brand cards expose a clear shop CTA');
+assert.ok(!hero.includes('100vw'), 'hero does not use viewport-width padding that can overflow the page');
+assert.ok(hero.includes('disabled={activeIndex === 0}') && hero.includes('disabled={activeIndex === maxIndex}'), 'carousel controls expose their disabled boundaries');
 
 for (const label of [
   'T-Shirts',
