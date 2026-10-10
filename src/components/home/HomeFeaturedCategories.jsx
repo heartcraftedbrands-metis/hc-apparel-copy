@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
 
 import CatalogEditorialImage from './CatalogEditorialImage';
-import { getCatalogProductImage, selectCatalogProduct } from '@/lib/homeCatalogImages';
+import { getCatalogProductImage, getHomeCategoryFallback, selectCatalogProduct } from '@/lib/homeCatalogImages';
 import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 
 const CATEGORIES = [
@@ -105,25 +105,26 @@ export default function HomeFeaturedCategories({ products = [] }) {
   })), [products]);
 
   return (
-    <section className="relative overflow-hidden bg-[#f4efe4] py-20 sm:py-24">
+    <section className="relative overflow-hidden bg-[#f4efe4] py-12 sm:py-16 lg:py-24">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(232,169,16,0.10),transparent_26%),radial-gradient(circle_at_92%_88%,rgba(74,94,42,0.12),transparent_30%)]" />
       <div className="container relative mx-auto px-4 sm:px-6">
-        <div className="mb-10 text-center">
-          <h2 className="text-4xl font-black leading-[0.95] tracking-[-0.04em] text-foreground sm:text-5xl lg:text-6xl">
+        <div className="mb-7 text-center sm:mb-10">
+          <h2 className="text-3xl font-black leading-[0.95] tracking-[-0.04em] text-foreground sm:text-5xl lg:text-6xl">
             Browse by Category
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[270px] lg:grid-cols-12">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:auto-rows-[270px] lg:grid-cols-12">
           {cards.map((category, index) => (
             <Link
               key={category.label}
               to={category.link}
               aria-label={`Browse ${category.label}`}
-              className={`group relative h-[360px] overflow-hidden rounded-[1.5rem] border border-white/70 bg-primary shadow-[0_18px_50px_-30px_rgba(31,43,21,0.7)] transition duration-500 hover:-translate-y-1 hover:shadow-[0_26px_60px_-28px_rgba(31,43,21,0.82)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 sm:h-[320px] lg:h-full lg:min-h-[280px] ${category.layout}`}
+              className={`group relative h-[245px] overflow-hidden rounded-[1.15rem] border border-white/70 bg-primary shadow-[0_18px_50px_-30px_rgba(31,43,21,0.7)] transition duration-500 hover:-translate-y-1 hover:shadow-[0_26px_60px_-28px_rgba(31,43,21,0.82)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 sm:h-[320px] sm:rounded-[1.5rem] lg:h-full lg:min-h-[280px] ${category.layout}`}
             >
               <CatalogEditorialImage
                 src={getCatalogProductImage(category.product)}
+                fallbackSrc={getHomeCategoryFallback(category.category)}
                 alt={`${category.label} apparel from the HC Apparel catalog`}
                 className="transition duration-700 group-hover:scale-[1.04]"
               />
@@ -131,16 +132,16 @@ export default function HomeFeaturedCategories({ products = [] }) {
                 ? 'bg-gradient-to-r from-[#263518]/95 via-[#354523]/80 to-[#263518]/30'
                 : 'bg-gradient-to-t from-[#1f2b15]/95 via-[#263518]/30 to-transparent'}`}
               />
-              <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-5 p-6 sm:p-7">
+              <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 sm:gap-5 sm:p-7">
                 <div className="max-w-xl text-[#f8f4ee]">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[#e8a910]">
+                  <p className="mb-1.5 text-[8px] font-bold uppercase tracking-[0.18em] text-[#e8a910] sm:mb-2 sm:text-[10px] sm:tracking-[0.22em]">
                     {category.secondary ? 'Optional print support' : `Edit ${String(index + 1).padStart(2, '0')}`}
                   </p>
-                  <h3 className="text-2xl font-black leading-none tracking-[-0.025em] sm:text-3xl">{category.label}</h3>
-                  <p className="mt-2 max-w-md text-xs leading-5 text-white/75 sm:text-sm">{category.desc}</p>
+                  <h3 className="text-lg font-black leading-[1.02] tracking-[-0.025em] sm:text-3xl">{category.label}</h3>
+                  <p className="mt-2 hidden max-w-md text-xs leading-5 text-white/75 sm:block sm:text-sm">{category.desc}</p>
                 </div>
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/35 bg-white/10 text-white backdrop-blur-sm transition duration-300 group-hover:border-accent group-hover:bg-accent group-hover:text-accent-foreground">
-                  <ArrowUpRight className="h-5 w-5" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/35 bg-white/10 text-white backdrop-blur-sm transition duration-300 group-hover:border-accent group-hover:bg-accent group-hover:text-accent-foreground sm:h-11 sm:w-11">
+                  <ArrowUpRight className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
               </div>
             </Link>

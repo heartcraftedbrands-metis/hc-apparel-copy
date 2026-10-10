@@ -32,16 +32,16 @@ const STEPS = [
 
 export default function HomeHowItWorks() {
   return (
-    <section className="bg-[#f8f4ee] py-20 sm:py-24">
+    <section className="bg-[#f8f4ee] py-12 sm:py-16 lg:py-24">
       <div className="container mx-auto px-4 sm:px-6">
-        <div className="mb-12 text-center">
+        <div className="mb-8 text-center sm:mb-12">
           <p className="mb-3 text-xs font-black uppercase tracking-[0.24em] text-primary">Simple by design</p>
           <h2 className="mb-3 text-3xl font-black tracking-[-0.035em] md:text-5xl">How It Works</h2>
           <p className="text-sm text-muted-foreground">From browsing to delivery — clear at every step.</p>
         </div>
-        <div className="mb-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-8 grid gap-4 sm:mb-12 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(step => (
-            <div key={step.number} className="relative rounded-[1.25rem] border border-[#ded5c4] bg-white/75 p-6 shadow-[0_18px_45px_-35px_rgba(31,43,21,0.65)] transition duration-300 hover:-translate-y-1 hover:border-primary/35">
+            <div key={step.number} className="relative rounded-[1.25rem] border border-[#ded5c4] bg-white/75 p-5 shadow-[0_18px_45px_-35px_rgba(31,43,21,0.65)] transition duration-300 hover:-translate-y-1 hover:border-primary/35 sm:p-6">
               <span className="absolute right-5 top-5 text-3xl font-black leading-none text-primary/15">{step.number}</span>
               <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground">
                 <step.icon className="h-5 w-5" strokeWidth={1.8} />

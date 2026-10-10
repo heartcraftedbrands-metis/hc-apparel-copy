@@ -65,17 +65,17 @@ export default function HomeQuoteRequest() {
   const showQuantityError = quantityEntered && !quantityIsValid;
 
   return (
-    <section className="py-16 bg-accent/10">
+    <section className="bg-accent/10 py-12 md:py-16">
       <div className="container mx-auto px-4">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-10">
+          <div className="mb-8 text-center sm:mb-10">
             <div className="w-14 h-14 bg-accent rounded-2xl flex items-center justify-center mx-auto mb-4">
               <MessageSquare className="w-7 h-7 text-accent-foreground" />
             </div>
             <h2 className="text-3xl font-bold mb-2">Bulk Quote 50+</h2>
             <p className="text-muted-foreground">Bulk pricing is for 50 or more items. For 1–49, shop blanks or add optional custom printing on a product page.</p>
           </div>
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border shadow-sm p-8 space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm sm:p-8">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">Your Name *</label>

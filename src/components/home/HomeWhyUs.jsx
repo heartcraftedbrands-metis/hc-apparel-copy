@@ -12,9 +12,9 @@ const TRUST = [
 
 export default function HomeWhyUs() {
   return (
-    <section className="py-16 bg-muted/40">
+    <section className="bg-muted/40 py-12 md:py-16">
       <div className="container mx-auto px-4">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-12">
           <div>
             <h2 className="text-2xl md:text-3xl font-black mb-3">Why work with HC Apparel?</h2>
             <p className="text-muted-foreground mb-8 leading-relaxed">
@@ -36,7 +36,7 @@ export default function HomeWhyUs() {
           </div>
 
           {/* CTA card */}
-          <div className="bg-primary text-primary-foreground rounded-3xl p-8 md:p-10">
+          <div className="rounded-3xl bg-primary p-6 text-primary-foreground sm:p-8 md:p-10">
             <p className="text-primary-foreground/60 text-sm font-semibold uppercase tracking-wider mb-3">Custom Printing</p>
             <h3 className="text-2xl md:text-3xl font-black mb-4 leading-tight">
               Need your design printed?

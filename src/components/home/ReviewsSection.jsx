@@ -19,7 +19,7 @@ export default function ReviewsSection() {
   const displayReviews = reviews.length > 0 ? reviews : PLACEHOLDER_REVIEWS;
 
   return (
-    <section className="py-16 bg-background">
+    <section className="bg-background py-12 md:py-16">
       <div className="container mx-auto px-4">
         <div className="text-center mb-10">
           <p className="text-accent text-sm font-bold uppercase tracking-widest mb-1">Happy Customers</p>

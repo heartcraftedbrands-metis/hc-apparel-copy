@@ -197,7 +197,7 @@ function LayoutInner({ children }) {
         </div>
       </header>
 
-      <main className="pb-16 md:pb-0">
+      <main className="pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
         <RouteTransition>{children}</RouteTransition>
       </main>
 
