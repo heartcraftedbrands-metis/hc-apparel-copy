@@ -2870,6 +2870,14 @@ Deno.serve(async (request) => {
             String(style.partNumber || style.styleName || '').trim().toUpperCase(),
           ) || requestedStyleNumbers.includes(String(style.styleName || '').trim().toUpperCase()))
           : [];
+        let exactExistingProducts: Array<{
+          id: string;
+          name: string | null;
+          style_number: string | null;
+          supplier_sku: string | null;
+          is_active: boolean | null;
+          visibility: string | null;
+        }> = [];
         if (exactStylesOnly) {
           const foundStyleNumbers = new Set(exactStyles.flatMap((style) => [style.partNumber, style.styleName]
             .map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
@@ -2881,6 +2889,18 @@ Deno.serve(async (request) => {
               requested_style_numbers: requestedStyleNumbers,
             }, 409);
           }
+          const exactIdentifiers = new Set(exactStyles.flatMap((style) => [style.partNumber, style.styleName]
+            .map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
+          const { data: existingProducts, error: existingProductsError } = await userClient
+            .from('products')
+            .select('id,name,style_number,supplier_sku,is_active,visibility')
+            .eq('brand', selectedBrand);
+          if (existingProductsError) {
+            console.error('Unable to check exact-style catalog duplicates', existingProductsError.message);
+            return json(request, { error: 'Unable to check existing catalog records before staging exact styles' }, 500);
+          }
+          exactExistingProducts = (existingProducts || []).filter((product) => [product.style_number, product.supplier_sku]
+            .some((value) => exactIdentifiers.has(String(value || '').trim().toUpperCase())));
         }
         // These are the five existing private draft style names. S&S partNumber
         // is a different internal identifier for DRI DUCK and must not be used
@@ -3062,6 +3082,7 @@ Deno.serve(async (request) => {
             .filter(({ styles: count }) => count > 0),
           rate_limit_remaining: response.headers.get('x-rate-limit-remaining'),
           staged_at: new Date().toISOString(),
+          existing_products: exactExistingProducts,
           selected_styles: selectedStyles.map((style) => ({
             style_id: style.styleID,
             part_number: style.partNumber,

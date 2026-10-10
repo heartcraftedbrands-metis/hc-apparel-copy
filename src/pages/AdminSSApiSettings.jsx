@@ -550,6 +550,7 @@ export default function AdminSSApiSettings() {
           {exactStageResult && (
             <Alert className="mt-4"><CheckCircle2 className="h-4 w-4" /><AlertDescription>
               Staged {exactStageResult.staged_styles} exact {exactBrand} style{exactStageResult.staged_styles === 1 ? '' : 's'} privately.{' '}
+              Existing catalog matches: {exactStageResult.existing_products?.length || 0}.{' '}
               <Link to="/AdminSSStagedImport" className="font-semibold underline">Sync SKU details</Link>
             </AlertDescription></Alert>
           )}
