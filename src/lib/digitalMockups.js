@@ -29,34 +29,6 @@ export async function digitalMockupsRequest(payload) {
   return result;
 }
 
-function downloadNameFromDisposition(value = '') {
-  const encoded = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  if (encoded) {
-    try { return decodeURIComponent(encoded); } catch { /* use the quoted fallback */ }
-  }
-  return value.match(/filename="([^"]+)"/i)?.[1] || '';
-}
-
-export async function downloadDigitalMockup(payload) {
-  const requestHeaders = await headers();
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { ...requestHeaders, 'content-type': 'application/json' },
-    body: JSON.stringify({ ...payload, action: 'download_file' }),
-  });
-  if (!response.ok) {
-    const result = await response.json().catch(() => ({}));
-    const error = new Error(result.error || 'The purchased file could not be downloaded.');
-    error.code = result.code;
-    error.status = response.status;
-    throw error;
-  }
-  return {
-    blob: await response.blob(),
-    fileName: downloadNameFromDisposition(response.headers.get('content-disposition') || ''),
-  };
-}
-
 const loadBitmap = async source => {
   if (source instanceof Blob) return createImageBitmap(source);
   const response = await fetch(source, { mode: 'cors' });

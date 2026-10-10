@@ -100,6 +100,14 @@ async function guestAccessToken(secret: string, orderId: string, email: string) 
   return base64url(new Uint8Array(signature));
 }
 
+async function deliverySignature(secret: string, entitlementId: string, expires: number) {
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${entitlementId}|${expires}`));
+  return base64url(new Uint8Array(signature));
+}
+
 function pngDimensions(bytes: Uint8Array) {
   if (bytes.length < 24 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) {
     fail('Only valid PNG files are supported in this launch collection.', 400, 'invalid_png');
@@ -308,17 +316,52 @@ async function finalizePayment(service: ReturnType<typeof createClient>, stripe:
 Deno.serve(async request => {
   const origin = request.headers.get('origin') || '';
   if (request.method === 'OPTIONS') return response({}, 200, origin);
-  if (request.method !== 'POST') return response({ error: 'Method not allowed.' }, 405, origin);
+  if (!['GET', 'POST'].includes(request.method)) return response({ error: 'Method not allowed.' }, 405, origin);
   try {
     const url = Deno.env.get('SUPABASE_URL') || '';
     const serviceKey = getSupabaseServiceKey();
     const publishableKey = getSupabasePublishableKey();
     if (!url || !serviceKey || !publishableKey) fail('Digital Mockups is not configured.', 503, 'configuration_missing');
     const service = createClient(url, serviceKey, { db: { schema: 'public' } });
+    const accessSecret = Deno.env.get('DIGITAL_DOWNLOAD_SIGNING_SECRET')?.trim() || serviceKey;
+    if (request.method === 'GET') {
+      const requestUrl = new URL(request.url);
+      if (requestUrl.searchParams.get('action') !== 'deliver') fail('Method not allowed.', 405, 'method_not_allowed');
+      const entitlementId = text(requestUrl.searchParams.get('entitlement_id'), 80);
+      const expires = Number(requestUrl.searchParams.get('expires'));
+      const signature = text(requestUrl.searchParams.get('signature'), 200);
+      const now = Math.floor(Date.now() / 1000);
+      if (!entitlementId || !Number.isInteger(expires) || expires < now || expires > now + 300) fail('This secure download link has expired.', 403, 'download_link_expired');
+      const expected = await deliverySignature(accessSecret, entitlementId, expires);
+      if (signature !== expected) fail('This secure download link is invalid.', 403, 'download_link_invalid');
+      const { data: entitlement } = await service.from('digital_download_entitlements').select('*').eq('id', entitlementId).is('revoked_at', null).maybeSingle();
+      if (!entitlement) fail('This download entitlement is unavailable.', 403, 'entitlement_missing');
+      const [{ data: order }, { data: version }, { data: product }] = await Promise.all([
+        service.from('orders').select('payment_status').eq('id', entitlement.order_id).single(),
+        service.from('digital_mockup_versions').select('original_storage_path,original_file_name,file_extension,mime_type').eq('id', entitlement.version_id).single(),
+        service.from('products').select('name').eq('id', entitlement.product_id).single(),
+      ]);
+      if (!order || order.payment_status !== 'paid') fail('Paid download access was not found.', 403, 'not_paid');
+      if (!version || !product?.name) fail('The purchased file is unavailable.', 404, 'file_missing');
+      const fileName = customerDownloadFileName(product.name, version.original_file_name, version.file_extension);
+      const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(version.original_storage_path, 60);
+      if (signedError || !signed?.signedUrl) fail('The purchased file could not be delivered.', 503, 'signed_url_failed');
+      const source = await fetch(signed.signedUrl);
+      if (!source.ok || !source.body) fail('The purchased file could not be delivered.', 503, 'source_download_failed');
+      await service.from('digital_download_audit').insert({ entitlement_id: entitlement.id, order_id: entitlement.order_id, requested_by: null, access_kind: 'signed_delivery', signed_url_expires_at: new Date(expires * 1000).toISOString() });
+      const headers = new Headers({
+        'content-type': version.mime_type || 'application/octet-stream',
+        'content-disposition': contentDisposition(fileName),
+        'cache-control': 'private, no-store',
+        'x-content-type-options': 'nosniff',
+      });
+      const length = source.headers.get('content-length');
+      if (length) headers.set('content-length', length);
+      return new Response(source.body, { status: 200, headers });
+    }
     const contentType = request.headers.get('content-type') || '';
     const input: Row = contentType.includes('multipart/form-data') ? Object.fromEntries((await request.formData()).entries()) : await request.json();
     const action = text(input.action, 60);
-    const accessSecret = Deno.env.get('DIGITAL_DOWNLOAD_SIGNING_SECRET')?.trim() || serviceKey;
 
     if (action === 'webhook_finalize') {
       if (request.headers.get('authorization') !== `Bearer ${serviceKey}`) fail('Service access denied.', 403, 'service_denied');
@@ -767,7 +810,7 @@ Deno.serve(async request => {
       return response(await finalizePayment(service, stripe, session, 'stripe_verification', session.id, accessSecret), 200, origin);
     }
 
-    if (action === 'downloads' || action === 'download' || action === 'download_file') {
+    if (action === 'downloads' || action === 'download') {
       const user = await currentUser(request, url, publishableKey);
       const orderId = text(input.order_id, 100);
       const access = text(input.access, 200);
@@ -787,43 +830,14 @@ Deno.serve(async request => {
       const { data: entitlements, error } = await query.order('granted_at', { ascending: false }).limit(500);
       if (error) fail('Downloads could not be loaded.', 500, 'downloads_failed');
       const requestedId = text(input.entitlement_id, 80);
-      if (action === 'download' || action === 'download_file') {
+      if (action === 'download') {
         const entitlement = (entitlements || []).find(row => row.id === requestedId);
         if (!entitlement) fail('This download is not included in the paid order.', 403, 'entitlement_missing');
-        const [{ data: version }, { data: product }] = await Promise.all([
-          service.from('digital_mockup_versions').select('original_storage_path,original_file_name,file_extension,mime_type').eq('id', entitlement.version_id).single(),
-          service.from('products').select('name').eq('id', entitlement.product_id).single(),
-        ]);
-        if (!version) fail('The purchased file version is unavailable.', 404, 'version_missing');
-        if (!product?.name) fail('The purchased product title is unavailable.', 404, 'product_missing');
-        const downloadFileName = customerDownloadFileName(product.name, version.original_file_name, version.file_extension);
         const expiresIn = 120;
-        const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(
-          version.original_storage_path,
-          expiresIn,
-          action === 'download' ? { download: downloadFileName } : undefined,
-        );
-        if (signedError || !signed?.signedUrl) fail('A secure download link could not be created.', 503, 'signed_url_failed');
-        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-        await service.from('digital_download_audit').insert({ entitlement_id: entitlement.id, order_id: entitlement.order_id, requested_by: user?.id || null, access_kind: accessKind, signed_url_expires_at: expiresAt });
-        if (action === 'download_file') {
-          const source = await fetch(signed.signedUrl);
-          if (!source.ok || !source.body) fail('The purchased file could not be delivered.', 503, 'source_download_failed');
-          const downloadOrigin = allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net';
-          const headers = new Headers({
-            'content-type': version.mime_type || 'application/octet-stream',
-            'content-disposition': contentDisposition(downloadFileName),
-            'access-control-allow-origin': downloadOrigin,
-            'access-control-expose-headers': 'content-disposition, content-length',
-            'cache-control': 'private, no-store',
-            'x-content-type-options': 'nosniff',
-            'vary': 'Origin',
-          });
-          const length = source.headers.get('content-length');
-          if (length) headers.set('content-length', length);
-          return new Response(source.body, { status: 200, headers });
-        }
-        return response({ download_url: signed.signedUrl, expires_at: expiresAt, file_name: downloadFileName }, 200, origin);
+        const expires = Math.floor(Date.now() / 1000) + expiresIn;
+        const signature = await deliverySignature(accessSecret, entitlement.id, expires);
+        const downloadUrl = `${url}/functions/v1/digital-mockups?action=deliver&entitlement_id=${encodeURIComponent(entitlement.id)}&expires=${expires}&signature=${encodeURIComponent(signature)}`;
+        return response({ download_url: downloadUrl, expires_at: new Date(expires * 1000).toISOString() }, 200, origin);
       }
       const productIds = [...new Set((entitlements || []).map(row => row.product_id))];
       const versionIds = [...new Set((entitlements || []).map(row => row.version_id))];

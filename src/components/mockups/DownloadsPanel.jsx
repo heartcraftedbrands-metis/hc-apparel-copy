@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, FileImage, LockKeyhole } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { digitalMockupsRequest, downloadDigitalMockup, formatFileSize } from '@/lib/digitalMockups';
+import { digitalMockupsRequest, formatFileSize } from '@/lib/digitalMockups';
 
 export default function DownloadsPanel({ orderId = '', access = '' }) {
   const [downloads, setDownloads] = useState([]);
@@ -22,16 +22,14 @@ export default function DownloadsPanel({ orderId = '', access = '' }) {
     setBusy(entitlement.id);
     setError('');
     try {
-      const result = await downloadDigitalMockup({ entitlement_id: entitlement.id, order_id: orderId, access });
-      const objectUrl = URL.createObjectURL(result.blob);
+      const result = await digitalMockupsRequest({ action: 'download', entitlement_id: entitlement.id, order_id: orderId, access });
       const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = result.fileName || `${entitlement.product?.name || 'HC Apparel Digital Mockup'}.png`;
+      anchor.href = result.download_url;
+      anchor.download = '';
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (requestError) {
       setError(requestError.message || 'The secure download link could not be created.');
     } finally {
