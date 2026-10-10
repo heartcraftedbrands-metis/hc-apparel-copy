@@ -7,18 +7,21 @@ import { useCart } from '@/components/shop/CartContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { digitalMockupsRequest, formatFileSize, mockupCartItem } from '@/lib/digitalMockups';
+import { calculateMockupPromotion } from '@/lib/mockupPromotion';
 
 const label = value => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
 
 export default function DigitalMockups() {
-  const { addToCart } = useCart();
+  const { addToCart, cart } = useCart();
   const [items, setItems] = useState([]);
   const [hero, setHero] = useState(null);
-  const [filters, setFilters] = useState({ garment_types: [], colors: [], view_types: [] });
+  const [filters, setFilters] = useState({ garment_types: [], colors: [], view_types: [], presentation_types: [] });
   const [search, setSearch] = useState('');
   const [garmentType, setGarmentType] = useState('');
   const [colorName, setColorName] = useState('');
   const [viewType, setViewType] = useState('');
+  const [presentationType, setPresentationType] = useState('');
+  const [dealEligible, setDealEligible] = useState(false);
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -26,14 +29,15 @@ export default function DigitalMockups() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const queryKey = useMemo(() => JSON.stringify({ search, garmentType, colorName, viewType, sort }), [search, garmentType, colorName, viewType, sort]);
+  const queryKey = useMemo(() => JSON.stringify({ search, garmentType, colorName, viewType, presentationType, dealEligible, sort }), [search, garmentType, colorName, viewType, presentationType, dealEligible, sort]);
+  const promotion = useMemo(() => calculateMockupPromotion(cart), [cart]);
 
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const result = await digitalMockupsRequest({ action: 'catalog', search, garment_type: garmentType, color_name: colorName, view_type: viewType, sort, page, per_page: 12 });
+        const result = await digitalMockupsRequest({ action: 'catalog', search, garment_type: garmentType, color_name: colorName, view_type: viewType, presentation_type: presentationType, deal_eligible: dealEligible, sort, page, per_page: 12 });
         if (!active) return;
         setItems(current => page === 1 ? result.items : [...current, ...result.items]);
         setHero(result.hero);
@@ -80,6 +84,7 @@ export default function DigitalMockups() {
             <span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" />Secure payment verification</span>
             <span className="inline-flex items-center gap-2"><Download className="h-4 w-4 text-primary" />Original PNG after payment</span>
           </div>
+          <div className="max-w-xl rounded-2xl border border-primary/25 bg-card/90 p-5 shadow-sm"><p className="text-2xl font-black text-primary">Pick 3. Pay $2.</p><p className="mt-1 text-sm text-muted-foreground">Mix &amp; match any three $0.99 mockups. Your savings apply automatically at checkout.</p><p className="mt-3 text-sm font-semibold">{promotion.eligibleCount > 0 ? promotion.progress : 'Add any three eligible Single View mockups to unlock the deal.'}</p><Button className="mt-4" variant="outline" onClick={() => { setDealEligible(true); setViewType('single_view'); document.getElementById('mockup-catalog')?.scrollIntoView({ behavior: 'smooth' }); }}>Choose Your 3</Button></div>
         </div>
         <div className="relative mx-auto w-full max-w-xl">
           <div className="absolute -left-5 -top-5 h-[72%] w-[54%] bg-primary/90" aria-hidden="true" />
@@ -100,23 +105,25 @@ export default function DigitalMockups() {
         <div><p className="text-sm font-bold uppercase tracking-[0.18em] text-primary">Browse the collection</p><h2 className="text-3xl font-black">Digital Mockups</h2><p className="mt-1 text-sm text-muted-foreground">Watermarked previews shown. Purchased downloads are full-resolution and watermark-free.</p></div>
         <p className="text-sm font-semibold text-muted-foreground">{total} mockup{total === 1 ? '' : 's'}</p>
       </div>
-      <div className="mb-8 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]">
+      <div className="mb-8 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-2 xl:grid-cols-4">
         <label className="relative"><span className="sr-only">Search mockups</span><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search mockups" value={search} onChange={event => setSearch(event.target.value)} /></label>
         <select aria-label="Garment type" className="h-10 rounded-md border bg-background px-3 text-sm" value={garmentType} onChange={event => setGarmentType(event.target.value)}><option value="">All garment types</option>{filters.garment_types.map(value => <option value={value} key={value}>{label(value)}</option>)}</select>
         <select aria-label="Color" className="h-10 rounded-md border bg-background px-3 text-sm" value={colorName} onChange={event => setColorName(event.target.value)}><option value="">All colors</option>{filters.colors.map(value => <option value={value} key={value}>{label(value)}</option>)}</select>
         <select aria-label="View type" className="h-10 rounded-md border bg-background px-3 text-sm" value={viewType} onChange={event => setViewType(event.target.value)}><option value="">All views</option><option value="single_view">Single View</option><option value="front_back">Front + Back</option></select>
+        <select aria-label="Presentation type" className="h-10 rounded-md border bg-background px-3 text-sm" value={presentationType} onChange={event => setPresentationType(event.target.value)}><option value="">All presentation styles</option><option value="flat_lay">Flat Lay</option><option value="lifestyle">Lifestyle</option></select>
+        <label className="flex h-10 items-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={dealEligible} onChange={event => setDealEligible(event.target.checked)} />3 for $2 eligible</label>
         <select aria-label="Sort mockups" className="h-10 rounded-md border bg-background px-3 text-sm" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select>
       </div>
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
-      {!error && !loading && items.length === 0 && <div className="rounded-xl border bg-card p-12 text-center"><p className="font-semibold">No published mockups match those filters.</p><button type="button" className="mt-2 text-sm font-semibold text-primary underline" onClick={() => { setSearch(''); setGarmentType(''); setColorName(''); setViewType(''); }}>Clear filters</button></div>}
+      {!error && !loading && items.length === 0 && <div className="rounded-xl border bg-card p-12 text-center"><p className="font-semibold">No published mockups match those filters.</p><button type="button" className="mt-2 text-sm font-semibold text-primary underline" onClick={() => { setSearch(''); setGarmentType(''); setColorName(''); setViewType(''); setPresentationType(''); setDealEligible(false); }}>Clear filters</button></div>}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {items.map(item => <article key={item.id} className="overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-lg">
-          <Link to={`/DigitalMockups/${item.slug}`} className="relative flex overflow-hidden bg-muted"><img src={item.preview_url} alt={`Watermarked preview of ${item.title}`} loading="lazy" className={`${item.view_type === 'front_back' ? 'aspect-[4/3] object-contain' : 'aspect-[4/5] object-cover object-top'} w-full transition-transform duration-300 hover:scale-[1.02]`} /><span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-black text-foreground shadow-sm">{item.view_type === 'front_back' ? 'Front + Back' : 'Single View'}</span></Link>
+          <Link to={`/DigitalMockups/${item.slug}`} className="relative flex overflow-hidden bg-muted"><img src={item.preview_url} alt={`Watermarked preview of ${item.title}`} loading="lazy" className={`${item.view_type === 'front_back' || item.presentation_type === 'flat_lay' ? 'aspect-[4/3] object-contain' : 'aspect-[4/5] object-cover object-top'} w-full transition-transform duration-300 hover:scale-[1.02]`} /><span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-black text-foreground shadow-sm">{item.view_type === 'front_back' ? 'Front + Back' : 'Single View'}</span>{item.presentation_type && item.presentation_type !== 'studio' && <span className="absolute right-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-black text-foreground shadow-sm">{label(item.presentation_type)}</span>}</Link>
           <div className="space-y-3 p-4">
             <div><p className="text-xs font-bold uppercase tracking-wider text-primary">{label(item.garment_type)} · {item.color_name}</p><Link to={`/DigitalMockups/${item.slug}`}><h3 className="mt-1 font-bold leading-snug hover:text-primary">{item.title}</h3></Link></div>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>{item.pixel_width} × {item.pixel_height}px</span><span>{String(item.file_extension).toUpperCase()}</span><span>{formatFileSize(item.file_size_bytes)}</span></div>
             <p className="text-xs text-muted-foreground">Digital image download. No physical garment included.</p>
-            <div className="flex items-center justify-between gap-3"><p className="text-xl font-black text-primary">${Number(item.price).toFixed(2)}</p><Button size="sm" onClick={() => add(item)}><ShoppingCart className="mr-2 h-4 w-4" />Add to cart</Button></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-xl font-black text-primary">${Number(item.price).toFixed(2)}</p>{Number(item.price) === 0.99 && <p className="text-[11px] font-bold text-primary">Eligible for 3 for $2</p>}</div><Button size="sm" onClick={() => add(item)}><ShoppingCart className="mr-2 h-4 w-4" />Add to cart</Button></div>
           </div>
         </article>)}
       </div>

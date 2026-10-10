@@ -10,13 +10,15 @@ import {
   getSmallOrderCartQuantity,
 } from '@/lib/productCustomization';
 import { createPageUrl } from '@/utils';
+import { calculateMockupPromotion } from '@/lib/mockupPromotion';
 
 const readableOption = (value) => String(value || '')
   .replace(/_/g, ' ')
   .replace(/\b\w/g, letter => letter.toUpperCase());
 
 export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, onRemoveItem }) {
-  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const promotion = calculateMockupPromotion(cart);
+  const total = promotion.total;
   const garmentQuantity = getSmallOrderCartQuantity(cart);
   const bulkQuoteRequired = garmentQuantity >= 50;
 
@@ -129,6 +131,9 @@ export default function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, on
                   </Link>
                 </div>
               )}
+              {promotion.eligibleCount > 0 && <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm"><p className="font-bold text-primary">{promotion.name}</p><p className="mt-1 text-muted-foreground">{promotion.progress}</p>{promotion.savings > 0 && <p className="mt-1 font-semibold">Savings applied: -${promotion.savings.toFixed(2)}</p>}</div>}
+              {promotion.savings > 0 && <div className="flex items-center justify-between text-sm"><span>Catalog subtotal</span><span>${promotion.catalogTotal.toFixed(2)}</span></div>}
+              {promotion.savings > 0 && <div className="flex items-center justify-between text-sm font-semibold text-primary"><span>{promotion.name}</span><span>-${promotion.savings.toFixed(2)}</span></div>}
               <div className="flex items-center justify-between text-lg font-bold">
                 <span>Total:</span>
                 <span>${total.toFixed(2)}</span>

@@ -26,6 +26,25 @@ const optionalPriceNumber = (value: unknown): number | null => {
 };
 const positivePrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null && value > 0) ?? null;
 const firstPrice = (...values: unknown[]) => values.map(optionalPriceNumber).find((value) => value != null) ?? null;
+const MOCKUP_DEAL_NAME = '3 for $2 Mockup Deal';
+
+function mockupPromotion(items: Item[], products: Map<string, Product>) {
+  const eligible = items.map((item, index) => ({ item, index, product: products.get(String(item.product_id || '')) }))
+    .filter(entry => entry.product?.product_type === 'digital' && Math.floor(safeNumber(entry.item.quantity)) === 1 && Math.round(safeNumber(entry.product?.sale_price || entry.product?.price) * 100) === 99)
+    .sort((a, b) => String(a.item.product_id).localeCompare(String(b.item.product_id)));
+  const groups = Math.floor(eligible.length / 3);
+  const allocations = new Map<string, Item>();
+  for (let group = 0; group < groups; group += 1) {
+    [32, 32, 33].forEach((discountCents, position) => allocations.set(String(eligible[group * 3 + position].item.product_id), {
+      catalog_price: 0.99,
+      discount_amount: discountCents / 100,
+      discounted_line_total: (99 - discountCents) / 100,
+      promotion_name: MOCKUP_DEAL_NAME,
+      promotion_group: group + 1,
+    }));
+  }
+  return { name: MOCKUP_DEAL_NAME, eligible_count: eligible.length, groups, discount_amount: groups * 0.97, allocations, allocation: 'deterministic_product_id_32_32_33_cents' };
+}
 
 const booleanValue = (value: unknown): boolean | null => {
   if (typeof value === 'boolean') return value;
@@ -63,6 +82,14 @@ const customerSafeQuote = (quote: Record<string, unknown>) => ({
   services: quote.services,
   needsSelection: quote.needsSelection,
   warnings: quote.warnings,
+  mockup_promotion: quote.mockupPromotion ? {
+    name: (quote.mockupPromotion as Item).name,
+    eligible_count: (quote.mockupPromotion as Item).eligible_count,
+    groups: (quote.mockupPromotion as Item).groups,
+    catalog_subtotal: (quote.mockupPromotion as Item).catalog_subtotal,
+    discount_amount: (quote.mockupPromotion as Item).discount_amount,
+    subtotal_after_discount: (quote.mockupPromotion as Item).subtotal_after_discount,
+  } : null,
   components: Array.isArray(quote.components)
     ? quote.components.map((component: Item) => ({
       customer_charge: component.customer_charge,
@@ -469,6 +496,9 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
     const source = product.fulfillment_source === 'hc_apparel' ? 'hc_apparel' : 'ss_activewear';
     legs[source].push({ ...item, quantity, product, price, cost });
   }
+  const promotion = mockupPromotion(items, byId);
+  const catalogMerchandise = money(merchandise);
+  merchandise -= promotion.discount_amount;
   merchandise = money(merchandise);
   vendorCost = money(vendorCost);
   printCost = money(printCost);
@@ -593,7 +623,16 @@ async function calculate(admin: ReturnType<typeof createClient>, payload: Record
   }, 0);
   const requiredMargin = money(safeNumber(settings.minimum_margin_per_item) * physicalQuantity);
   if (estimatedMargin < requiredMargin) throw new Error('This cart requires a pricing review before checkout. Please contact support@ilovehcapparel.net.');
-  return { merchandise, shipping, tax, taxDetail: taxResult.detail, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin };
+  const pricedItems = items.map(item => {
+    const product = byId.get(String(item.product_id || ''));
+    const price = money(safeNumber(product?.sale_price || product?.price));
+    const allocation = promotion.allocations.get(String(item.product_id || ''));
+    return product?.product_type === 'digital'
+      ? { ...item, price, catalog_price: price, discount_amount: allocation?.discount_amount || 0, discounted_line_total: allocation?.discounted_line_total ?? price, promotion_name: allocation?.promotion_name || null, promotion_group: allocation?.promotion_group || null }
+      : item;
+  });
+  const mockupPromotionDetail = { ...promotion, allocations: undefined, catalog_subtotal: catalogMerchandise, subtotal_after_discount: merchandise };
+  return { merchandise, shipping, tax, taxDetail: taxResult.detail, total, processing, processingMethod, vendorCost, printCost, beforeShipping, estimatedMargin, estimatedVendorShipping: money(estimatedVendorShipping), uspsQuotedShipping: money(uspsQuotedShipping), components, services, warnings, needsSelection, requiredMargin, mockupPromotion: mockupPromotionDetail, pricedItems };
 }
 
 Deno.serve(async (request) => {
@@ -912,8 +951,12 @@ Deno.serve(async (request) => {
     const { data: created, error: createError } = await userClient.rpc('create_or_reuse_small_order_checkout', { payload: rpcPayload });
     if (createError || !created?.order_id) return respond({ error: createError?.message || 'Order could not be created.' }, 400);
     const service = quote.components.find((component: Item) => component.source === 'hc_apparel');
+    const { data: createdOrder } = await admin.from('orders').select('order_items').eq('id', created.order_id).eq('owner_user_id', user.id).single();
+    const pricedByProduct = new Map((quote.pricedItems as Item[]).map(item => [String(item.product_id), item]));
+    const persistedItems = (Array.isArray(createdOrder?.order_items) ? createdOrder.order_items as Item[] : []).map(item => ({ ...item, ...(pricedByProduct.get(String(item.product_id)) || {}) }));
     const { error: updateError } = await admin.from('orders').update({
       product_subtotal: quote.merchandise,
+      order_items: persistedItems,
       shipping_amount: quote.shipping,
       shipping_charged_to_customer: quote.shipping,
       sales_tax_amount: quote.tax,
@@ -936,7 +979,7 @@ Deno.serve(async (request) => {
       net_margin_before_shipping: quote.beforeShipping,
       estimated_net_margin: quote.estimatedMargin,
       shipping_components: quote.components,
-      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax: quote.taxDetail, payment_method_costs: normalizePaymentMethods(settings.payment_method_costs), worst_case_processing: quote.processingMethod },
+      pricing_snapshot: { minimum_margin_required: quote.requiredMargin, tax: quote.taxDetail, payment_method_costs: normalizePaymentMethods(settings.payment_method_costs), worst_case_processing: quote.processingMethod, mockup_promotion: quote.mockupPromotion },
       shipping_carrier: service?.carrier || (quote.components.length === 1 ? 'S&S fallback' : 'Mixed'),
       shipping_service: service?.service || null,
       shipping_quote_at: new Date().toISOString(),

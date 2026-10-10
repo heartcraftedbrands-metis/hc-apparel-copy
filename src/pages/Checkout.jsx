@@ -375,6 +375,8 @@ export default function Checkout() {
                   </div>
                 ))}
                 <div className="space-y-2 border-t pt-4 text-sm">
+                  {Number(quote?.mockup_promotion?.discount_amount || 0) > 0 && <div className="flex justify-between"><span>Catalog merchandise</span><span>${Number(quote.mockup_promotion.catalog_subtotal).toFixed(2)}</span></div>}
+                  {Number(quote?.mockup_promotion?.discount_amount || 0) > 0 && <div className="flex justify-between font-semibold text-primary"><span>3 for $2 Mockup Deal</span><span>-${Number(quote.mockup_promotion.discount_amount).toFixed(2)}</span></div>}
                   <div className="flex justify-between"><span>Product subtotal</span><span>${Number(quote?.merchandise ?? merchandiseTotal).toFixed(2)}</span></div>
                   <div className="flex justify-between"><span>Shipping</span><span>{quote ? `$${Number(quote.shipping).toFixed(2)}` : 'Calculated before payment'}</span></div>
                   <div className="flex justify-between"><span>Sales tax</span><span>{quote ? `$${Number(quote.tax).toFixed(2)}` : 'Calculated before payment'}</span></div>

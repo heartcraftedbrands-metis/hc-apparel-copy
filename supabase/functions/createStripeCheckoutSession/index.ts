@@ -135,7 +135,6 @@ Deno.serve(async (request) => {
       const stripe = new Stripe(stripeCredentials.secretKey);
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
-        payment_method_types: ['card', 'cashapp', 'afterpay_clearpay', 'klarna'],
         line_items: [{
           price_data: {
             currency: 'usd',
@@ -197,7 +196,9 @@ Deno.serve(async (request) => {
     };
     stage = 'stripe_session';
     let session;
-    const merchandiseLines = items.map((item: Record<string, unknown>) => ({
+    const ordinaryItems = items.filter((item: Record<string, unknown>) => !item.promotion_group);
+    const promotionGroups = [...new Set(items.map((item: Record<string, unknown>) => Number(item.promotion_group || 0)).filter(Boolean))];
+    const merchandiseLines = ordinaryItems.map((item: Record<string, unknown>) => ({
       price_data: {
         currency: 'usd',
         product_data: {
@@ -205,9 +206,23 @@ Deno.serve(async (request) => {
           description: item.product_type === 'digital' ? 'Full-resolution PNG digital image download' : 'HC Apparel storefront order',
           metadata: { app_name: 'HC Apparel', internal_order_id: order.id },
         },
-        unit_amount: Math.round(Number(item.price) * 100),
+        unit_amount: Math.round(Number(item.discounted_line_total ?? item.price) * 100),
       },
       quantity: Number(item.quantity),
+    })).concat(promotionGroups.map(group => {
+      const groupItems = items.filter((item: Record<string, unknown>) => Number(item.promotion_group) === group);
+      return {
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: '3 for $2 Mockup Deal',
+            description: groupItems.map((item: Record<string, unknown>) => String(item.product_name || 'Digital mockup')).join(' · ').slice(0, 500),
+            metadata: { app_name: 'HC Apparel', internal_order_id: order.id },
+          },
+          unit_amount: groupItems.reduce((sum: number, item: Record<string, unknown>) => sum + Math.round(Number(item.discounted_line_total || 0) * 100), 0),
+        },
+        quantity: 1,
+      };
     }));
     const supplementalLines = [
       { name: 'Shipping', amount: Number(order.shipping_amount || 0) },
@@ -223,7 +238,6 @@ Deno.serve(async (request) => {
     }
     try { session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card', 'cashapp', 'afterpay_clearpay', 'klarna'],
       customer_email: order.customer_email,
       client_reference_id: order.id,
       line_items: [...merchandiseLines, ...supplementalLines],

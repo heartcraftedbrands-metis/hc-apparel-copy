@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { validateCheckoutCart } from '../src/lib/smallOrderCheckout.js';
+import { calculateMockupPromotion } from '../src/lib/mockupPromotion.js';
 
 const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const migration = read('supabase/migrations/202610090001_digital_mockups_storefront.sql');
@@ -10,6 +11,7 @@ const testIsolationMigration = read('supabase/migrations/202610090004_digital_mo
 const cleanPreviewMigration = read('supabase/migrations/202610090005_digital_mockup_clean_previews.sql');
 const viewPricingMigration = read('supabase/migrations/202610090006_digital_mockup_view_types_and_pricing.sql');
 const youthBatchMigration = read('supabase/migrations/202610090008_publish_youth_mockup_batch.sql');
+const presentationMigration = read('supabase/migrations/202610090009_digital_mockup_presentation_and_deal.sql');
 const edge = read('supabase/functions/digital-mockups/index.ts');
 const webhook = read('supabase/functions/stripeWebhook/index.ts');
 const checkoutPricing = read('supabase/functions/checkout-pricing/index.ts');
@@ -23,6 +25,15 @@ assert.equal(item.product_type, 'digital');
 assert.equal(item.quantity, 1);
 assert.deepEqual(validateCheckoutCart([item]), []);
 assert.ok(validateCheckoutCart([{ ...item, quantity: 2 }]).some(error => error.includes('once per order')));
+const eligible = count => Array.from({ length: count }, (_, index) => ({ ...item, id: `p-${index}`, product_id: `p-${index}` }));
+assert.equal(calculateMockupPromotion(eligible(1)).total, 0.99);
+assert.equal(calculateMockupPromotion(eligible(2)).total, 1.98);
+assert.equal(calculateMockupPromotion(eligible(3)).total, 2);
+assert.equal(calculateMockupPromotion(eligible(4)).total, 2.99);
+assert.equal(calculateMockupPromotion(eligible(5)).total, 3.98);
+assert.equal(calculateMockupPromotion(eligible(6)).total, 4);
+assert.equal(calculateMockupPromotion([...eligible(3), { ...item, id: 'fb', product_id: 'fb', price: 1.2 }]).total, 3.2);
+assert.equal(calculateMockupPromotion([{ ...item, price: 0.99, product_type: 'physical' }, ...eligible(2)]).discountCents, 0);
 
 assert.match(migration, /digital-mockup-originals'[\s\S]*?false,/);
 assert.match(migration, /original_sha256 text not null unique/);
@@ -68,6 +79,11 @@ assert.match(youthBatchMigration, /found_count <> 5/);
 assert.match(youthBatchMigration, /garment_type = 'youth'/);
 assert.match(youthBatchMigration, /view_type = 'front_back'/);
 assert.match(youthBatchMigration, /settings\.front_back_price/);
+assert.match(presentationMigration, /presentation_type in \('studio', 'flat_lay', 'lifestyle'\)/);
+assert.match(edge, /const MOCKUP_DEAL_NAME = '3 for \$2 Mockup Deal'/);
+assert.match(edge, /\[32, 32, 33\]/);
+assert.match(edge, /stripeMockupLines\(pricing/);
+assert.match(checkoutPricing, /mockupPromotion\(items, byId\)/);
 assert.match(edge, /action === 'admin_replace_derivatives'/);
 assert.match(edge, /action === 'admin_original_source'/);
 assert.match(storefront, /hero\?\.hero_image_url/);

@@ -33,6 +33,34 @@ const fail = (message: string, status = 400, code = 'invalid_request'): never =>
 const text = (value: unknown, max = 1000) => String(value ?? '').trim().slice(0, max);
 const money = (value: unknown) => Math.round(Number(value || 0) * 100) / 100;
 const viewType = (value: unknown) => value === 'front_back' ? 'front_back' : 'single_view';
+const presentationType = (value: unknown) => ['flat_lay', 'lifestyle'].includes(String(value)) ? String(value) : 'studio';
+const MOCKUP_DEAL_NAME = '3 for $2 Mockup Deal';
+function priceMockupDeal(rawItems: Row[]) {
+  const items = rawItems.map(item => ({ ...item, catalog_price: money(item.price), discount_amount: 0, discounted_line_total: money(item.price), promotion_name: null, promotion_group: null }));
+  const eligible = items.map((item, index) => ({ item, index })).filter(({ item }) => item.product_type === 'digital' && Math.round(money(item.price) * 100) === 99).sort((a, b) => String(a.item.product_id).localeCompare(String(b.item.product_id)));
+  const groups = Math.floor(eligible.length / 3);
+  for (let group = 0; group < groups; group += 1) {
+    [32, 32, 33].forEach((discount, position) => {
+      const target = eligible[group * 3 + position].item;
+      target.discount_amount = discount / 100;
+      target.discounted_line_total = (99 - discount) / 100;
+      target.promotion_name = MOCKUP_DEAL_NAME;
+      target.promotion_group = group + 1;
+    });
+  }
+  const catalogSubtotalCents = items.reduce((sum, item) => sum + Math.round(money(item.catalog_price) * 100), 0);
+  const discountCents = groups * 97;
+  return { items, eligibleCount: eligible.length, groups, catalogSubtotal: catalogSubtotalCents / 100, discount: discountCents / 100, subtotal: (catalogSubtotalCents - discountCents) / 100 };
+}
+function stripeMockupLines(pricing: ReturnType<typeof priceMockupDeal>, qa = false): Stripe.Checkout.SessionCreateParams.LineItem[] {
+  const lines: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+  for (let group = 1; group <= pricing.groups; group += 1) {
+    const groupItems = pricing.items.filter(item => item.promotion_group === group);
+    lines.push({ price_data: { currency: 'usd', product_data: { name: `${MOCKUP_DEAL_NAME}${qa ? ' — QA test' : ''}`, description: groupItems.map(item => item.product_name).join(' · ').slice(0, 500) }, unit_amount: 200 }, quantity: 1 });
+  }
+  pricing.items.filter(item => !item.promotion_group).forEach(item => lines.push({ price_data: { currency: 'usd', product_data: { name: `${item.product_name}${qa ? ' — QA test' : ''}`, description: qa ? 'Stripe test-mode Digital Mockups checkout' : 'Full-resolution PNG digital image download' }, unit_amount: Math.round(money(item.price) * 100) }, quantity: 1 }));
+  return lines;
+}
 const validPrice = (value: unknown, field = 'price') => {
   const parsed = money(value);
   if (!Number.isFinite(parsed) || parsed < 0.01 || parsed > 10000) fail(`Enter a valid ${field}.`, 400, 'invalid_price');
@@ -137,22 +165,26 @@ async function loadCatalog(service: ReturnType<typeof createClient>, input: Row)
   const garmentType = text(input.garment_type, 80);
   const colorName = text(input.color_name, 80);
   const selectedViewType = text(input.view_type, 30);
+  const selectedPresentationType = text(input.presentation_type, 30);
   if (garmentType) query = query.eq('garment_type', garmentType);
   if (colorName) query = query.eq('color_name', colorName);
   if (selectedViewType && ['single_view', 'front_back'].includes(selectedViewType)) query = query.eq('view_type', selectedViewType);
+  if (selectedPresentationType && ['studio', 'flat_lay', 'lifestyle'].includes(selectedPresentationType)) query = query.eq('presentation_type', selectedPresentationType);
+  if (input.deal_eligible === true) query = query.eq('price', 0.99);
   const sort = text(input.sort, 30);
   if (sort === 'price_low') query = query.order('price', { ascending: true }).order('created_at', { ascending: false });
   else if (sort === 'price_high') query = query.order('price', { ascending: false }).order('created_at', { ascending: false });
   else query = query.order('published_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
   const [{ data, count, error }, { data: options }, { data: settings }] = await Promise.all([
     query.range(start, start + perPage - 1),
-    service.from('storefront_digital_mockups').select('garment_type,color_name,view_type').limit(1000),
+    service.from('storefront_digital_mockups').select('garment_type,color_name,view_type,presentation_type').limit(1000),
     service.from('digital_mockup_settings').select('heading,description,button_label,supporting_text,right_headline,quality_label,launch_detail,featured_asset_id,hero_image_url,hero_image_width,hero_image_height,default_price,single_view_price,front_back_price,raster_format,license_terms,license_status').eq('id', true).maybeSingle(),
   ]);
   if (error) fail('The Digital Mockups catalog is temporarily unavailable.', 503, 'catalog_unavailable');
   const garments = [...new Set((options || []).map(row => row.garment_type).filter(Boolean))].sort();
   const colors = [...new Set((options || []).map(row => row.color_name).filter(Boolean))].sort();
   const viewTypes = [...new Set((options || []).map(row => row.view_type).filter(Boolean))].sort();
+  const presentationTypes = [...new Set((options || []).map(row => row.presentation_type).filter(Boolean))].sort();
   let featured = (data || []).find(row => row.is_featured) || (data || [])[0] || null;
   if (settings?.featured_asset_id) {
     const featuredResult = await service.from('storefront_digital_mockups').select('*').eq('id', settings.featured_asset_id).maybeSingle();
@@ -164,7 +196,7 @@ async function loadCatalog(service: ReturnType<typeof createClient>, input: Row)
     per_page: perPage,
     total: count || 0,
     has_more: start + perPage < (count || 0),
-    filters: { garment_types: garments, colors, view_types: viewTypes },
+    filters: { garment_types: garments, colors, view_types: viewTypes, presentation_types: presentationTypes },
     hero: { ...(settings || {}), featured },
   };
 }
@@ -184,8 +216,10 @@ async function sendConfirmationEmail(service: ReturnType<typeof createClient>, o
     return 'not_configured';
   }
   const accessUrl = `https://www.ilovehcapparel.net/MyDownloads?orderId=${encodeURIComponent(order.id)}&access=${encodeURIComponent(accessToken)}`;
-  const itemLines = (Array.isArray(order.order_items) ? order.order_items : []).filter((item: Row) => item.product_type === 'digital').map((item: Row) => `<li>${htmlEscape(item.product_name)} — $${money(item.price).toFixed(2)}</li>`).join('');
-  const html = `<div style="font-family:Arial,sans-serif;color:#202126;line-height:1.55"><h1 style="color:#4a5e2a">Your HC Apparel mockups are ready</h1><p>Thank you for your purchase. Payment for order <strong>${htmlEscape(text(order.id, 80).slice(-8).toUpperCase())}</strong> has been confirmed.</p><ul>${itemLines}</ul><p><strong>Total paid:</strong> $${money(order.total_amount).toFixed(2)} USD</p><p><a href="${accessUrl}" style="display:inline-block;background:#4a5e2a;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Access My Downloads</a></p><p>This secure page creates short-lived download links for the original, watermark-free files. Keep this email for future access.</p><p>Questions? Email support@ilovehcapparel.net.</p></div>`;
+  const itemLines = (Array.isArray(order.order_items) ? order.order_items : []).filter((item: Row) => item.product_type === 'digital').map((item: Row) => `<li>${htmlEscape(item.product_name)} — $${money(item.catalog_price ?? item.price).toFixed(2)}</li>`).join('');
+  const discount = money(order.pricing_snapshot?.mockup_promotion?.discount_amount || 0);
+  const promotionLine = discount > 0 ? `<p><strong>${MOCKUP_DEAL_NAME}:</strong> -$${discount.toFixed(2)}</p>` : '';
+  const html = `<div style="font-family:Arial,sans-serif;color:#202126;line-height:1.55"><h1 style="color:#4a5e2a">Your HC Apparel mockups are ready</h1><p>Thank you for your purchase. Payment for order <strong>${htmlEscape(text(order.id, 80).slice(-8).toUpperCase())}</strong> has been confirmed.</p><ul>${itemLines}</ul>${promotionLine}<p><strong>Total paid:</strong> $${money(order.total_amount).toFixed(2)} USD</p><p><a href="${accessUrl}" style="display:inline-block;background:#4a5e2a;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Access My Downloads</a></p><p>This secure page creates short-lived download links for the original, watermark-free files. Keep this email for future access.</p><p>Questions? Email support@ilovehcapparel.net.</p></div>`;
   try {
     const brevo = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
@@ -264,7 +298,7 @@ async function finalizePayment(service: ReturnType<typeof createClient>, stripe:
       testArchive = archived;
     }
   }
-  return { paid: true, order_id: order.id, email_status: emailStatus, access_token: token, test_archive: testArchive };
+  return { paid: true, order_id: order.id, email_status: emailStatus, access_token: token, total: money(order.total_amount), mockup_promotion: order.pricing_snapshot?.mockup_promotion || null, test_archive: testArchive };
 }
 
 Deno.serve(async request => {
@@ -321,6 +355,7 @@ Deno.serve(async request => {
       }
       const metadata = JSON.parse(text(input.metadata, 8000) || '{}');
       const selectedViewType = viewType(metadata.view_type);
+      const selectedPresentationType = presentationType(metadata.presentation_type);
       const { data: priceSettings } = await service.from('digital_mockup_settings').select('single_view_price,front_back_price').eq('id', true).single();
       const assetId = crypto.randomUUID();
       const productId = crypto.randomUUID();
@@ -360,7 +395,7 @@ Deno.serve(async request => {
       const { error: assetError } = await service.from('digital_mockup_assets').insert({
         id: assetId, product_id: productId, slug, sku,
         garment_type: text(metadata.garment_type, 80) || 't_shirt', color_name: text(metadata.color_name, 80) || 'Unspecified',
-        tags, view_type: selectedViewType, price_override: priceOverride, publication_status: 'draft', created_by: admin.id,
+        tags, view_type: selectedViewType, presentation_type: selectedPresentationType, price_override: priceOverride, publication_status: 'draft', created_by: admin.id,
       });
       const { error: versionError } = assetError ? { error: assetError } : await service.from('digital_mockup_versions').insert({
         id: versionId, asset_id: assetId, version_number: 1, original_storage_path: originalPath,
@@ -374,7 +409,7 @@ Deno.serve(async request => {
         fail('The mockup metadata could not be saved. Retry is safe.', 500, 'metadata_save_failed');
       }
       await service.from('digital_mockup_assets').update({ current_version_id: versionId }).eq('id', assetId);
-      return response({ created: true, duplicate: false, asset_id: assetId, product_id: productId, version_id: versionId, slug, sku, view_type: selectedViewType, price, dimensions, file_size_bytes: original.size, preview_url: previewUrl }, 201, origin);
+      return response({ created: true, duplicate: false, asset_id: assetId, product_id: productId, version_id: versionId, slug, sku, view_type: selectedViewType, presentation_type: selectedPresentationType, price, dimensions, file_size_bytes: original.size, preview_url: previewUrl }, 201, origin);
     }
 
     if (action === 'admin_list') {
@@ -471,6 +506,7 @@ Deno.serve(async request => {
       const title = text(input.title, 180) || product.name;
       const description = text(input.description, 2000) || product.description;
       const selectedViewType = viewType(input.view_type ?? asset.view_type);
+      const selectedPresentationType = presentationType(input.presentation_type ?? asset.presentation_type);
       const priceOverride = input.price_override === null || input.price_override === undefined || String(input.price_override).trim() === '' ? null : validPrice(input.price_override, 'price override');
       const { data: priceSettings } = await service.from('digital_mockup_settings').select('single_view_price,front_back_price').eq('id', true).single();
       const price = configuredPrice(priceSettings, selectedViewType, priceOverride);
@@ -482,7 +518,7 @@ Deno.serve(async request => {
           p_price: price, p_visibility: visibility,
           p_is_active: status === 'published', p_tags: tags,
         }),
-        service.from('digital_mockup_assets').update({ garment_type: text(input.garment_type, 80) || asset.garment_type, color_name: text(input.color_name, 80) || asset.color_name, tags, view_type: selectedViewType, price_override: priceOverride, publication_status: status, published_at: status === 'published' ? (asset.published_at || new Date().toISOString()) : asset.published_at }).eq('id', asset.id),
+        service.from('digital_mockup_assets').update({ garment_type: text(input.garment_type, 80) || asset.garment_type, color_name: text(input.color_name, 80) || asset.color_name, tags, view_type: selectedViewType, presentation_type: selectedPresentationType, price_override: priceOverride, publication_status: status, published_at: status === 'published' ? (asset.published_at || new Date().toISOString()) : asset.published_at }).eq('id', asset.id),
       ]);
       if (productError || assetError) fail('The mockup changes could not be saved.', 500, 'update_failed');
       if (input.is_featured === true) {
@@ -541,45 +577,42 @@ Deno.serve(async request => {
       const testStripe = getStripeCredentials('test');
       if (!testStripe.configured || !testStripe.secretKey) fail('Stripe test checkout requires its server key and signed webhook secret.', 503, 'stripe_test_unavailable');
       if (!validEmail(safeEmail(admin.email))) fail('Your admin account needs a valid email address for the confirmation-email test.', 409, 'admin_email_required');
-      const requestedProductId = text(input.product_id, 80);
-      let assetQuery = service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,is_featured,view_type').eq('publication_status', 'published');
-      if (requestedProductId) assetQuery = assetQuery.eq('product_id', requestedProductId);
-      const { data: assets, error: assetError } = await assetQuery.order('is_featured', { ascending: false }).order('published_at', { ascending: true }).limit(1);
-      const asset = assets?.[0];
-      if (assetError || !asset?.current_version_id) fail('Publish at least one Digital Mockup before running checkout verification.', 409, 'test_product_missing');
-      const { data: product } = await service.from('products').select('id,name,price,sale_price,visibility,is_active,product_type').eq('id', asset.product_id).maybeSingle();
-      if (!product || product.product_type !== 'digital' || product.visibility !== 'public' || !product.is_active) fail('The selected test mockup is not available.', 409, 'test_product_unavailable');
-      const price = money(product.sale_price ?? product.price);
+      const requestedIds = Array.isArray(input.product_ids) ? [...new Set(input.product_ids.map((id: unknown) => text(id, 80)).filter(Boolean))] : [];
+      if (requestedIds.length !== 3) fail('Choose exactly three published $0.99 mockups for the deal test.', 400, 'test_products_required');
+      const [{ data: assets, error: assetError }, { data: products, error: productError }] = await Promise.all([
+        service.from('digital_mockup_assets').select('id,product_id,current_version_id,publication_status,view_type').in('product_id', requestedIds).eq('publication_status', 'published'),
+        service.from('products').select('id,name,price,sale_price,visibility,is_active,product_type').in('id', requestedIds),
+      ]);
+      if (assetError || productError || assets?.length !== 3 || products?.length !== 3) fail('All three test mockups must be published and available.', 409, 'test_product_missing');
+      const assetMap = new Map((assets || []).map(asset => [asset.product_id, asset]));
+      const rawItems = requestedIds.map(id => {
+        const product = (products || []).find(row => row.id === id);
+        const asset = assetMap.get(id);
+        const price = money(product?.sale_price ?? product?.price);
+        if (!product || !asset?.current_version_id || product.product_type !== 'digital' || product.visibility !== 'public' || !product.is_active || Math.round(price * 100) !== 99) fail('Each deal-test mockup must be an available $0.99 digital product.', 409, 'test_product_unavailable');
+        return { product_id: product.id, product_name: product.name, quantity: 1, price, product_type: 'digital', digital_mockup_asset_id: asset.id, digital_mockup_version_id: asset.current_version_id, view_type: viewType(asset.view_type), delivery: 'secure_download' };
+      });
+      const pricing = priceMockupDeal(rawItems);
+      if (pricing.groups !== 1 || money(pricing.subtotal) !== 2) fail('The sandbox deal calculation did not produce $2.00.', 500, 'test_deal_failed');
       const orderId = crypto.randomUUID();
       const customerEmail = safeEmail(admin.email);
       const customerName = 'HC Apparel QA';
       const attemptKey = `admin-qa-${crypto.randomUUID()}`;
       const token = await guestAccessToken(accessSecret, orderId, customerEmail);
-      const item = {
-        product_id: product.id,
-        product_name: product.name,
-        quantity: 1,
-        price,
-        product_type: 'digital',
-        digital_mockup_asset_id: asset.id,
-        digital_mockup_version_id: asset.current_version_id,
-        view_type: viewType(asset.view_type),
-        delivery: 'secure_download',
-      };
       const { error: orderError } = await service.rpc('digital_mockup_create_order', { p_order: {
         id: orderId,
         owner_user_id: admin.id,
         customer_email: customerEmail,
         customer_name: customerName,
-        order_items: [item],
-        total_amount: price,
-        product_subtotal: price,
+        order_items: pricing.items,
+        total_amount: pricing.subtotal,
+        product_subtotal: pricing.subtotal,
         sales_tax_amount: 0,
         sales_tax_rate_percent: 0,
         billing_address: { city: 'QA fixture', state: 'NY', zip: '10001', country: 'USA' },
         stripe_mode: 'test',
         is_sample: true,
-        pricing_snapshot: { digital_product: true, shipping: 0, tax: { method: 'isolated admin QA fixture' }, server_validated_prices: true, is_sample: true },
+        pricing_snapshot: { digital_product: true, shipping: 0, tax: { method: 'isolated admin QA fixture' }, server_validated_prices: true, is_sample: true, mockup_promotion: { name: MOCKUP_DEAL_NAME, eligible_count: pricing.eligibleCount, groups: pricing.groups, catalog_subtotal: pricing.catalogSubtotal, discount_amount: pricing.discount, subtotal_after_discount: pricing.subtotal, allocation: 'deterministic_product_id_32_32_33_cents' } },
       } });
       if (orderError) fail('The isolated test order could not be prepared.', 500, 'test_order_create_failed');
       const { error: accessError } = await service.from('digital_mockup_order_access').insert({ order_id: orderId, customer_email: customerEmail, checkout_attempt_key: attemptKey, stripe_mode: 'test' });
@@ -596,7 +629,7 @@ Deno.serve(async request => {
           customer_email: customerEmail,
           billing_address_collection: 'required',
           client_reference_id: orderId,
-          line_items: [{ price_data: { currency: 'usd', product_data: { name: `${product.name} — QA test`, description: 'Stripe test-mode Digital Mockups checkout' }, unit_amount: Math.round(price * 100) }, quantity: 1 }],
+          line_items: stripeMockupLines(pricing, true),
           success_url: `${allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net'}/DigitalOrderConfirmation?orderId=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}&access=${encodeURIComponent(token)}`,
           cancel_url: `${allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net'}/AdminDigitalMockups`,
           metadata,
@@ -608,7 +641,7 @@ Deno.serve(async request => {
       }
       if (!session.url || session.livemode) fail('Stripe did not return a test-mode checkout session.', 502, 'invalid_test_session');
       await service.rpc('digital_mockup_set_checkout_session', { p_order_id: orderId, p_session_id: session.id, p_payment_method: 'Stripe-hosted checkout (test)' });
-      return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, amount: price, stripe_mode: 'test', is_sample: true }, 201, origin);
+      return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, amount: pricing.subtotal, catalog_subtotal: pricing.catalogSubtotal, discount: pricing.discount, stripe_mode: 'test', is_sample: true }, 201, origin);
     }
 
     if (action === 'create_checkout') {
@@ -655,7 +688,8 @@ Deno.serve(async request => {
         if (price !== expectedPrice) fail('A mockup price changed while you were shopping. Refresh the catalog and try again.', 409, 'price_mismatch');
         return { product_id: product.id, product_name: product.name, quantity: 1, price, product_type: 'digital', digital_mockup_asset_id: asset.id, digital_mockup_version_id: asset.current_version_id, view_type: viewType(asset.view_type), delivery: 'secure_download' };
       });
-      const subtotal = money(items.reduce((sum, item) => sum + item.price, 0));
+      const pricing = priceMockupDeal(items);
+      const subtotal = money(pricing.subtotal);
       let tax = 0;
       let taxDetail: Row = { state, method: state === 'GA' ? 'Georgia destination rate' : 'No Georgia destination tax outside Georgia' };
       if (state === 'GA') {
@@ -674,13 +708,13 @@ Deno.serve(async request => {
       const token = await guestAccessToken(accessSecret, orderId, email);
       const { error: orderError } = await service.rpc('digital_mockup_create_order', { p_order: {
         id: orderId, owner_user_id: user?.id || null, customer_email: email, customer_name: name,
-        order_items: items, total_amount: total, product_subtotal: subtotal,
+        order_items: pricing.items, total_amount: total, product_subtotal: subtotal,
         sales_tax_amount: tax, sales_tax_rate_percent: Number(taxDetail.rate_percent || 0),
         sales_tax_jurisdiction_code: taxDetail.jurisdiction_code || null,
         sales_tax_jurisdiction_name: taxDetail.jurisdiction_name || null,
         sales_tax_rate_source: taxDetail.rate_source || null,
         billing_address: { city, state, zip, country: 'USA' }, stripe_mode: stripeMode,
-        pricing_snapshot: { digital_product: true, shipping: 0, tax: taxDetail, server_validated_prices: true },
+        pricing_snapshot: { digital_product: true, shipping: 0, tax: taxDetail, server_validated_prices: true, mockup_promotion: { name: MOCKUP_DEAL_NAME, eligible_count: pricing.eligibleCount, groups: pricing.groups, catalog_subtotal: pricing.catalogSubtotal, discount_amount: pricing.discount, subtotal_after_discount: pricing.subtotal, allocation: 'deterministic_product_id_32_32_33_cents' } },
       } });
       if (orderError) fail('The secure order could not be prepared.', 500, 'order_create_failed');
       const { error: accessError } = await service.from('digital_mockup_order_access').insert({ order_id: orderId, customer_email: email, checkout_attempt_key: attemptKey, stripe_mode: stripeMode });
@@ -690,7 +724,7 @@ Deno.serve(async request => {
       }
       const stripe = new Stripe(credentials.secretKey);
       const metadata = { app_name: 'HC Apparel', source: 'hc_apparel_digital_mockups', internal_order_id: orderId, owner_user_id: user?.id || '', stripe_mode: stripeMode };
-      const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = items.map(item => ({ price_data: { currency: 'usd', product_data: { name: item.product_name, description: 'Full-resolution PNG digital image download' }, unit_amount: Math.round(item.price * 100) }, quantity: 1 }));
+      const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = stripeMockupLines(pricing);
       if (tax > 0) lineItems.push({ price_data: { currency: 'usd', product_data: { name: 'Sales tax' }, unit_amount: Math.round(tax * 100) }, quantity: 1 });
       let session: Stripe.Checkout.Session;
       try {
@@ -707,7 +741,7 @@ Deno.serve(async request => {
       }
       if (!session.url || session.livemode !== (stripeMode === 'live')) fail('Payment checkout returned an invalid session.', 502, 'invalid_stripe_session');
       await service.rpc('digital_mockup_set_checkout_session', { p_order_id: orderId, p_session_id: session.id, p_payment_method: 'Stripe-hosted checkout' });
-      return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, subtotal, tax, total, shipping: 0, reused: false }, 201, origin);
+      return response({ order_id: orderId, checkout_url: session.url, session_id: session.id, access_token: token, catalog_subtotal: pricing.catalogSubtotal, discount: pricing.discount, subtotal, tax, total, shipping: 0, reused: false }, 201, origin);
     }
 
     if (action === 'verify_payment') {
