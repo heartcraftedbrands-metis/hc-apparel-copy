@@ -27,6 +27,7 @@ const approvedBrands = [
   'Columbia',
   'Berne',
   'Independent Trading Co',
+  'Under Armour',
 ];
 
 const coldWeatherBrands = new Set([
@@ -571,6 +572,8 @@ Deno.serve(async (request) => {
   let payload: {
     action?: string;
     brand?: string;
+    style_numbers?: string[];
+    style_session_id?: string;
     draft_id?: string;
     order_id?: string;
     ss_live_submission_enabled?: boolean;
@@ -628,6 +631,7 @@ Deno.serve(async (request) => {
     'preview_catalog',
     'stage_styles',
     'stage_brand_styles',
+    'stage_exact_styles',
     'stage_cold_weather_styles',
     'sync_brand_products',
     'get_brand_draft_report',
@@ -2500,7 +2504,7 @@ Deno.serve(async (request) => {
       .select('import_session_id')
       .eq('row_status', 'pending')
       .eq('brand', brand)
-      .like('import_session_id', payload.style_session_id && /^ss-brand-(driduck|comfortcolors|champion|americanapparel|nextlevel|adidas)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
+        .like('import_session_id', payload.style_session_id && /^ss-(?:brand|exact)-(driduck|comfortcolors|champion|americanapparel|nextlevel|adidas|berne|shakawear|underarmour)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
       .order('created_date', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -2830,17 +2834,49 @@ Deno.serve(async (request) => {
       payload.action === 'preview_catalog'
       || payload.action === 'stage_styles'
       || payload.action === 'stage_brand_styles'
+      || payload.action === 'stage_exact_styles'
       || payload.action === 'stage_cold_weather_styles'
     ) {
       const { counts, samples, styles } = collectApprovedStyles(result);
 
       if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles' || payload.action === 'stage_brand_styles') {
         const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
-        const selectedBrand = payload.action === 'stage_brand_styles' ? canonicalApprovedBrand(payload.brand) : null;
+        const exactStylesOnly = payload.action === 'stage_exact_styles';
+        const selectedBrand = payload.action === 'stage_brand_styles' || exactStylesOnly
+          ? canonicalApprovedBrand(payload.brand)
+          : null;
+        if (exactStylesOnly && !selectedBrand) {
+          return json(request, { error: 'Select an approved S&S brand for the exact-style lookup' }, 400);
+        }
         if (payload.action === 'stage_brand_styles' && !['Comfort Colors', 'DRI DUCK', 'Champion', 'American Apparel', 'Next Level', 'adidas', 'Berne'].includes(selectedBrand || '')) {
           return json(request, { error: 'Only approved private-import brands can be staged with this action' }, 400);
         }
         const brandStyles = selectedBrand ? styles.filter(style => style.canonicalBrand === selectedBrand) : [];
+        const requestedStyleNumbers = exactStylesOnly
+          ? [...new Set((Array.isArray(payload.style_numbers) ? payload.style_numbers : [])
+            .map((value) => String(value || '').trim().toUpperCase())
+            .filter(Boolean))]
+          : [];
+        if (exactStylesOnly && (requestedStyleNumbers.length === 0 || requestedStyleNumbers.length > 20)) {
+          return json(request, { error: 'Enter between 1 and 20 exact manufacturer style numbers' }, 400);
+        }
+        const exactStyles = exactStylesOnly
+          ? brandStyles.filter((style) => requestedStyleNumbers.includes(
+            String(style.partNumber || style.styleName || '').trim().toUpperCase(),
+          ) || requestedStyleNumbers.includes(String(style.styleName || '').trim().toUpperCase()))
+          : [];
+        if (exactStylesOnly) {
+          const foundStyleNumbers = new Set(exactStyles.flatMap((style) => [style.partNumber, style.styleName]
+            .map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
+          const missingStyleNumbers = requestedStyleNumbers.filter((value) => !foundStyleNumbers.has(value));
+          if (missingStyleNumbers.length > 0) {
+            return json(request, {
+              error: `S&S did not return exact ${selectedBrand} matches for: ${missingStyleNumbers.join(', ')}`,
+              missing_style_numbers: missingStyleNumbers,
+              requested_style_numbers: requestedStyleNumbers,
+            }, 409);
+          }
+        }
         // These are the five existing private draft style names. S&S partNumber
         // is a different internal identifier for DRI DUCK and must not be used
         // as the draft style-number match.
@@ -2952,7 +2988,9 @@ Deno.serve(async (request) => {
             .sort((a, b) => berneMerchScore(b) - berneMerchScore(a))
             .slice(0, 60);
         }
-        const selectedStyles = selectedBrand === 'DRI DUCK'
+        const selectedStyles = exactStylesOnly
+          ? exactStyles
+          : selectedBrand === 'DRI DUCK'
           ? focusedDriDuck
           : selectedBrand === 'Comfort Colors'
             ? brandStyles.filter(style => ['00108', '00208', '00808', '00908', '10008', '70108'].includes(String(style.partNumber)))
@@ -2971,7 +3009,9 @@ Deno.serve(async (request) => {
           return json(request, { error: selectedBrand ? `No S&S styles were available for ${selectedBrand}` : 'No eligible S&S styles were available' }, 409);
         }
 
-        const sessionPrefix = selectedBrand ? `ss-brand-${normalizeBrand(selectedBrand)}` : coldWeatherOnly ? 'ss-cold-weather' : 'ss-api';
+        const sessionPrefix = exactStylesOnly
+          ? `ss-exact-${normalizeBrand(selectedBrand)}`
+          : selectedBrand ? `ss-brand-${normalizeBrand(selectedBrand)}` : coldWeatherOnly ? 'ss-cold-weather' : 'ss-api';
         const sessionId = `${sessionPrefix}-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
         const rows = selectedStyles.map((style, index) => ({
           import_session_id: sessionId,

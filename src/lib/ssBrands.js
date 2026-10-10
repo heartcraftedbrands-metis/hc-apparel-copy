@@ -18,6 +18,7 @@ export const SS_ACTIVEWEAR_BRANDS = [
   'Berne',
   'Independent Trading Co',
   'Port & Company',
+  'Under Armour',
 ];
 
 export function brandFilterValue(brand) {

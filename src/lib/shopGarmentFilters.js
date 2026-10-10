@@ -8,6 +8,7 @@ export const CATEGORY_FILTERS = [
   { value: 'quarter_zips', label: 'Quarter-Zips' },
   { value: 'hoodies', label: 'Hoodies' },
   { value: 'crewnecks', label: 'Sweatshirts / Crewnecks' },
+  { value: 'vests', label: 'Vests / Outerwear' },
   { value: 'outerwear', label: 'Jackets / Outerwear' },
   { value: 'pants', label: 'Pants / Joggers / Leggings' },
   { value: 'shorts', label: 'Shorts' },
@@ -33,6 +34,7 @@ export const STOREFRONT_CATEGORY_LABELS = {
   hoodies: 'Hoodie',
   crewnecks: 'Sweatshirt / Crewneck',
   quarter_zips: 'Quarter-Zip',
+  vests: 'Vest / Outerwear',
   outerwear: 'Jacket / Outerwear',
   pants: 'Pants / Joggers / Leggings',
   shorts: 'Shorts',
@@ -55,6 +57,7 @@ export const PRIMARY_GARMENT_SECTION_LABELS = {
   quarter_zips: 'Quarter-Zips',
   hoodies: 'Hoodies',
   crewnecks: 'Sweatshirts / Crewnecks',
+  vests: 'Vests / Outerwear',
   outerwear: 'Jackets / Outerwear',
   pants: 'Pants / Joggers / Leggings',
   shorts: 'Shorts',
@@ -66,7 +69,7 @@ export const PRIMARY_GARMENT_SECTION_LABELS = {
 
 export const PRIMARY_GARMENT_CATEGORY_ORDER = [
   't_shirts', 'long_sleeve', 'polos', 'quarter_zips', 'hoodies', 'crewnecks',
-  'outerwear', 'pants', 'shorts', 'hats', 'tank_tops', 'bags', 'other',
+  'vests', 'outerwear', 'pants', 'shorts', 'hats', 'tank_tops', 'bags', 'other',
 ];
 
 export const PRIMARY_GARMENT_TYPE_OPTIONS = PRIMARY_GARMENT_CATEGORY_ORDER.map(value => ({
@@ -109,6 +112,7 @@ const VENDOR_CATEGORY_GROUPS = {
     'womens_jackets',
     'youth_jackets',
   ],
+  vests: ['vests', 'mens_vests', 'womens_vests', 'youth_vests'],
   tank_tops: ['tank_tops', 'mens_tank_tops', 'womens_tank_tops', 'youth_tank_tops'],
   sportswear: ['sportswear', 'mens_sportswear', 'womens_sportswear', 'youth_sportswear', 'performance_shirts'],
   polos: ['polo_shirts', 'mens_polo_shirts', 'womens_polo_shirts', 'youth_polo_shirts'],
@@ -347,6 +351,8 @@ function normalizePrimaryGarmentType(value) {
     quarter_zip: 'quarter_zips',
     jacket: 'outerwear',
     jackets_outerwear: 'outerwear',
+    vest: 'vests',
+    vests_outerwear: 'vests',
     pants_bottoms: 'pants',
     pants_joggers_leggings: 'pants',
     headwear: 'hats',
@@ -438,7 +444,10 @@ export function getStorefrontCategory(product) {
   if (hasAnyTerm(text, ['hoodie', 'hooded', 'pullover hood', 'hooded sweatshirt', 'fleece hood'])) return 'hoodies';
   if (hasAnyTerm(text, ['quarter zip', 'quarter-zip', '1/4 zip', '1/4-zip'])) return 'quarter_zips';
   if (
-    hasAnyTerm(text, ['jacket', 'outerwear', 'coat', 'soft shell', 'softshell', 'shell jacket', 'vest'])
+    hasAnyTerm(text, ['vest'])
+  ) return 'vests';
+  if (
+    hasAnyTerm(text, ['jacket', 'outerwear', 'coat', 'soft shell', 'softshell', 'shell jacket'])
   ) return 'outerwear';
   if (hasAnyTerm(text, ['jogger', 'sweatpant', 'sweat pant', 'track pant', 'athletic pant', 'legging', 'pants'])) return 'pants';
   if (hasAnyTerm(text, ['gym shorts', 'athletic shorts', 'performance shorts', 'shorts'])) return 'shorts';
@@ -458,6 +467,7 @@ export function getStorefrontCategory(product) {
   // Vendor categories are fallback signals only after stronger title/style rules.
   if (hasAnyVendorCategory(categories, 'hoodies')) return 'hoodies';
   if (hasAnyVendorCategory(categories, 'fleece')) return 'crewnecks';
+  if (hasAnyVendorCategory(categories, 'vests')) return 'vests';
   if (hasAnyVendorCategory(categories, 'outerwear')) return 'outerwear';
   if (hasAnyVendorCategory(categories, 'crewnecks')) return 'crewnecks';
   if (hasAnyVendorCategory(categories, 'tank_tops')) return 'tank_tops';

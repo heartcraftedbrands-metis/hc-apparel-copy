@@ -32,6 +32,11 @@ export default function AdminSSApiSettings() {
   const [staging, setStaging] = useState(false);
   const [stagedResult, setStagedResult] = useState(null);
   const [stagingError, setStagingError] = useState('');
+  const [exactBrand, setExactBrand] = useState('Shaka Wear');
+  const [exactStyleNumbers, setExactStyleNumbers] = useState('');
+  const [exactStaging, setExactStaging] = useState(false);
+  const [exactStageResult, setExactStageResult] = useState(null);
+  const [exactStageError, setExactStageError] = useState('');
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const [contentRefreshResult, setContentRefreshResult] = useState(null);
   const [contentRefreshError, setContentRefreshError] = useState('');
@@ -214,6 +219,28 @@ export default function AdminSSApiSettings() {
       setStagedResult(data);
     }
     setStaging(false);
+  };
+
+  const handleExactStyleStage = async () => {
+    const styleNumbers = exactStyleNumbers.split(/[\s,]+/).map(value => value.trim()).filter(Boolean);
+    if (styleNumbers.length === 0) {
+      setExactStageError('Enter at least one exact manufacturer style number.');
+      return;
+    }
+    setExactStaging(true);
+    setExactStageResult(null);
+    setExactStageError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'stage_exact_styles', brand: exactBrand, style_numbers: styleNumbers },
+    });
+    if (invokeError) {
+      setExactStageError(await invokeMessage(invokeError, 'Exact-style staging failed.'));
+    } else if (!data?.staged) {
+      setExactStageError(data?.error || 'S&S did not complete the exact-style staging request.');
+    } else {
+      setExactStageResult(data);
+    }
+    setExactStaging(false);
   };
 
   const handleContentRefresh = async () => {
@@ -490,6 +517,41 @@ export default function AdminSSApiSettings() {
                 </Alert>
               )}
             </div>
+          )}
+        </div>
+
+        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="flex gap-3">
+            <Database className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+            <div>
+              <h3 className="font-bold">Exact manufacturer styles</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Retrieve exact S&amp;S style records into private staging. This does not publish products or place a supplier order.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-[11rem_1fr]">
+            <select value={exactBrand} onChange={event => setExactBrand(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm">
+              <option>Shaka Wear</option>
+              <option>Under Armour</option>
+            </select>
+            <input
+              value={exactStyleNumbers}
+              onChange={event => setExactStyleNumbers(event.target.value)}
+              placeholder="e.g. SH3NORJ or 6006364, 6011361"
+              className="rounded-lg border bg-background px-3 py-2 text-sm"
+            />
+          </div>
+          <Button type="button" variant="outline" className="mt-3 w-full gap-2" onClick={handleExactStyleStage} disabled={exactStaging}>
+            {exactStaging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            {exactStaging ? 'Retrieving exact styles...' : 'Stage exact styles privately'}
+          </Button>
+          {exactStageError && <Alert variant="destructive" className="mt-4"><AlertDescription>{exactStageError}</AlertDescription></Alert>}
+          {exactStageResult && (
+            <Alert className="mt-4"><CheckCircle2 className="h-4 w-4" /><AlertDescription>
+              Staged {exactStageResult.staged_styles} exact {exactBrand} style{exactStageResult.staged_styles === 1 ? '' : 's'} privately.{' '}
+              <Link to="/AdminSSStagedImport" className="font-semibold underline">Sync SKU details</Link>
+            </AlertDescription></Alert>
           )}
         </div>
 
