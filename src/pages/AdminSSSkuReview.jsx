@@ -54,6 +54,7 @@ function MetricCard({ icon, label, value, detail, progress }) {
 export default function AdminSSSkuReview() {
   const [session, setSession] = useState(null);
   const [rows, setRows] = useState([]);
+  const [styleRows, setStyleRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -77,11 +78,17 @@ export default function AdminSSSkuReview() {
       const { data, error: summaryError } = await supabase.rpc('ss_sku_review_summary', {
         p_style_session_id: latest.import_session_id,
       });
+      const { data: skuRows, error: skuRowsError } = await supabase
+        .from('ss_sku_staging')
+        .select('style_id,part_number,style_name,sku,inventory_qty,customer_price,piece_price,noe_retailing,color_name,size_name')
+        .eq('style_session_id', latest.import_session_id)
+        .order('style_id', { ascending: true });
       if (!active) return;
-      if (summaryError) setError(summaryError.message);
+      if (summaryError || skuRowsError) setError(summaryError?.message || skuRowsError?.message);
       else {
         setSession(latest);
         setRows(data || []);
+        setStyleRows(skuRows || []);
       }
       setLoading(false);
     };
@@ -119,6 +126,38 @@ export default function AdminSSSkuReview() {
   const imageCoverage = percent(totals.images, totals.skus);
   const inventoryCoverage = percent(totals.inStock, totals.skus);
   const criticalIssues = totals.missingPrice + totals.missingColor + totals.missingSize;
+  const styles = useMemo(() => {
+    const grouped = new Map();
+    styleRows.forEach((row) => {
+      const key = String(row.style_id);
+      const current = grouped.get(key) || {
+        styleId: row.style_id,
+        partNumber: row.part_number,
+        styleName: row.style_name,
+        skus: 0,
+        inventory: 0,
+        restricted: 0,
+        prices: [],
+        colors: new Set(),
+        sizes: new Set(),
+      };
+      current.skus += 1;
+      current.inventory += Math.max(0, Number(row.inventory_qty) || 0);
+      if (row.noe_retailing) current.restricted += 1;
+      const price = Number(row.customer_price || row.piece_price);
+      if (Number.isFinite(price) && price > 0) current.prices.push(price);
+      if (row.color_name) current.colors.add(row.color_name);
+      if (row.size_name) current.sizes.add(row.size_name);
+      grouped.set(key, current);
+    });
+    return [...grouped.values()].map((style) => ({
+      ...style,
+      minimumPrice: style.prices.length ? Math.min(...style.prices) : null,
+      maximumPrice: style.prices.length ? Math.max(...style.prices) : null,
+      colorCount: style.colors.size,
+      sizeCount: style.sizes.size,
+    }));
+  }, [styleRows]);
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -256,6 +295,54 @@ export default function AdminSSSkuReview() {
                         </TableRow>
                       );
                     })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border bg-white">
+              <div className="border-b p-5">
+                <h2 className="font-bold">Exact styles in this session</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Supplier style IDs and online-retail restrictions from the authenticated S&amp;S response.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Manufacturer style</TableHead>
+                      <TableHead>Supplier style ID</TableHead>
+                      <TableHead className="text-right">Variants</TableHead>
+                      <TableHead className="text-right">Colors</TableHead>
+                      <TableHead className="text-right">Sizes</TableHead>
+                      <TableHead className="text-right">Inventory</TableHead>
+                      <TableHead className="text-right">Restricted</TableHead>
+                      <TableHead>Account cost range</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {styles.map((style) => (
+                      <TableRow key={style.styleId}>
+                        <TableCell>
+                          <div className="font-medium">{style.partNumber || style.styleName || '—'}</div>
+                          {style.partNumber && style.styleName && style.partNumber !== style.styleName && (
+                            <div className="text-xs text-muted-foreground">S&amp;S name: {style.styleName}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>{style.styleId}</TableCell>
+                        <TableCell className="text-right">{numberFormat.format(style.skus)}</TableCell>
+                        <TableCell className="text-right">{numberFormat.format(style.colorCount)}</TableCell>
+                        <TableCell className="text-right">{numberFormat.format(style.sizeCount)}</TableCell>
+                        <TableCell className="text-right">{numberFormat.format(style.inventory)}</TableCell>
+                        <TableCell className="text-right">{numberFormat.format(style.restricted)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {style.minimumPrice === null
+                            ? 'No price'
+                            : `${moneyFormat.format(style.minimumPrice)}–${moneyFormat.format(style.maximumPrice)}`}
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
