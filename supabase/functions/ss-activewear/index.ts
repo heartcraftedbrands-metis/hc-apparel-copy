@@ -2839,7 +2839,12 @@ Deno.serve(async (request) => {
     ) {
       const { counts, samples, styles } = collectApprovedStyles(result);
 
-      if (payload.action === 'stage_styles' || payload.action === 'stage_cold_weather_styles' || payload.action === 'stage_brand_styles') {
+      if (
+        payload.action === 'stage_styles'
+        || payload.action === 'stage_cold_weather_styles'
+        || payload.action === 'stage_brand_styles'
+        || payload.action === 'stage_exact_styles'
+      ) {
         const coldWeatherOnly = payload.action === 'stage_cold_weather_styles';
         const exactStylesOnly = payload.action === 'stage_exact_styles';
         const selectedBrand = payload.action === 'stage_brand_styles' || exactStylesOnly
