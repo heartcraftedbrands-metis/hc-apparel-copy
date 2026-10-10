@@ -405,7 +405,7 @@ export default function Checkout() {
             {errors.includes(SIGN_IN_AGAIN) && <Link className="block text-center text-sm text-primary underline" to="/Login">Sign in again</Link>}
             {prepareError === CHECKOUT_CONNECT && <button type="button" className="block w-full text-center text-sm text-primary underline" onClick={() => window.location.reload()}>Refresh checkout</button>}
             <p className="text-center text-xs text-muted-foreground">
-              No S&S or ZeroTouch order is submitted from checkout.
+              Your order is sent for fulfillment only after payment is confirmed.
             </p>
           </div>
         </form>

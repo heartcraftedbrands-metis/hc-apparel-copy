@@ -92,7 +92,7 @@ export default function GarmentProductCard({ product }) {
         </div>
         <p className="text-[11px] text-muted-foreground -mt-1 mb-2">
           {!isAuthenticated && settings.enabled
-            ? 'Sign in for HC Apparel customer pricing'
+            ? 'Sign in to see Your Price'
             : 'Blank garment · Customization priced separately'}
         </p>
 

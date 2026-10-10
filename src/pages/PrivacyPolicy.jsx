@@ -54,7 +54,7 @@ const policySections = [
         <ul>
           <li><strong>Supabase and Vercel</strong> for authentication, database, file storage, server functions, and site hosting.</li>
           <li><strong>Stripe</strong> for payment processing and payment-related fraud prevention.</li>
-          <li><strong>S&amp;S Activewear and other approved fulfillment providers</strong> for product availability and order fulfillment.</li>
+          <li><strong>Approved apparel suppliers and fulfillment providers</strong> for product availability and order fulfillment.</li>
           <li><strong>USPS and other shipping carriers</strong> for shipping rates, delivery, and tracking.</li>
           <li><strong>Brevo</strong> for email delivery and subscriber management when those services are used.</li>
           <li><strong>Google Analytics and Pinterest Tag</strong> when enabled for measurement and marketing attribution.</li>

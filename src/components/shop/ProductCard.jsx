@@ -90,7 +90,7 @@ export default function ProductCard({ product, onAddToCart }) {
         <div className="mt-auto pt-2">
           <p className="text-base font-bold text-primary">${shownPrice?.toFixed(2)}</p>
           {!isAuthenticated && settings.enabled && product.product_type !== 'digital' && (
-            <p className="mb-2 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>
+            <p className="mb-2 text-[11px] text-muted-foreground">Sign in to see Your Price</p>
           )}
           <div className="flex gap-1.5">
             <motion.button

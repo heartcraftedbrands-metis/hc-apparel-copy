@@ -224,7 +224,9 @@ Deno.serve(async request => {
           approved: true,
           active: true,
           headline: existing?.headline || null,
-          subtitle: existing?.subtitle || 'Current S&S sale style available through HC Apparel while supplies last.',
+          subtitle: existing?.subtitle && !/\bS\s*&\s*S(?:\s+Activewear)?\b|\bZeroTouch\b/i.test(String(existing.subtitle))
+            ? existing.subtitle
+            : 'Available at a special price while supplies last.',
           promo_image_url: existing?.promo_image_url || null,
           starts_at: existing?.starts_at || fetchedAt,
           ends_at: null,

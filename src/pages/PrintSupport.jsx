@@ -80,7 +80,7 @@ export default function PrintSupport() {
                 <div className="p-4">
                   <h3 className="font-semibold text-sm mb-1 line-clamp-2">{product.name}</h3>
                   <p className="text-accent font-bold text-base">${displayPrice(product.price, product)?.toFixed(2)}</p>
-                  {!isAuthenticated && settings.enabled && <p className="mb-3 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>}
+                  {!isAuthenticated && settings.enabled && <p className="mb-3 text-[11px] text-muted-foreground">Sign in to see Your Price</p>}
                   <Button size="sm" className="w-full gap-2" onClick={() => { addToCart(product); toast.success(`${product.name} added!`); }}>
                     <ShoppingCart className="w-3.5 h-3.5" /> Add to Cart
                   </Button>

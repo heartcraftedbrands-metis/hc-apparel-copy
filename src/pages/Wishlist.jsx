@@ -82,7 +82,7 @@ export default function Wishlist() {
                 {styleLabel && <p className="text-xs text-gray-500">Style: {styleLabel}</p>}
                 <p className="text-gray-500 text-sm line-clamp-1 mt-0.5">{getPublicProductDescription(product, publicName)}</p>
                 <p className="text-lg font-bold text-gray-900 mt-1">${displayPrice(product.price, product)?.toFixed(2)}</p>
-                {!isAuthenticated && settings.enabled && <p className="text-xs text-gray-500">Sign in for HC Apparel customer pricing</p>}
+                {!isAuthenticated && settings.enabled && <p className="text-xs text-gray-500">Sign in to see Your Price</p>}
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
                 <Button

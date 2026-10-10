@@ -55,7 +55,7 @@ export default function CarouselSection() {
                       <Button className="bg-white text-black hover:bg-gray-100">View Product</Button>
                     </Link>
                   </div>
-                  {!isAuthenticated && settings.enabled && <p className="mt-2 text-xs text-white/85">Sign in for HC Apparel customer pricing</p>}
+                  {!isAuthenticated && settings.enabled && <p className="mt-2 text-xs text-white/85">Sign in to see Your Price</p>}
                 </div>
               </div>
             ))}

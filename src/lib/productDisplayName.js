@@ -1,4 +1,4 @@
-import { hasInternalProductCopy } from './publicProductCopy.js';
+import { getPublicProductText, hasInternalProductCopy } from './publicProductCopy.js';
 
 const KNOWN_BRANDS = [
   'American Apparel', 'Bella + Canvas', 'Comfort Colors', 'Independent Trading Co.',
@@ -43,7 +43,7 @@ const titleField = (product) => {
 
 export function getProductBrand(product) {
   const explicit = cleanWhitespace(product?.brand);
-  if (explicit) return explicit;
+  if (explicit && !hasInternalProductCopy(explicit)) return explicit;
   const raw = cleanWhitespace(product?.name);
   const tagged = (product?.tags || []).find((tag) => (
     KNOWN_BRANDS.some((brand) => brand.toLowerCase() === cleanWhitespace(tag).toLowerCase())
@@ -64,7 +64,7 @@ const stripLeadingVendorReference = (value, brand) => {
 
 const descriptiveNameTitle = (product, brand) => {
   const raw = cleanWhitespace(product?.name);
-  if (!raw) return '';
+  if (!raw || hasInternalProductCopy(raw)) return '';
   const afterDash = raw.includes(' — ')
     ? raw.split(' — ').pop()
     : (/\s[-–]\s/.test(raw) ? raw.split(/\s[-–]\s/).slice(1).join(' - ') : '');
@@ -134,11 +134,12 @@ export function getProductStyleLabel(product) {
 
 export function getPublicProductName(product) {
   if (!product) return '';
-  if (product.product_type === 'digital') return cleanWhitespace(product.name);
+  if (product.product_type === 'digital') return getPublicProductText(product.name) || 'Digital Mockup';
   const brand = getProductBrand(product);
   const explicit = cleanWhitespace(product.public_display_name || product.display_name);
-  if (explicit) return withBrand(explicit, brand);
-  const importedTitle = stripLeadingVendorReference(titleField(product), brand);
+  if (explicit && !hasInternalProductCopy(explicit)) return withBrand(explicit, brand);
+  const rawImportedTitle = titleField(product);
+  const importedTitle = hasInternalProductCopy(rawImportedTitle) ? '' : stripLeadingVendorReference(rawImportedTitle, brand);
   const genericImportedTitle = /^(?:apparel(?: blank)?|garment|jacket|shirt|polo|pullover|hoodie|sweatshirt|t-?shirt|tee|pants?|shorts?|hat|cap|bag)$/i.test(importedTitle);
   if (importedTitle && !genericImportedTitle) return withBrand(importedTitle, brand);
   const fromName = descriptiveNameTitle(product, brand);

@@ -7,5 +7,5 @@ export function useCustomerPricing() {
   const displayPrice = (customerPrice, product = {}) => (
     isAuthenticated ? Number(customerPrice) : publicVisitorPrice(customerPrice, settings, product)
   );
-  return { isAuthenticated, settings, displayPrice, customerPriceLabel: 'HC Apparel customer price' };
+  return { isAuthenticated, settings, displayPrice, customerPriceLabel: 'Your Price' };
 }

@@ -531,10 +531,10 @@ export default function ProductDetail() {
             <div>
               <p className="mb-1 text-sm font-semibold text-muted-foreground">
                 {selectedVariant
-                  ? (isAuthenticated ? 'HC Apparel customer price' : 'Public price')
+                  ? (isAuthenticated ? 'Your Price' : 'Public price')
                   : priceRange.hasVariablePricing
-                    ? (isAuthenticated ? 'HC Apparel customer price starting at' : 'Public price starting at')
-                    : (isAuthenticated ? 'HC Apparel customer price' : 'Public price')}
+                    ? (isAuthenticated ? 'Your Price starting at' : 'Public price starting at')
+                    : (isAuthenticated ? 'Your Price' : 'Public price')}
               </p>
               <div className="flex items-baseline gap-3">
                 <span className="text-4xl font-black text-primary">${displayPrice.toFixed(2)}</span>
@@ -542,7 +542,7 @@ export default function ProductDetail() {
               </div>
               {!isAuthenticated && publicPriceSettings.enabled && (
                 <div className="mt-3 rounded-lg border border-accent/40 bg-accent/10 p-3 text-sm">
-                  <p><span className="font-semibold">HC Apparel customer price:</span> ${Number(customerUnitPrice).toFixed(2)}</p>
+                  <p><span className="font-semibold">Your Price:</span> ${Number(customerUnitPrice).toFixed(2)}</p>
                   <div className="mt-2 flex flex-wrap gap-3">
                     <Link to="/Login" className="font-semibold text-primary underline">Sign In</Link>
                     <Link to="/Signup" className="font-semibold text-primary underline">Create Account</Link>

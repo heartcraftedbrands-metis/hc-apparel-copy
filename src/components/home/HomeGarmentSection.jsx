@@ -63,7 +63,7 @@ function ProductCard({ product, onAddToCart }) {
             </div>
           )}
         </div>
-        {!isAuthenticated && settings.enabled && <p className="mb-2 text-[11px] text-muted-foreground">Sign in for HC Apparel customer pricing</p>}
+        {!isAuthenticated && settings.enabled && <p className="mb-2 text-[11px] text-muted-foreground">Sign in to see Your Price</p>}
 
         {/* Buttons pinned to bottom */}
         <div className="mt-auto space-y-1.5 pt-2">

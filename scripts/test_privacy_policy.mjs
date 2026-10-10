@@ -16,7 +16,7 @@ const assertions = [
   ['verified contact is present', policy.includes('support@ilovehcapparel.net')],
   ['payment handling is disclosed', policy.includes('Stripe Checkout') && policy.includes('full card or bank-account number')],
   ['customer uploads are disclosed', policy.includes('Customer artwork and files') && policy.includes('Artwork and other files you upload')],
-  ['store providers are disclosed', ['Supabase', 'Vercel', 'S&amp;S Activewear', 'USPS', 'Brevo'].every(provider => policy.includes(provider))],
+  ['store providers are disclosed without supplier branding', ['Supabase', 'Vercel', 'Approved apparel suppliers and fulfillment providers', 'USPS', 'Brevo'].every(provider => policy.includes(provider)) && !/S&amp;S|S&S|ZeroTouch/i.test(policy)],
   ['Pinterest connection is disclosed', policy.includes('future Pinterest API connection') && policy.includes('without authorization')],
   ['analytics are disclosed', policy.includes('Google Analytics') && policy.includes('Pinterest Tag')],
   ['mobile-safe layout is used', policy.includes('px-4') && policy.includes('sm:px-6') && policy.includes('min-w-0') && policy.includes('break-words')],

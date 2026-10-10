@@ -189,7 +189,7 @@ export default function ProductCustomizationDialog({
                 : `${priceRange.hasVariablePricing ? 'Starting at ' : ''}$${displayedPrice.toFixed(2)}`}
             </p>
             {!isAuthenticated && settings.enabled && (
-              <p className="mt-1 text-xs text-muted-foreground">Sign in for HC Apparel customer pricing.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Sign in to see Your Price.</p>
             )}
           </div>
 

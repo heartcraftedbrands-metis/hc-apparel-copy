@@ -1,7 +1,9 @@
 const INTERNAL_PRODUCT_COPY = /\b(?:private|internal|qa|test)\b|(?:launch|catalog)[-\s]?batch|not approved/i;
+const SUPPLIER_BRANDING = /\bS\s*(?:&|&amp;)\s*S(?:\s+Activewear)?\b|\bZeroTouch\b/i;
 
 export function hasInternalProductCopy(value) {
-  return INTERNAL_PRODUCT_COPY.test(String(value || ''));
+  const text = String(value || '');
+  return INTERNAL_PRODUCT_COPY.test(text) || SUPPLIER_BRANDING.test(text);
 }
 
 export function getPublicProductText(value) {
