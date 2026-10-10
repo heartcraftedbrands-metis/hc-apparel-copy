@@ -121,18 +121,22 @@ function customerDownloadFileName(title: unknown, originalFileName: unknown, fil
   const extension = text(fileExtension, 12).replace(/^\.+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase()
     || original.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase()
     || 'png';
-  let base = text(title, 180).normalize('NFKD')
-    .replace(/[\u2010-\u2015]/g, '-')
-    .replace(/[\u2018\u2019\u201a\u201b]/g, "'")
-    .replace(/[\u201c\u201d\u201e\u201f]/g, '"')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\x20-\x7e]/g, '')
+  let base = text(title, 180).normalize('NFC')
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
     .replace(/[.\s]+$/g, '')
     .trim();
   if (!base) base = 'HC Apparel Digital Mockup';
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = `HC Apparel ${base}`;
   return `${base}.${extension}`;
+}
+
+function contentDisposition(fileName: string) {
+  const fallback = fileName.normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e]/g, '-')
+    .replace(/["\\\r\n]/g, '_');
+  const encoded = encodeURIComponent(fileName).replace(/[!'()*]/g, value => `%${value.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 function publicPreviewUrl(supabaseUrl: string, path: string) {
@@ -763,7 +767,7 @@ Deno.serve(async request => {
       return response(await finalizePayment(service, stripe, session, 'stripe_verification', session.id, accessSecret), 200, origin);
     }
 
-    if (action === 'downloads' || action === 'download') {
+    if (action === 'downloads' || action === 'download' || action === 'download_file') {
       const user = await currentUser(request, url, publishableKey);
       const orderId = text(input.order_id, 100);
       const access = text(input.access, 200);
@@ -783,7 +787,7 @@ Deno.serve(async request => {
       const { data: entitlements, error } = await query.order('granted_at', { ascending: false }).limit(500);
       if (error) fail('Downloads could not be loaded.', 500, 'downloads_failed');
       const requestedId = text(input.entitlement_id, 80);
-      if (action === 'download') {
+      if (action === 'download' || action === 'download_file') {
         const entitlement = (entitlements || []).find(row => row.id === requestedId);
         if (!entitlement) fail('This download is not included in the paid order.', 403, 'entitlement_missing');
         const [{ data: version }, { data: product }] = await Promise.all([
@@ -794,10 +798,31 @@ Deno.serve(async request => {
         if (!product?.name) fail('The purchased product title is unavailable.', 404, 'product_missing');
         const downloadFileName = customerDownloadFileName(product.name, version.original_file_name, version.file_extension);
         const expiresIn = 120;
-        const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(version.original_storage_path, expiresIn, { download: downloadFileName });
+        const { data: signed, error: signedError } = await service.storage.from('digital-mockup-originals').createSignedUrl(
+          version.original_storage_path,
+          expiresIn,
+          action === 'download' ? { download: downloadFileName } : undefined,
+        );
         if (signedError || !signed?.signedUrl) fail('A secure download link could not be created.', 503, 'signed_url_failed');
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         await service.from('digital_download_audit').insert({ entitlement_id: entitlement.id, order_id: entitlement.order_id, requested_by: user?.id || null, access_kind: accessKind, signed_url_expires_at: expiresAt });
+        if (action === 'download_file') {
+          const source = await fetch(signed.signedUrl);
+          if (!source.ok || !source.body) fail('The purchased file could not be delivered.', 503, 'source_download_failed');
+          const downloadOrigin = allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net';
+          const headers = new Headers({
+            'content-type': version.mime_type || 'application/octet-stream',
+            'content-disposition': contentDisposition(downloadFileName),
+            'access-control-allow-origin': downloadOrigin,
+            'access-control-expose-headers': 'content-disposition, content-length',
+            'cache-control': 'private, no-store',
+            'x-content-type-options': 'nosniff',
+            'vary': 'Origin',
+          });
+          const length = source.headers.get('content-length');
+          if (length) headers.set('content-length', length);
+          return new Response(source.body, { status: 200, headers });
+        }
         return response({ download_url: signed.signedUrl, expires_at: expiresAt, file_name: downloadFileName }, 200, origin);
       }
       const productIds = [...new Set((entitlements || []).map(row => row.product_id))];

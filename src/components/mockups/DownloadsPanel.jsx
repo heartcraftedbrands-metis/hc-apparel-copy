@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, FileImage, LockKeyhole } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { digitalMockupsRequest, formatFileSize } from '@/lib/digitalMockups';
+import { digitalMockupsRequest, downloadDigitalMockup, formatFileSize } from '@/lib/digitalMockups';
 
 export default function DownloadsPanel({ orderId = '', access = '' }) {
   const [downloads, setDownloads] = useState([]);
@@ -22,14 +22,16 @@ export default function DownloadsPanel({ orderId = '', access = '' }) {
     setBusy(entitlement.id);
     setError('');
     try {
-      const result = await digitalMockupsRequest({ action: 'download', entitlement_id: entitlement.id, order_id: orderId, access });
+      const result = await downloadDigitalMockup({ entitlement_id: entitlement.id, order_id: orderId, access });
+      const objectUrl = URL.createObjectURL(result.blob);
       const anchor = document.createElement('a');
-      anchor.href = result.download_url;
-      anchor.download = result.file_name || '';
+      anchor.href = objectUrl;
+      anchor.download = result.fileName || `${entitlement.product?.name || 'HC Apparel Digital Mockup'}.png`;
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (requestError) {
       setError(requestError.message || 'The secure download link could not be created.');
     } finally {
@@ -47,6 +49,6 @@ export default function DownloadsPanel({ orderId = '', access = '' }) {
       <div className="min-w-0 flex-1"><h2 className="font-bold">{item.product?.name || 'Purchased digital mockup'}</h2><p className="mt-1 text-sm text-muted-foreground">{item.file?.pixel_width} × {item.file?.pixel_height} px · {String(item.file?.file_extension || '').toUpperCase()} · {formatFileSize(item.file?.file_size_bytes)}</p><p className="mt-1 text-xs text-muted-foreground">Original purchased version · watermark-free</p></div>
       <Button className="min-h-11" onClick={() => download(item)} disabled={busy === item.id}><Download className="mr-2 h-4 w-4" />{busy === item.id ? 'Preparing…' : 'Download Image'}</Button>
     </article>)}
-    <p className="text-xs text-muted-foreground">Each button requests a new short-lived link after checking the paid purchase. If a link expires, return here and tap Download Image again.</p>
+    <p className="text-xs text-muted-foreground">Each button rechecks the paid purchase and securely delivers the original file with its current product-title filename.</p>
   </div>;
 }
