@@ -284,11 +284,6 @@ export default function AdminSSApiSettings() {
   };
 
   const handleSizeGuideRefresh = async () => {
-    if (!window.confirm(
-      'Audit every published physical apparel product and refresh verified product-specific measurements? '
-      + 'This does not change prices, inventory, publication status, checkout, or orders.',
-    )) return;
-
     setSizeGuideRefreshing(true);
     setSizeGuideRefreshResult(null);
     setSizeGuideRefreshError('');
