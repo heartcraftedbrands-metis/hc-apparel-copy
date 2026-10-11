@@ -9,6 +9,7 @@ const supplierPattern = /S(?:&amp;|&)S(?:\s+Activewear)?|ZeroTouch/i;
 
 const customerFiles = [
   'src/components/home/SpecialsSection.jsx',
+  'src/components/marketing/WeeklyOrganicReview.jsx',
   'src/pages/Checkout.jsx',
   'src/pages/PrivacyPolicy.jsx',
 ];
