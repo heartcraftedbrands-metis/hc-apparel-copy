@@ -10,6 +10,7 @@ import { useCart } from "../components/shop/CartContext";
 import { isPublicProduct } from "@/lib/productVisibility";
 import { getProductPriceRange, getStorefrontCategoryLabel } from "@/lib/shopGarmentFilters";
 import ProductCustomizationDialog from "@/components/shop/ProductCustomizationDialog";
+import SizeChart from "@/components/shop/SizeChart";
 import { isBlankFirstProduct } from "@/lib/productCustomization";
 import { getProductBrand, getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 import { getPublicProductDescription, getPublicProductText } from "@/lib/publicProductCopy";
@@ -598,9 +599,12 @@ export default function ProductDetail() {
             {/* Sizes */}
             {product.available_sizes?.length > 0 && (
               <div>
-                <p className="text-sm font-semibold mb-2">
-                  Size {selectedSize && <span className="font-normal text-muted-foreground">— {selectedSize}</span>}
-                </p>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">
+                    Size {selectedSize && <span className="font-normal text-muted-foreground">— {selectedSize}</span>}
+                  </p>
+                  <SizeChart productId={product.id} productTitle={publicName} selectedSize={selectedSize} />
+                </div>
                 {!selectedColor && (
                   <p className="text-xs text-muted-foreground mb-2">Select a color first to see available sizes</p>
                 )}
@@ -632,6 +636,13 @@ export default function ProductDetail() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {!product.available_sizes?.length && (
+              <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/20 px-3 py-2">
+                <span className="text-sm font-semibold">Sizing</span>
+                <SizeChart productId={product.id} productTitle={publicName} selectedSize={selectedSize} />
               </div>
             )}
 

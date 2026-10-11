@@ -455,6 +455,12 @@ function flattenSsRecords(value: unknown): Array<Record<string, unknown>> {
   return value && typeof value === 'object' ? [value as Record<string, unknown>] : [];
 }
 
+async function sourceHash(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function safePaymentProfile(record: Record<string, unknown>): SafePaymentProfile | null {
   const profileId = integerValue(record.profileID ?? record.ProfileID ?? record.profileId);
   if (!profileId || profileId <= 0) return null;
@@ -592,7 +598,7 @@ Deno.serve(async (request) => {
   const serviceMaintenance = Boolean(
     serviceRoleKey
     && jwt === serviceRoleKey
-    && payload.action === 'refresh_public_style_content'
+    && ['refresh_public_style_content', 'refresh_product_size_guides'].includes(payload.action || '')
   );
   const userClient = createClient(
     supabaseUrl,
@@ -651,6 +657,7 @@ Deno.serve(async (request) => {
     'reprice_adidas_without_map',
     'get_map_reference_price_report',
     'refresh_public_style_content',
+    'refresh_product_size_guides',
     'validate_vendor_order_draft',
     'refresh_vendor_order_cost_inventory',
     'refresh_vendor_order_status',
@@ -2303,6 +2310,278 @@ Deno.serve(async (request) => {
     }
   }
 
+  if (payload.action === 'refresh_product_size_guides') {
+    const { data: catalogProducts, error: productsError } = await userClient
+      .from('products')
+      .select('id,name,brand,supplier_sku,style_number,vendor_source,fit')
+      .eq('product_type', 'physical')
+      .eq('visibility', 'public')
+      .eq('is_active', true)
+      .limit(5000);
+    if (productsError) {
+      console.error('Unable to read the published apparel catalog', productsError.message);
+      return json(request, { error: 'Unable to read the published apparel catalog' }, 500);
+    }
+
+    const products = catalogProducts || [];
+    const normalize = (value: unknown) => String(value || '').trim().toUpperCase();
+    const supplierProducts = products.filter((product) =>
+      /^s&s activewear/i.test(String(product.vendor_source || ''))
+    );
+    let apiRequests = 0;
+    let styles: Array<Record<string, unknown>> = [];
+    try {
+      const styleUrl = new URL('https://api.ssactivewear.com/v2/styles/');
+      styleUrl.searchParams.set('fields', 'StyleID,PartNumber,BrandName,StyleName,Title');
+      styleUrl.searchParams.set('mediatype', 'json');
+      const response = await fetch(styleUrl, {
+        headers: {
+          Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+      apiRequests += 1;
+      if (!response.ok) {
+        console.error('S&S exact style lookup failed', response.status);
+        return json(request, { error: 'The supplier style catalog could not be retrieved' }, 502);
+      }
+      styles = flattenSsRecords(await response.json());
+    } catch (error) {
+      console.error('S&S exact style lookup failed', error);
+      return json(request, { error: 'The supplier style catalog could not be retrieved' }, 502);
+    }
+
+    const resolvedByProduct = new Map<string, Record<string, unknown>>();
+    const unresolvedReasons = new Map<string, string>();
+    for (const product of products) {
+      if (!/^s&s activewear/i.test(String(product.vendor_source || ''))) {
+        unresolvedReasons.set(String(product.id), 'No supported supplier measurement source is mapped to this product.');
+        continue;
+      }
+      const brand = normalize(product.brand);
+      const identifiers = new Set(
+        [product.style_number, product.supplier_sku].map(normalize).filter(Boolean),
+      );
+      if (!brand || identifiers.size === 0) {
+        unresolvedReasons.set(String(product.id), 'Brand or manufacturer style is missing.');
+        continue;
+      }
+      const matches = styles.filter((style) => {
+        const styleBrand = normalize(style.brandName ?? style.BrandName);
+        const styleName = normalize(style.styleName ?? style.StyleName);
+        const partNumber = normalize(style.partNumber ?? style.PartNumber);
+        return styleBrand === brand && (identifiers.has(styleName) || identifiers.has(partNumber));
+      });
+      const byStyleId = new Map(matches.map((style) => [
+        normalize(style.styleID ?? style.StyleID),
+        style,
+      ]));
+      if (byStyleId.size !== 1) {
+        unresolvedReasons.set(
+          String(product.id),
+          byStyleId.size > 1
+            ? 'More than one exact supplier style matched; manual review is required.'
+            : 'No exact brand and manufacturer-style match was found.',
+        );
+        continue;
+      }
+      resolvedByProduct.set(String(product.id), [...byStyleId.values()][0]);
+    }
+
+    const resolvedStyleIds = [...new Set(
+      [...resolvedByProduct.values()]
+        .map((style) => normalize(style.styleID ?? style.StyleID))
+        .filter(Boolean),
+    )];
+    const rawSpecs: Array<Record<string, unknown>> = [];
+    try {
+      for (let index = 0; index < resolvedStyleIds.length; index += 20) {
+        const chunk = resolvedStyleIds.slice(index, index + 20);
+        const specUrl = new URL('https://api.ssactivewear.com/v2/specs/');
+        specUrl.searchParams.set('style', chunk.join(','));
+        specUrl.searchParams.set(
+          'fields',
+          'SpecID,StyleID,PartNumber,BrandName,StyleName,SizeName,SizeOrder,SpecName,Value',
+        );
+        specUrl.searchParams.set('mediatype', 'json');
+        const response = await fetch(specUrl, {
+          headers: {
+            Authorization: `Basic ${btoa(`${accountNumber}:${apiKey}`)}`,
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(30000),
+        });
+        apiRequests += 1;
+        if (!response.ok) {
+          console.error('S&S exact product specs lookup failed', response.status);
+          return json(request, { error: 'The official product specifications could not be retrieved' }, 502);
+        }
+        rawSpecs.push(...flattenSsRecords(await response.json()));
+      }
+    } catch (error) {
+      console.error('S&S exact product specs lookup failed', error);
+      return json(request, { error: 'The official product specifications could not be retrieved' }, 502);
+    }
+
+    const specsByStyleId = new Map<string, Array<Record<string, unknown>>>();
+    for (const spec of rawSpecs) {
+      const styleId = normalize(spec.styleID ?? spec.StyleID);
+      if (!styleId) continue;
+      const rows = specsByStyleId.get(styleId) || [];
+      rows.push(spec);
+      specsByStyleId.set(styleId, rows);
+    }
+
+    let chartsAdded = 0;
+    let unavailable = 0;
+    let reviewRequired = 0;
+    const retrievedAt = new Date().toISOString();
+    const samples: Array<Record<string, unknown>> = [];
+
+    for (const product of products) {
+      const productId = String(product.id);
+      const style = resolvedByProduct.get(productId);
+      if (!style) {
+        const reason = unresolvedReasons.get(productId) || 'Verified measurements are unavailable.';
+        const { error: upsertError } = await userClient.from('product_size_guides').upsert({
+          product_id: productId,
+          manufacturer_style: textValue(product.style_number ?? product.supplier_sku),
+          brand: textValue(product.brand),
+          measurement_type: 'unknown',
+          default_unit: 'text',
+          sizes: [],
+          measurements: [],
+          measuring_instructions: [],
+          fit_notes: textValue(product.fit),
+          customer_note: 'Size measurements unavailable',
+          status: 'unavailable',
+          source_provider: textValue(product.vendor_source),
+          source_retrieved_at: retrievedAt,
+          raw_source: [],
+          admin_note: reason,
+        }, { onConflict: 'product_id' });
+        if (upsertError) {
+          console.error('Unable to store unavailable size-guide result', upsertError.message);
+          return json(request, { error: 'Unable to save the size-guide audit' }, 500);
+        }
+        unavailable += 1;
+        continue;
+      }
+
+      const styleId = normalize(style.styleID ?? style.StyleID);
+      const styleSpecs = specsByStyleId.get(styleId) || [];
+      const sizeMap = new Map<string, { label: string; order: number }>();
+      const measurementMap = new Map<string, { label: string; values: Record<string, string> }>();
+      let hasIncompleteSourceRow = false;
+      for (const spec of styleSpecs) {
+        const size = textValue(spec.sizeName ?? spec.SizeName);
+        const label = textValue(spec.specName ?? spec.SpecName);
+        const value = textValue(spec.value ?? spec.Value);
+        if (!size || !label || !value) {
+          hasIncompleteSourceRow = true;
+          continue;
+        }
+        const order = integerValue(spec.sizeOrder ?? spec.SizeOrder) ?? 9999;
+        const currentSize = sizeMap.get(size);
+        if (!currentSize || order < currentSize.order) sizeMap.set(size, { label: size, order });
+        const row = measurementMap.get(label) || { label, values: {} };
+        row.values[size] = value;
+        measurementMap.set(label, row);
+      }
+      const sizes = [...sizeMap.values()].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
+      const measurements = [...measurementMap.values()];
+      const status = hasIncompleteSourceRow
+        ? 'review_required'
+        : (sizes.length && measurements.length ? 'verified' : 'unavailable');
+      const styleName = textValue(style.styleName ?? style.StyleName);
+      const partNumber = textValue(style.partNumber ?? style.PartNumber);
+      const brand = textValue(style.brandName ?? style.BrandName);
+      const adminNote = status === 'review_required'
+        ? 'The official source returned incomplete measurement rows; customer display is withheld pending review.'
+        : (status === 'unavailable' ? 'The exact style matched, but the official source returned no measurement rows.' : null);
+      const customerNote = status === 'verified'
+        ? 'Finished-garment measurements. Measure a similar garment laid flat for comparison.'
+        : 'Size measurements unavailable';
+      const storedSource = styleSpecs.map((spec) => ({
+        spec_id: integerValue(spec.specID ?? spec.SpecID),
+        style_id: integerValue(spec.styleID ?? spec.StyleID),
+        part_number: textValue(spec.partNumber ?? spec.PartNumber),
+        brand_name: textValue(spec.brandName ?? spec.BrandName),
+        style_name: textValue(spec.styleName ?? spec.StyleName),
+        size_name: textValue(spec.sizeName ?? spec.SizeName),
+        size_order: integerValue(spec.sizeOrder ?? spec.SizeOrder),
+        spec_name: textValue(spec.specName ?? spec.SpecName),
+        value: textValue(spec.value ?? spec.Value),
+      }));
+      const { error: upsertError } = await userClient.from('product_size_guides').upsert({
+        product_id: productId,
+        supplier_style_id: integerValue(style.styleID ?? style.StyleID),
+        manufacturer_style: styleName || partNumber,
+        brand,
+        measurement_type: 'garment',
+        default_unit: 'in',
+        sizes,
+        measurements,
+        measuring_instructions: [],
+        fit_notes: textValue(product.fit),
+        customer_note: customerNote,
+        status,
+        source_provider: 'S&S Activewear',
+        source_endpoint: '/v2/specs/',
+        source_reference: `StyleID ${styleId}; ${brand || 'Unknown brand'} ${styleName || partNumber || ''}`.trim(),
+        source_retrieved_at: retrievedAt,
+        source_hash: await sourceHash(storedSource),
+        raw_source: storedSource,
+        admin_note: adminNote,
+      }, { onConflict: 'product_id' });
+      if (upsertError) {
+        console.error('Unable to cache the verified size guide', upsertError.message);
+        return json(request, { error: 'Unable to save the size-guide audit' }, 500);
+      }
+      if (status === 'verified') {
+        chartsAdded += 1;
+        if (samples.length < 8) samples.push({
+          product_id: productId,
+          product_name: product.name,
+          brand,
+          manufacturer_style: styleName || partNumber,
+          supplier_style_id: integerValue(style.styleID ?? style.StyleID),
+          sizes: sizes.length,
+          measurements: measurements.length,
+        });
+      } else if (status === 'review_required') {
+        reviewRequired += 1;
+      } else {
+        unavailable += 1;
+      }
+    }
+
+    const productIds = products.map((product) => String(product.id));
+    if (productIds.length) {
+      const { error: queueError } = await userClient
+        .from('product_size_guide_sync_queue')
+        .delete()
+        .in('product_id', productIds);
+      if (queueError) console.error('Unable to clear processed size-guide queue rows', queueError.message);
+    }
+
+    return json(request, {
+      refreshed: true,
+      products_audited: products.length,
+      supplier_products_reviewed: supplierProducts.length,
+      charts_added: chartsAdded,
+      products_unavailable: unavailable,
+      products_review_required: reviewRequired,
+      samples,
+      retrieval_date: retrievedAt,
+      api_requests: apiRequests,
+      storefront_prices_changed: false,
+      inventory_changed: false,
+      ss_order_submitted: false,
+    });
+  }
+
   if (payload.action === 'refresh_public_style_content') {
     const { data: products, error: productsError } = await userClient
       .from('products')
@@ -2443,6 +2722,24 @@ Deno.serve(async (request) => {
       const lines = importedDescriptionLines(style.description ?? style.Description);
       const description = lines.join('\n');
       const specs = specsByPartNumber.get(partNumber) || [];
+      const guideSizeMap = new Map<string, { label: string; order: number }>();
+      const guideMeasurementMap = new Map<string, { label: string; values: Record<string, string> }>();
+      for (const spec of specs) {
+        const size = textValue(spec.size);
+        const label = textValue(spec.spec_name);
+        const value = textValue(spec.value);
+        if (!size || !label || !value) continue;
+        const order = integerValue(spec.size_order) ?? 9999;
+        const currentSize = guideSizeMap.get(size);
+        if (!currentSize || order < currentSize.order) guideSizeMap.set(size, { label: size, order });
+        const row = guideMeasurementMap.get(label) || { label, values: {} };
+        row.values[size] = value;
+        guideMeasurementMap.set(label, row);
+      }
+      const guideSizes = [...guideSizeMap.values()]
+        .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
+      const guideMeasurements = [...guideMeasurementMap.values()];
+      const guideStatus = guideSizes.length && guideMeasurements.length ? 'verified' : 'unavailable';
       const fabricLine = lines.find((line) =>
         /(cotton|polyester|rayon|spandex|nylon|wool|fleece|fabric)/i.test(line)
       ) || null;
@@ -2474,6 +2771,38 @@ Deno.serve(async (request) => {
           console.error('Unable to save imported S&S style content', updateError.message);
           return json(request, { error: 'Unable to save imported S&S style content' }, 500);
         }
+        const { error: guideError } = await userClient
+          .from('product_size_guides')
+          .upsert({
+            product_id: product.id,
+            supplier_style_id: integerValue(style.styleID ?? style.StyleID),
+            manufacturer_style: styleName || partNumber,
+            brand,
+            measurement_type: 'garment',
+            default_unit: 'in',
+            sizes: guideSizes,
+            measurements: guideMeasurements,
+            measuring_instructions: [],
+            fit_notes: fitLine,
+            customer_note: guideStatus === 'verified'
+              ? 'Finished-garment measurements. Measure a similar garment laid flat for comparison.'
+              : 'Size measurements unavailable',
+            status: guideStatus,
+            source_provider: 'S&S Activewear',
+            source_endpoint: '/v2/specs/',
+            source_reference: `StyleID ${textValue(style.styleID ?? style.StyleID) || 'unknown'}; ${brand || 'Unknown brand'} ${styleName || partNumber}`,
+            source_retrieved_at: new Date().toISOString(),
+            source_hash: await sourceHash(specs),
+            raw_source: specs,
+            admin_note: guideStatus === 'verified'
+              ? null
+              : 'The exact style matched, but the official source returned no measurement rows.',
+          }, { onConflict: 'product_id' });
+        if (guideError) {
+          console.error('Unable to refresh the cached size guide', guideError.message);
+          return json(request, { error: 'Product content updated, but the size-guide cache could not be saved' }, 500);
+        }
+        await userClient.from('product_size_guide_sync_queue').delete().eq('product_id', product.id);
         updatedProducts += 1;
         if (description) productsWithDescription += 1;
         if (specs.length) productsWithSpecs += 1;

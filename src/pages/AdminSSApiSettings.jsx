@@ -7,6 +7,7 @@ import {
   Info,
   Loader2,
   PauseCircle,
+  Ruler,
   Settings2,
   ShieldCheck,
   Wifi,
@@ -40,6 +41,11 @@ export default function AdminSSApiSettings() {
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const [contentRefreshResult, setContentRefreshResult] = useState(null);
   const [contentRefreshError, setContentRefreshError] = useState('');
+  const [sizeGuideRefreshing, setSizeGuideRefreshing] = useState(false);
+  const [sizeGuideRefreshResult, setSizeGuideRefreshResult] = useState(null);
+  const [sizeGuideRefreshError, setSizeGuideRefreshError] = useState('');
+  const [sizeGuideAudit, setSizeGuideAudit] = useState([]);
+  const [sizeGuideAuditLoading, setSizeGuideAuditLoading] = useState(true);
   const [paymentEmail, setPaymentEmail] = useState('');
   const [paymentProfiles, setPaymentProfiles] = useState([]);
   const [selectedPaymentProfile, setSelectedPaymentProfile] = useState('');
@@ -75,6 +81,17 @@ export default function AdminSSApiSettings() {
     return () => {
       active = false;
     };
+  }, []);
+
+  const loadSizeGuideAudit = async () => {
+    setSizeGuideAuditLoading(true);
+    const { data, error: auditError } = await supabase.rpc('admin_product_size_guide_audit');
+    if (!auditError) setSizeGuideAudit(data || []);
+    setSizeGuideAuditLoading(false);
+  };
+
+  useEffect(() => {
+    loadSizeGuideAudit();
   }, []);
 
   const invokeMessage = async (invokeError, fallback) => {
@@ -264,6 +281,29 @@ export default function AdminSSApiSettings() {
       setContentRefreshResult(data);
     }
     setContentRefreshing(false);
+  };
+
+  const handleSizeGuideRefresh = async () => {
+    if (!window.confirm(
+      'Audit every published physical apparel product and refresh verified product-specific measurements? '
+      + 'This does not change prices, inventory, publication status, checkout, or orders.',
+    )) return;
+
+    setSizeGuideRefreshing(true);
+    setSizeGuideRefreshResult(null);
+    setSizeGuideRefreshError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'refresh_product_size_guides' },
+    });
+    if (invokeError) {
+      setSizeGuideRefreshError(await invokeMessage(invokeError, 'The size-guide audit could not be completed.'));
+    } else if (!data?.refreshed) {
+      setSizeGuideRefreshError(data?.error || 'The size-guide audit could not be completed.');
+    } else {
+      setSizeGuideRefreshResult(data);
+      await loadSizeGuideAudit();
+    }
+    setSizeGuideRefreshing(false);
   };
 
   return (
@@ -596,6 +636,90 @@ export default function AdminSSApiSettings() {
               </AlertDescription>
             </Alert>
           )}
+        </div>
+
+        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="flex gap-3">
+            <Ruler className="h-5 w-5 shrink-0 text-accent" />
+            <div>
+              <h3 className="font-bold">Product-specific size guides</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Matches every published physical product to its exact supplier StyleID and manufacturer style,
+                caches official measurement rows, and records missing or ambiguous charts for follow-up. Digital
+                products, prices, inventory, and orders are not changed.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-5 w-full gap-2"
+            onClick={handleSizeGuideRefresh}
+            disabled={sizeGuideRefreshing}
+          >
+            {sizeGuideRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ruler className="h-4 w-4" />}
+            {sizeGuideRefreshing ? 'Auditing official measurements…' : 'Refresh Product Size Guides'}
+          </Button>
+          {sizeGuideRefreshError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{sizeGuideRefreshError}</AlertDescription>
+            </Alert>
+          )}
+          {sizeGuideRefreshResult && (
+            <Alert className="mt-4">
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertDescription>
+                Audited {sizeGuideRefreshResult.products_audited} published apparel products. Verified charts:{' '}
+                {sizeGuideRefreshResult.charts_added}. Unavailable: {sizeGuideRefreshResult.products_unavailable}.
+                Review required: {sizeGuideRefreshResult.products_review_required}. Prices and inventory were unchanged.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="mt-5 rounded-xl border">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">Published apparel audit report</p>
+                <p className="text-xs text-muted-foreground">
+                  {sizeGuideAuditLoading
+                    ? 'Loading…'
+                    : `${sizeGuideAudit.length} products · ${sizeGuideAudit.filter((row) => row.guide_status === 'verified').length} verified · ${sizeGuideAudit.filter((row) => row.guide_status !== 'verified').length} need follow-up`}
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="ghost" onClick={loadSizeGuideAudit} disabled={sizeGuideAuditLoading}>
+                Refresh report
+              </Button>
+            </div>
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b">
+                    <th className="px-3 py-2">Product</th>
+                    <th className="px-3 py-2">Style</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Chart</th>
+                    <th className="px-3 py-2">Source / issue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sizeGuideAudit.map((row) => (
+                    <tr key={row.product_id} className="border-b align-top last:border-0">
+                      <td className="px-3 py-2"><span className="font-semibold">{row.product_name}</span><br />{row.brand || 'Brand missing'}</td>
+                      <td className="px-3 py-2">{row.manufacturer_style || 'Style missing'}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant={row.guide_status === 'verified' ? 'default' : 'secondary'}>{row.guide_status}</Badge>
+                      </td>
+                      <td className="px-3 py-2">{row.size_count} sizes · {row.measurement_count} rows</td>
+                      <td className="max-w-64 px-3 py-2 text-muted-foreground">{row.source_reference || row.issue || 'Not yet retrieved'}</td>
+                    </tr>
+                  ))}
+                  {!sizeGuideAuditLoading && sizeGuideAudit.length === 0 && (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No published physical apparel products found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
