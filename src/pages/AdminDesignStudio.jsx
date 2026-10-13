@@ -168,13 +168,16 @@ function PlacementDiagram({ location }) {
 function PlacementSelector({ locations, activeLocation, onSelect, product, method, customInstructions = '', onCustomInstructions }) {
   const [group, setGroup] = useState(activeLocation?.customer_group || 'Front');
   useEffect(() => { if (activeLocation?.customer_group) setGroup(activeLocation.customer_group); }, [activeLocation?.customer_group]);
-  const grouped = locations.filter(item => item.customer_group === group);
+  const visibleGroup = locations.some(item => item.customer_group === group)
+    ? group
+    : (locations[0]?.customer_group || 'Front');
+  const grouped = locations.filter(item => item.customer_group === visibleGroup);
   return <section className="space-y-3 rounded-xl border bg-card p-3" aria-labelledby="placement-heading">
     <div><h2 id="placement-heading" className="font-bold text-primary">Choose a placement</h2><p className="text-xs text-muted-foreground">Only placements supported for this garment, view, and decoration method are shown. Left and right use the wearer&apos;s perspective.</p></div>
     <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Placement groups">{DESIGN_LOCATION_GROUPS.map(value => {
       const count = locations.filter(item => item.customer_group === value).length;
       if (!count) return null;
-      return <button type="button" role="tab" aria-selected={group === value} key={value} onClick={() => setGroup(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${group === value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>{value} <span aria-hidden="true">({count})</span></button>;
+      return <button type="button" role="tab" aria-selected={visibleGroup === value} key={value} onClick={() => setGroup(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${visibleGroup === value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>{value} <span aria-hidden="true">({count})</span></button>;
     })}</div>
     {!product ? <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Choose a garment first.</p> : !method ? <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Choose a decoration method.</p> : !locations.length ? <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No verified placement is compatible with this garment, its available photos, and the selected decoration method.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{grouped.map(location => {
       const selected = activeLocation?.id === location.id;
