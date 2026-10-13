@@ -2355,34 +2355,55 @@ Deno.serve(async (request) => {
     const resolvedByProduct = new Map<string, Record<string, unknown>>();
     const unresolvedReasons = new Map<string, string>();
     for (const product of products) {
-      if (!/^s&s activewear/i.test(String(product.vendor_source || ''))) {
-        unresolvedReasons.set(String(product.id), 'No supported supplier measurement source is mapped to this product.');
-        continue;
-      }
       const brand = normalize(product.brand);
       const identifiers = new Set(
         [product.style_number, product.supplier_sku].map(normalize).filter(Boolean),
       );
-      if (!brand || identifiers.size === 0) {
-        unresolvedReasons.set(String(product.id), 'Brand or manufacturer style is missing.');
+      if (identifiers.size === 0) {
+        unresolvedReasons.set(String(product.id), 'Manufacturer style is missing.');
         continue;
       }
-      const matches = styles.filter((style) => {
-        const styleBrand = normalize(style.brandName ?? style.BrandName);
+      const exactIdentifierMatches = styles.filter((style) => {
         const styleName = normalize(style.styleName ?? style.StyleName);
         const partNumber = normalize(style.partNumber ?? style.PartNumber);
-        return styleBrand === brand && (identifiers.has(styleName) || identifiers.has(partNumber));
+        return identifiers.has(styleName) || identifiers.has(partNumber);
       });
-      const byStyleId = new Map(matches.map((style) => [
+      let byStyleId = new Map(exactIdentifierMatches.map((style) => [
         normalize(style.styleID ?? style.StyleID),
         style,
       ]));
+      if (byStyleId.size > 1 && brand) {
+        const brandMatches = [...byStyleId.values()].filter((style) =>
+          normalize(style.brandName ?? style.BrandName) === brand
+        );
+        const brandStyleIds = new Map(brandMatches.map((style) => [
+          normalize(style.styleID ?? style.StyleID),
+          style,
+        ]));
+        if (brandStyleIds.size) byStyleId = brandStyleIds;
+      }
+      if (byStyleId.size > 1) {
+        const productName = normalize(product.name);
+        const titleBrandMatches = [...byStyleId.values()].filter((style) => {
+          const supplierBrand = normalize(style.brandName ?? style.BrandName);
+          return supplierBrand && (
+            productName === supplierBrand ||
+            productName.startsWith(`${supplierBrand} `) ||
+            productName.includes(` ${supplierBrand} `)
+          );
+        });
+        const titleBrandStyleIds = new Map(titleBrandMatches.map((style) => [
+          normalize(style.styleID ?? style.StyleID),
+          style,
+        ]));
+        if (titleBrandStyleIds.size === 1) byStyleId = titleBrandStyleIds;
+      }
       if (byStyleId.size !== 1) {
         unresolvedReasons.set(
           String(product.id),
           byStyleId.size > 1
             ? 'More than one exact supplier style matched; manual review is required.'
-            : 'No exact brand and manufacturer-style match was found.',
+            : 'No exact manufacturer-style match was found in the current supplier catalog.',
         );
         continue;
       }
@@ -2463,7 +2484,10 @@ Deno.serve(async (request) => {
         }, { onConflict: 'product_id' });
         if (upsertError) {
           console.error('Unable to store unavailable size-guide result', upsertError.message);
-          return json(request, { error: 'Unable to save the size-guide audit' }, 500);
+          return json(request, {
+            error: 'Unable to save the size-guide audit',
+            admin_detail: upsertError.message,
+          }, 500);
         }
         unavailable += 1;
         continue;
@@ -2537,7 +2561,10 @@ Deno.serve(async (request) => {
       }, { onConflict: 'product_id' });
       if (upsertError) {
         console.error('Unable to cache the verified size guide', upsertError.message);
-        return json(request, { error: 'Unable to save the size-guide audit' }, 500);
+        return json(request, {
+          error: 'Unable to save the size-guide audit',
+          admin_detail: upsertError.message,
+        }, 500);
       }
       if (status === 'verified') {
         chartsAdded += 1;

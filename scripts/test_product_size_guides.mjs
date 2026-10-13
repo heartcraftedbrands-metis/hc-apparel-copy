@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const migration = readFileSync('supabase/migrations/202610100003_product_size_guides.sql', 'utf8');
+const grantsMigration = readFileSync('supabase/migrations/202610100004_product_size_guide_grants.sql', 'utf8');
 const edge = readFileSync('supabase/functions/ss-activewear/index.ts', 'utf8');
 const component = readFileSync('src/components/shop/SizeChart.jsx', 'utf8');
 const productPage = readFileSync('src/pages/ProductDetail.jsx', 'utf8');
@@ -19,11 +20,14 @@ assert.doesNotMatch(
 assert.match(migration, /product_size_guide_sync_queue/i);
 assert.match(migration, /admin_product_size_guide_audit/i);
 assert.match(migration, /product\.product_type = 'physical'/i);
+assert.match(grantsMigration, /to authenticated, service_role/i);
 
 assert.match(edge, /refresh_product_size_guides/);
 assert.match(edge, /https:\/\/api\.ssactivewear\.com\/v2\/specs\//);
 assert.match(edge, /StyleID,PartNumber,BrandName,StyleName,SizeName,SizeOrder,SpecName,Value/);
-assert.match(edge, /styleBrand === brand && \(identifiers\.has\(styleName\) \|\| identifiers\.has\(partNumber\)\)/);
+assert.match(edge, /identifiers\.has\(styleName\) \|\| identifiers\.has\(partNumber\)/);
+assert.match(edge, /if \(byStyleId\.size > 1 && brand\)/);
+assert.match(edge, /productName\.startsWith\(`\$\{supplierBrand\} `\)/);
 assert.match(edge, /supplier_style_id:/);
 assert.match(edge, /source_hash: await sourceHash/);
 assert.match(edge, /status: 'unavailable'/);
