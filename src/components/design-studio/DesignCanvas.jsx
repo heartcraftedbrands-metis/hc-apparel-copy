@@ -42,14 +42,14 @@ function CanvasElement({ area, element, selected, onInteract }) {
   </g>;
 }
 
-export default function DesignCanvas({ document, setDocument, beginDocumentInteraction, endDocumentInteraction, printArea, sizingArea = printArea, selectedIds, setSelectedIds, previewMode, mockup, previewArea = DEFAULT_AREA, unavailableReason = '', targetPpi = ARTWORK_OUTPUT_PPI, customerMode = false }) {
+export default function DesignCanvas({ document, setDocument, beginDocumentInteraction, endDocumentInteraction, printArea, sizingArea = printArea, selectedIds, setSelectedIds, previewMode, mockup, previewArea = DEFAULT_AREA, unavailableReason = '', targetPpi = ARTWORK_OUTPUT_PPI, customerMode = false, locationLabel = '' }) {
   const svgRef = useRef(null);
   const interactionRef = useRef(null);
   const [zoom, setZoom] = useState(1);
   const placement = document.activePlacement;
   const elements = document.placements?.[placement] || [];
   const selected = elements.find(item => selectedIds.includes(item.id));
-  const placementLabel = DESIGN_PLACEMENTS.find(([key]) => key === placement)?.[1] || placement;
+  const placementLabel = locationLabel || DESIGN_PLACEMENTS.find(([key]) => key === placement)?.[1] || placement;
   const physical = useMemo(() => selected ? artworkSizeInches(selected, sizingArea) : null, [selected, sizingArea]);
 
   const patchSelected = patch => setDocument(updatePlacement(document, placement, items => items.map(item => selectedIds.includes(item.id) ? { ...item, ...patch } : item)));

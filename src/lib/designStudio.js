@@ -1,3 +1,5 @@
+import { rotatedElementBounds } from './designLocationRegistry.js';
+
 export const DESIGN_PLACEMENTS = [
   ['front', 'Front'],
   ['back', 'Back'],
@@ -31,7 +33,7 @@ export const STUDIO_FONTS = [
 export const ARTWORK_OUTPUT_PPI = 300;
 
 export const createStudioDocument = (overrides = {}) => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   name: 'Untitled design',
   productId: '',
   productName: '',
@@ -50,6 +52,9 @@ export const createStudioDocument = (overrides = {}) => ({
   decorationMethod: 'dtf',
   activePlacement: 'front',
   placements: Object.fromEntries(DESIGN_PLACEMENTS.map(([key]) => [key, []])),
+  placementSelections: {},
+  placementDefinitionVersion: null,
+  legacyPlacementReviewRequired: false,
   updatedAt: new Date().toISOString(),
   ...overrides,
 });
@@ -263,7 +268,8 @@ export function validatePlacement(elements, printArea) {
   }
   for (const element of elements || []) {
     if (!element.visible) continue;
-    if (element.x < 0 || element.y < 0 || element.x + element.width > 100 || element.y + element.height > 100) {
+    const bounds = rotatedElementBounds(element);
+    if (bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > 100 || bounds.y + bounds.height > 100) {
       warnings.push({ code: 'outside_print_area', level: 'blocker', elementId: element.id, message: `${element.name || 'Artwork'} extends outside the printable area.` });
     }
     const dpi = effectiveDpi(element, printArea);
@@ -282,12 +288,19 @@ export function validateDesign(document, printAreas = []) {
   if (Number(document.quantity) < 1) warnings.push({ code: 'quantity_invalid', level: 'blocker', message: 'Quantity must be at least one.' });
   Object.entries(document.placements || {}).forEach(([placement, elements]) => {
     if (!(elements || []).length) return;
+    if (!document.placementSelections?.[placement]?.definitionId) {
+      warnings.push({ code: 'location_definition_required', level: 'blocker', placement, message: 'Choose a verified placement for this artwork. Existing artwork has not been moved.' });
+    } else if (document.placementSelections[placement].dimensionMode === 'custom') {
+      if (!String(document.placementSelections[placement].customInstructions || '').trim()) warnings.push({ code: 'custom_location_instructions_required', level: 'blocker', placement, message: 'Add custom placement instructions.' });
+      warnings.push({ code: 'custom_location_review_required', level: 'blocker', placement, message: 'This flexible placement requires an approved production proof.' });
+    }
     const area = printAreas.find(item => item.placement === placement);
     warnings.push(...validatePlacement(elements, area).map(item => ({ ...item, placement })));
   });
   if (!Object.values(document.placements || {}).some(elements => elements?.length)) {
     warnings.push({ code: 'artwork_missing', level: 'blocker', message: 'Add artwork, text, or a shape to at least one placement.' });
   }
+  if (document.legacyPlacementReviewRequired) warnings.push({ code: 'legacy_placement_review', level: 'blocker', message: 'This saved design predates the verified placement registry. Review each artwork location before production; nothing was moved automatically.' });
   return warnings;
 }
 

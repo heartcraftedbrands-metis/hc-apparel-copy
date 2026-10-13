@@ -217,16 +217,54 @@ async function hydrateDocumentAssets(service: ReturnType<typeof createClient>, d
   return copy;
 }
 
-function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[], configuredTargetPpi = 300) {
+function rotatedBounds(element: Record<string, unknown>) {
+  const x = Number(element.x), y = Number(element.y), width = Number(element.width), height = Number(element.height);
+  const radians = Math.abs(Number(element.rotation || 0)) * Math.PI / 180;
+  const rotatedWidth = Math.abs(width * Math.cos(radians)) + Math.abs(height * Math.sin(radians));
+  const rotatedHeight = Math.abs(width * Math.sin(radians)) + Math.abs(height * Math.cos(radians));
+  return { x: x + width / 2 - rotatedWidth / 2, y: y + height / 2 - rotatedHeight / 2, width: rotatedWidth, height: rotatedHeight };
+}
+
+function productAudience(product: Record<string, unknown> | null) {
+  const identity = `${product?.name || ''} ${product?.market_segment || ''} ${product?.age_group || ''}`.toLowerCase();
+  if (/\binfant|baby|onesie\b/.test(identity)) return 'infant';
+  if (/\btoddler\b/.test(identity)) return 'toddler';
+  if (/\byouth|kids?|boys?|girls?\b/.test(identity)) return 'youth';
+  return 'adult';
+}
+
+function validateDocument(document: Record<string, unknown>, areas: Record<string, unknown>[], configuredTargetPpi = 300, locationDefinitions = new Map<string, Record<string, unknown>>(), product: Record<string, unknown> | null = null, method: Record<string, unknown> | null = null) {
   const warnings: Record<string, unknown>[] = [];
   const targetPpi = Math.max(300, Number(configuredTargetPpi || 300));
   const selectedSize = safeText(document.size, 100);
   const placements = document.placements && typeof document.placements === 'object' ? document.placements as Record<string, unknown[]> : {};
+  const selections = document.placementSelections && typeof document.placementSelections === 'object' ? document.placementSelections as Record<string, Record<string, unknown>> : {};
   if (!safeText(document.productId, 100)) warnings.push({ code: 'product_missing', level: 'blocker', message: 'Choose an eligible garment.' });
   if (!safeText(document.color, 200) || !safeText(document.size, 100)) warnings.push({ code: 'variant_missing', level: 'blocker', message: 'Choose a color and size.' });
   if (!Object.values(placements).some(items => Array.isArray(items) && items.length)) warnings.push({ code: 'artwork_missing', level: 'blocker', message: 'Add a design element.' });
   for (const [placement, rawElements] of Object.entries(placements)) {
     if (!Array.isArray(rawElements) || !rawElements.length) continue;
+    const selection = selections[placement];
+    const definition = selection?.definitionId ? locationDefinitions.get(safeText(selection.definitionId, 80)) : null;
+    if (!definition) {
+      warnings.push({ code: 'location_definition_required', level: 'blocker', placement, message: 'Choose a verified placement for this artwork. Existing artwork has not been moved.' });
+    } else {
+      const garmentType = safeText(product?.design_studio_garment_type, 80).toLowerCase();
+      const audience = productAudience(product);
+      const garments = Array.isArray(definition.applicable_garment_types) ? definition.applicable_garment_types : [];
+      const audiences = Array.isArray(definition.applicable_audiences) ? definition.applicable_audiences : [];
+      const methods = Array.isArray(definition.applicable_methods) ? definition.applicable_methods : [];
+      if (definition.surface_key !== placement || !definition.active || !definition.verified || !definition.studio_enabled
+        || (garments.length && !garments.includes(garmentType)) || (audiences.length && !audiences.includes(audience))
+        || (methods.length && !methods.includes(method?.method_key))) {
+        warnings.push({ code: 'location_definition_incompatible', level: 'blocker', placement, message: 'The saved placement is not compatible with the current garment and decoration method.' });
+      }
+      if (safeText(selection.definitionVersion, 80) !== safeText(definition.definition_version, 80)) {
+        warnings.push({ code: 'location_definition_version_changed', level: 'blocker', placement, message: 'The placement definition changed after this design was saved. Review it before production.' });
+      }
+      if (definition.custom_instructions_required && !safeText(selection.customInstructions, 2000)) warnings.push({ code: 'custom_location_instructions_required', level: 'blocker', placement, message: 'Add custom placement instructions.' });
+      if (definition.dimension_mode !== 'fixed' || definition.proof_required) warnings.push({ code: 'custom_location_review_required', level: 'blocker', placement, message: 'This flexible placement requires custom instructions and an approved production proof.' });
+    }
     const area = areas.filter(item => item.placement === placement && item.enabled && item.verified)
       .sort((a, b) => Number(b.product_size === selectedSize) - Number(a.product_size === selectedSize))[0];
     const hasVerifiedArea = Boolean(area && Number(area.width_in) > 0 && Number(area.height_in) > 0);
@@ -236,7 +274,8 @@ function validateDocument(document: Record<string, unknown>, areas: Record<strin
     for (const value of rawElements) {
       const element = value as Record<string, unknown>;
       const x = Number(element.x), y = Number(element.y), width = Number(element.width), height = Number(element.height);
-      if (![x,y,width,height].every(Number.isFinite) || x < 0 || y < 0 || x + width > 100 || y + height > 100) {
+      const bounds = rotatedBounds(element);
+      if (![x,y,width,height,bounds.x,bounds.y,bounds.width,bounds.height].every(Number.isFinite) || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > 100 || bounds.y + bounds.height > 100) {
         warnings.push({ code: 'outside_print_area', level: 'blocker', placement, element_id: element.id, message: 'Artwork extends outside the printable area.' });
       }
       if (element.type === 'image' && Number(element.pixelWidth) > 0 && Number(element.pixelHeight) > 0) {
@@ -293,12 +332,13 @@ Deno.serve(async request => {
     const action = safeText(payload.action, 80);
 
     if (action === 'status') {
-      const [{ data: settings }, { data: printify }, { data: pricingConfigs }, { data: decorationMethods }, { data: pricingPackages }] = await Promise.all([
+      const [{ data: settings }, { data: printify }, { data: pricingConfigs }, { data: decorationMethods }, { data: pricingPackages }, { data: designLocations }] = await Promise.all([
         service.from('design_studio_settings').select('*').eq('id', true).single(),
         service.from('printify_integration_settings').select('*').eq('id', true).single(),
         service.from('design_pricing_config').select('*').eq('active', true).order('effective_at', { ascending: false }),
         service.from('design_decoration_methods').select('*').order('customer_label'),
         service.from('design_pricing_packages').select('*').eq('active', true).order('effective_at', { ascending: false }),
+        service.from('storefront_design_locations').select('*').order('customer_group').order('customer_label'),
       ]);
       if (!isAdmin && !settings?.public_studio_enabled) fail('The Design Studio is in admin preview.', 403, 'preview_only');
       let printifyConnection = { configured: false, verified: false, shop_count: 0, safe_error: '' };
@@ -311,7 +351,7 @@ Deno.serve(async request => {
           printifyConnection = { configured: true, verified: false, shop_count: 0, safe_error: (error as Error).message };
         }
       }
-      return reply({ settings, pricing_configs: pricingConfigs || [], pricing_packages: pricingPackages || [], decoration_methods: decorationMethods || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
+      return reply({ settings, pricing_configs: pricingConfigs || [], pricing_packages: pricingPackages || [], decoration_methods: decorationMethods || [], design_locations: designLocations || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
     }
 
     if (!isAdmin) {
@@ -598,14 +638,62 @@ Deno.serve(async request => {
         ? await service.from('design_print_areas').select('*').eq('product_id', productId).eq('production_route', route).eq('print_method', methodKey).in('product_size', ['*', size])
         : { data: [] };
       const areas = areasResult.data || [];
+      const placementSelections = document.placementSelections && typeof document.placementSelections === 'object'
+        ? document.placementSelections as Record<string, Record<string, unknown>> : {};
+      const locationIds = [...new Set(Object.values(placementSelections).map(value => safeText(value?.definitionId, 80)).filter(Boolean))];
+      const locationResult = locationIds.length
+        ? await service.from('design_location_definitions').select('*').in('id', locationIds).eq('active', true)
+        : { data: [] };
+      const locationDefinitions = new Map<string, Record<string, unknown>>((locationResult.data || []).map(item => [item.id, item]));
       const { data: studioSettings } = await service.from('design_studio_settings').select('default_raster_ppi').eq('id', true).maybeSingle();
-      const warnings = [...garmentEligibilityWarnings, ...validateDocument(document, areas || [], Math.max(300, Number(studioSettings?.default_raster_ppi || 300)))];
+      const warnings = [...garmentEligibilityWarnings, ...validateDocument(document, areas || [], Math.max(300, Number(studioSettings?.default_raster_ppi || 300)), locationDefinitions, product, method)];
       const persistedDocument = await storedDocumentCopy(document);
+      const usedSurfaces = Object.entries((document.placements || {}) as Record<string, unknown[]>).filter(([, elements]) => Array.isArray(elements) && elements.some(value => (value as Record<string, unknown>).visible !== false)).map(([surface]) => surface);
+      const locationSnapshot = usedSurfaces.map(surface => {
+        const selection = placementSelections[surface] || {};
+        const definition = locationDefinitions.get(safeText(selection.definitionId, 80));
+        if (!definition) return { surface_key: surface, definition_missing: true };
+        return {
+          surface_key: surface,
+          definition_id: definition.id,
+          definition_version: definition.definition_version,
+          provider_key: definition.provider_key,
+          provider_location_id: definition.provider_location_id,
+          provider_name: definition.provider_name,
+          width_in: definition.width_in,
+          height_in: definition.height_in,
+          dimension_mode: definition.dimension_mode,
+          anchor_key: definition.anchor_key,
+          placement_instructions: definition.placement_instructions,
+          proof_required: definition.proof_required,
+          custom_instructions: safeText(selection.customInstructions, 2000) || null,
+        };
+      });
+      const artworkSnapshot = usedSurfaces.flatMap(surface => {
+        const definition = locationDefinitions.get(safeText(placementSelections[surface]?.definitionId, 80));
+        return (((document.placements || {}) as Record<string, Record<string, unknown>[]>)[surface] || []).filter(element => element.visible !== false).map(element => {
+          const intendedWidth = Number(element.intendedWidthIn || 0) || (Number(definition?.width_in || 0) * Number(element.width || 0) / 100) || null;
+          const intendedHeight = Number(element.intendedHeightIn || 0) || (Number(definition?.height_in || 0) * Number(element.height || 0) / 100) || null;
+          const dpiX = element.type === 'image' && intendedWidth ? Math.floor(Number(element.pixelWidth || 0) / intendedWidth) : null;
+          const dpiY = element.type === 'image' && intendedHeight ? Math.floor(Number(element.pixelHeight || 0) / intendedHeight) : null;
+          return {
+            surface_key: surface, element_id: element.id, element_type: element.type,
+            artwork_asset_id: element.assetId || null, intended_width_in: intendedWidth, intended_height_in: intendedHeight,
+            x_percent: Number(element.x || 0), y_percent: Number(element.y || 0),
+            width_percent: Number(element.width || 0), height_percent: Number(element.height || 0), rotation_degrees: Number(element.rotation || 0),
+            original_pixel_width: Number(element.pixelWidth || 0) || null, original_pixel_height: Number(element.pixelHeight || 0) || null,
+            effective_dpi: dpiX && dpiY ? Math.min(dpiX, dpiY) : null,
+            vector_paths: element.type === 'image' && (element.fileKind === 'svg' || element.mimeType === 'image/svg+xml') && element.containsEmbeddedRaster !== true,
+          };
+        });
+      });
       const record = {
         owner_user_id: user.id, name: safeText(document.name || 'Untitled design', 160), product_id: productId || null,
         variant_sku: safeText(document.productSku, 160) || null, selected_color: safeText(document.color, 160) || null,
         selected_size: safeText(document.size, 80) || null, quantity: Math.max(1, Number(document.quantity) || 1),
         production_route: route, print_method: methodKey, document: { ...persistedDocument, decorationMethod: methodKey, printMethod: methodKey, productionRoute: route },
+        placement_definition_version: safeText(document.placementDefinitionVersion, 80) || null,
+        legacy_placement_review_required: Boolean(document.legacyPlacementReviewRequired || usedSurfaces.some(surface => !placementSelections[surface]?.definitionId)),
         validation: warnings, autosaved_at: new Date().toISOString(),
         ...(payload.explicit ? { status: 'saved', saved_at: new Date().toISOString() } : {}),
       };
@@ -618,6 +706,24 @@ Deno.serve(async request => {
         const result = await service.from('design_documents').insert(record).select('*').single();
         if (result.error) fail(`Design could not be created (database ${result.error.code || 'error'}).`, 500, result.error.code || 'design_insert_failed'); saved = result.data;
       }
+      const normalizedLocations = usedSurfaces.map(surface => {
+        const selection = placementSelections[surface] || {};
+        const definition = locationDefinitions.get(safeText(selection.definitionId, 80));
+        const first = ((document.placements || {}) as Record<string, Record<string, unknown>[]>)[surface]?.find(item => item.visible !== false);
+        return definition ? {
+          design_id: saved.id, surface_key: surface, location_definition_id: definition.id,
+          definition_version: definition.definition_version,
+          intended_width_in: Number(first?.intendedWidthIn || 0) || null,
+          intended_height_in: Number(first?.intendedHeightIn || 0) || null,
+          x_percent: Number(first?.x || 0), y_percent: Number(first?.y || 0), rotation_degrees: Number(first?.rotation || 0),
+          custom_instructions: safeText(selection.customInstructions, 2000) || null,
+          saved_at: new Date().toISOString(),
+        } : null;
+      }).filter(Boolean);
+      if (normalizedLocations.length) {
+        const { error: locationSaveError } = await service.from('design_document_locations').upsert(normalizedLocations, { onConflict: 'design_id,surface_key' });
+        if (locationSaveError) fail('The design was saved, but its placement mapping could not be recorded.', 500, 'location_mapping_save_failed');
+      }
       let version = null;
       if (payload.create_version) {
         const { count } = await service.from('design_versions').select('*', { count: 'exact', head: true }).eq('design_id', saved.id);
@@ -626,6 +732,9 @@ Deno.serve(async request => {
           design_id: saved.id, owner_user_id: saved.owner_user_id, version_number: Number(count || 0) + 1,
           document_snapshot: record.document, production_spec_snapshot: {
             print_areas: areas || [], route, print_method: record.print_method,
+            design_locations: locationSnapshot,
+            garment: { product_id: productId || null, manufacturer_style: product?.style_number || null, variant_id: selectedVariant?.variant_id || selectedVariant?.id || document.variantId || null, variant_sku: selectedVariant?.sku || document.productSku || null, color, size, quantity: record.quantity },
+            artwork: artworkSnapshot,
             production_ready: Boolean(method.available), provider_key: method.provider_key || null,
             backup_production_route: method.backup_production_route || null,
             backup_provider_key: method.backup_provider_key || null,
@@ -828,6 +937,13 @@ Deno.serve(async request => {
       }).select('*').single();
       if (error) fail('Production review job could not be prepared.', 500);
       return reply({ job, submitted: false }, 200, origin);
+    }
+
+    if (action === 'production_manifest') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const { data: version } = await service.from('design_versions').select('id,design_id,version_number,checksum,created_at,production_spec_snapshot,validation_snapshot').eq('id', safeText(payload.design_version_id, 80)).maybeSingle();
+      if (!version) fail('Saved design version not found.', 404);
+      return reply({ version, submitted: false }, 200, origin);
     }
 
     if (action === 'submit_printify') {

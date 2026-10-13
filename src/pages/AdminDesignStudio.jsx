@@ -24,6 +24,10 @@ import {
   getOfficialGarmentSource, getStudioProductPreviewImage, getStudioProductSummary, getVariantForColor, getVariantImage, isStudioEligibleProduct, placementAvailability,
   previewPhysicalScale, previewSurface, viewForPlacement,
 } from '@/lib/designStudioCatalog';
+import {
+  DESIGN_LOCATION_GROUPS, designLocationIsCompatible, designLocationPreviewArea, designLocationSizingArea,
+  getActiveDesignLocation, selectDesignLocation, upgradeStudioDocument,
+} from '@/lib/designLocationRegistry';
 
 const DEFAULT_ARTWORK_COLOR = '#4e602e';
 const DEFAULT_ARTWORK_CONTRAST = '#f9f7f1';
@@ -140,10 +144,58 @@ function Field({ label, children, hint }) {
   return <label className="block min-w-0 text-sm font-medium">{label}<div className="mt-1">{children}</div>{hint && <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>}</label>;
 }
 
+function PlacementDiagram({ location }) {
+  const back = location.view_side === 'back';
+  const surface = location.surface_key;
+  const anchor = location.anchor_key || '';
+  let box = { x: 35, y: 32, width: 30, height: 34 };
+  if (surface === 'left_chest') box = { x: 29, y: 30, width: 17, height: 16 };
+  if (surface === 'right_chest') box = { x: 54, y: 30, width: 17, height: 16 };
+  if (surface?.includes('sleeve')) box = { x: surface === 'left_sleeve' ? 13 : 72, y: anchor === 'cuff' ? 62 : 32, width: 15, height: anchor === 'cuff' ? 10 : 29 };
+  if (anchor.includes('upper')) box = { x: 31, y: 24, width: 38, height: 14 };
+  if (anchor === 'lower_center') box = { x: 28, y: 65, width: 44, height: 13 };
+  if (anchor.includes('left') && surface === 'back') box = { x: 27, y: 31, width: 22, height: 30 };
+  if (anchor.includes('right') && surface === 'back') box = { x: 51, y: 31, width: 22, height: 30 };
+  if (anchor === 'hood') box = { x: 40, y: 13, width: 20, height: 14 };
+  if (anchor === 'hood_name_drop') box = { x: 31, y: 31, width: 38, height: 10 };
+  return <svg viewBox="0 0 100 90" aria-hidden="true" className="h-20 w-full rounded-lg bg-muted/50">
+    <path d="M31 15 18 25 8 43l13 7 8-12v42h42V38l8 12 13-7-10-18-13-10-11 7H42Z" fill="hsl(var(--card))" stroke="hsl(var(--primary)/.45)" strokeWidth="2" />
+    {back && <path d="M42 16q8 8 16 0" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="1.5" />}
+    <rect {...box} rx="2" fill="hsl(var(--accent)/.55)" stroke="hsl(var(--primary))" strokeWidth="1.5" />
+  </svg>;
+}
+
+function PlacementSelector({ locations, activeLocation, onSelect, product, method, customInstructions = '', onCustomInstructions }) {
+  const [group, setGroup] = useState(activeLocation?.customer_group || 'Front');
+  useEffect(() => { if (activeLocation?.customer_group) setGroup(activeLocation.customer_group); }, [activeLocation?.customer_group]);
+  const grouped = locations.filter(item => item.customer_group === group);
+  return <section className="space-y-3 rounded-xl border bg-card p-3" aria-labelledby="placement-heading">
+    <div><h2 id="placement-heading" className="font-bold text-primary">Choose a placement</h2><p className="text-xs text-muted-foreground">Only placements supported for this garment, view, and decoration method are shown. Left and right use the wearer&apos;s perspective.</p></div>
+    <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Placement groups">{DESIGN_LOCATION_GROUPS.map(value => {
+      const count = locations.filter(item => item.customer_group === value).length;
+      if (!count) return null;
+      return <button type="button" role="tab" aria-selected={group === value} key={value} onClick={() => setGroup(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${group === value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>{value} <span aria-hidden="true">({count})</span></button>;
+    })}</div>
+    {!product ? <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Choose a garment first.</p> : !method ? <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Choose a decoration method.</p> : !locations.length ? <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No verified placement is compatible with this garment, its available photos, and the selected decoration method.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{grouped.map(location => {
+      const selected = activeLocation?.id === location.id;
+      return <button key={location.id} type="button" onClick={() => onSelect(location)} aria-pressed={selected} className={`rounded-xl border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:border-primary/50'}`}>
+        <PlacementDiagram location={location} />
+        <span className="mt-2 block text-sm font-bold text-primary">{location.customer_label}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">{location.dimension_mode === 'fixed' ? `${Number(location.width_in).toFixed(Number(location.width_in) % 1 ? 1 : 0)} × ${Number(location.height_in).toFixed(Number(location.height_in) % 1 ? 1 : 0)} in` : location.dimension_mode === 'custom' ? 'Custom instructions required' : 'Flexible dimensions · production review required'}</span>
+      </button>;
+    })}</div>}
+    {activeLocation && <div className="rounded-lg bg-muted/60 p-3 text-xs"><p className="font-semibold text-primary">{activeLocation.customer_label}</p><p className="mt-1 text-muted-foreground">{activeLocation.placement_instructions}</p>{activeLocation.custom_instructions_required && <label className="mt-3 block font-semibold text-primary">Custom placement instructions<textarea value={customInstructions} onChange={event => onCustomInstructions?.(event.target.value)} rows={3} className="mt-1 w-full rounded-md border bg-card px-3 py-2 font-normal text-foreground" placeholder="Describe the requested position and alignment." /></label>}{activeLocation.proof_required && <p className="mt-1 font-semibold text-amber-800">A production proof is required for this placement.</p>}</div>}
+  </section>;
+}
+
 function customerBlockerMessage(blocker) {
   if (blocker.code === 'printing_price_missing') return 'A printing price is not available for this selection.';
   if (blocker.code === 'fulfillment_not_configured') return 'This decoration method is not available for checkout yet.';
   if (blocker.code === 'print_area_unverified') return 'This placement needs a final production check before checkout.';
+  if (blocker.code === 'location_definition_required' || blocker.code === 'legacy_placement_review') return 'Choose and review a verified placement for each artwork location. Your artwork has not been moved.';
+  if (blocker.code === 'location_definition_incompatible' || blocker.code === 'location_definition_version_changed') return 'Review this placement for the selected garment and decoration method.';
+  if (blocker.code === 'custom_location_review_required') return 'This flexible placement needs custom instructions and an approved production proof.';
+  if (blocker.code === 'custom_location_instructions_required') return 'Add instructions for the custom placement.';
   if (blocker.code === 'garment_replacement_required') return 'Choose another available garment before checkout.';
   if (blocker.code === 'method_garment_incompatible' || blocker.code === 'method_placement_incompatible') return 'Choose a compatible garment, placement, or decoration method.';
   return blocker.message;
@@ -357,9 +409,9 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     provider_key: HC_METHOD_KEYS.has(method_key) ? 'hc' : 'ss_fast',
   }));
   const selectedMethod = methods.find(item => item.method_key === methodKey) || null;
+  const designLocations = status?.design_locations || [];
   const relevantAreas = printAreas.filter(item => item.production_route === document.productionRoute && item.print_method === methodKey && item.enabled && (item.product_size === '*' || item.product_size === document.size));
   const activeArea = [...relevantAreas].sort((a, b) => Number(b.product_size === document.size) - Number(a.product_size === document.size)).find(item => item.placement === document.activePlacement);
-  const warnings = useMemo(() => validateDesign(document, relevantAreas), [document, relevantAreas]);
   const selected = (document.placements?.[document.activePlacement] || []).find(item => selectedIds.includes(item.id));
   const pricingConfigs = status?.pricing_configs || [];
   const vinylPricingGaps = useMemo(() => VINYL_METHOD_KEYS.map(methodKeyValue => {
@@ -375,10 +427,22 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const pricing = calculateStudioPricing({ route: document.productionRoute, garmentRetail: productPrice(product, variant), printingCharge, quantity: document.quantity });
   const views = useMemo(() => buildMockupViews(product, document.color, document.size, mockupMappings), [product, document.color, document.size, mockupMappings]);
   const placementState = useMemo(() => placementAvailability(product, views), [product, views]);
+  const compatibleLocations = useMemo(() => designLocations.filter(location => designLocationIsCompatible(location, { product, method: selectedMethod, placementState })), [designLocations, placementState, product, selectedMethod]);
+  const activeLocation = useMemo(() => getActiveDesignLocation(document, designLocations), [designLocations, document]);
+  const warnings = useMemo(() => {
+    const next = validateDesign(document, relevantAreas);
+    const compatibleIds = new Set(compatibleLocations.map(item => item.id));
+    for (const [surface, elements] of Object.entries(document.placements || {})) {
+      if (!elements?.some(element => element.visible !== false)) continue;
+      const definitionId = document.placementSelections?.[surface]?.definitionId;
+      if (designLocations.length && definitionId && !compatibleIds.has(definitionId)) next.push({ code: 'location_definition_incompatible', level: 'blocker', placement: surface, message: 'The saved placement is not compatible with the current garment, view, or decoration method.' });
+    }
+    return next;
+  }, [compatibleLocations, designLocations.length, document, relevantAreas]);
   const activeView = viewForPlacement(document.activePlacement);
   const activeMockup = views[activeView] || null;
-  const canvasArea = previewSurface(product, document.activePlacement, activeMockup?.previewArea);
-  const sizingArea = useMemo(() => previewPhysicalScale(activeArea, document.activePlacement, canvasArea), [activeArea, canvasArea.height, canvasArea.width, document.activePlacement]);
+  const canvasArea = activeLocation ? designLocationPreviewArea(product, activeLocation, activeMockup?.previewArea) : previewSurface(product, document.activePlacement, activeMockup?.previewArea);
+  const sizingArea = useMemo(() => designLocationSizingArea(activeLocation, activeArea) || previewPhysicalScale(activeArea, document.activePlacement, canvasArea), [activeArea, activeLocation, canvasArea, document.activePlacement]);
   const areaProduct = products.find(item => item.id === areaForm.product_id) || null;
   const officialAreaSource = getOfficialGarmentSource(areaProduct);
 
@@ -482,7 +546,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     const nextViews = next ? buildMockupViews(next) : {};
     const nextAvailability = placementAvailability(next, nextViews);
     const nextPlacement = nextAvailability[document.activePlacement]?.enabled ? document.activePlacement : (nextAvailability.front?.enabled ? 'front' : nextAvailability.left_chest?.enabled ? 'left_chest' : 'front');
-    setDocument({ ...document, productId: id, productName: summary?.name || '', productBrand: summary?.brand || '', productStyle: summary?.style || '', garmentType: summary?.type || '', productSku: next?.style_number || '', productImage: displayImage(getStudioProductPreviewImage(next)), mockupViews: nextViews, color: '', size: '', activePlacement: nextPlacement, updatedAt: new Date().toISOString() });
+    const hasArtwork = Object.values(document.placements || {}).some(items => items?.length);
+    setDocument({ ...document, productId: id, productName: summary?.name || '', productBrand: summary?.brand || '', productStyle: summary?.style || '', garmentType: summary?.type || '', productSku: next?.style_number || '', productImage: displayImage(getStudioProductPreviewImage(next)), mockupViews: nextViews, color: '', size: '', activePlacement: nextPlacement, placementSelections: {}, placementDefinitionVersion: null, legacyPlacementReviewRequired: hasArtwork, updatedAt: new Date().toISOString() });
   };
   const onField = (key, value) => {
     const changes = { [key]: value };
@@ -507,6 +572,16 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     const method = methods.find(item => item.method_key === value);
     if (!method || method.draft_selectable === false) { setSaveState(`${method?.customer_label || value} cannot be selected for a draft.`); return; }
     setDocument({ ...document, decorationMethod: value, printMethod: value, productionRoute: method.production_route || 'hc_transfer_press', updatedAt: new Date().toISOString() });
+  };
+  const onLocation = location => {
+    setDocument(selectDesignLocation(document, location));
+    setSelectedIds([]);
+  };
+  const onCustomLocationInstructions = value => {
+    const surface = document.activePlacement;
+    const selection = document.placementSelections?.[surface];
+    if (!selection) return;
+    setDocument({ ...document, placementSelections: { ...document.placementSelections, [surface]: { ...selection, customInstructions: value } }, updatedAt: new Date().toISOString() });
   };
   const addElement = element => {
     const normalized = initializeArtworkSizing(element, sizingArea);
@@ -552,7 +627,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     setBusy('load'); try {
       const result = await invoke('load', { design_id: id });
       const savedProduct = products.find(item => item.id === result.design.document.productId);
-      const base = savedProduct ? { ...result.design.document, productImage: displayImage(getVariantImage(savedProduct, result.design.document.color, result.design.document.size) || ''), mockupViews: buildMockupViews(savedProduct, result.design.document.color, result.design.document.size) } : result.design.document;
+      const upgraded = upgradeStudioDocument(result.design.document);
+      const base = savedProduct ? { ...upgraded, productImage: displayImage(getVariantImage(savedProduct, upgraded.color, upgraded.size) || ''), mockupViews: buildMockupViews(savedProduct, upgraded.color, upgraded.size) } : upgraded;
       const hydrated = { ...base, placements: Object.fromEntries(Object.entries(base.placements || {}).map(([placement, elements]) => [placement, (elements || []).map(element => initializeArtworkSizing(element, previewPhysicalScale(null, placement, previewSurface(savedProduct, placement))))])) };
       dispatch({ type: 'replace', value: hydrated }); setDesignId(result.design.id); setVersion(null); setSelectedIds([]); savedJsonRef.current = JSON.stringify(hydrated); setSaveState('Saved'); setTab('studio');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); }
@@ -590,6 +666,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     if (warnings.some(item => item.level === 'blocker')) return toast.error('Production export is blocked until artwork and print-area issues are resolved.');
     setBusy('export');
     try {
+      const manifest = await invoke('production_manifest', { design_version_id: version.id });
       for (const [placement, elements] of Object.entries(document.placements || {})) {
         if (!elements?.length) continue;
         const area = printAreas.find(item => item.placement === placement && item.production_route === document.productionRoute && item.enabled && item.verified);
@@ -597,7 +674,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
         const blob = await renderProductionPng(elements, area);
         const url = URL.createObjectURL(blob); const anchor = window.document.createElement('a'); anchor.href = url; anchor.download = `hc-design-${designId}-${placement}-${area.width_in}x${area.height_in}in-300dpi.png`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-      download(`hc-design-${designId}-job.json`, JSON.stringify({ generated_at: new Date().toISOString(), mockup_is_approximate: true, production_files: 'Separate transparent 300 DPI PNG files downloaded for each configured location.', design_id: designId, version, garment: { product_id: document.productId, name: document.productName, sku: document.productSku, color: document.color, size: document.size, quantity: document.quantity }, production_route: document.productionRoute, print_method: document.printMethod, print_areas: printAreas, placements: document.placements, warnings }, null, 2));
+      download(`hc-design-${designId}-job.json`, JSON.stringify({ generated_at: new Date().toISOString(), mockup_is_approximate: true, production_files: 'Separate transparent 300 DPI PNG files downloaded for each configured location.', design_id: designId, version: manifest.version, garment: { product_id: document.productId, name: document.productName, sku: document.productSku, color: document.color, size: document.size, quantity: document.quantity }, production_route: document.productionRoute, print_method: document.printMethod, print_areas: printAreas, placements: document.placements, warnings }, null, 2));
       toast.success('Production artwork and job manifest downloaded separately.');
     } catch (error) { toast.error(error.message); } finally { setBusy(''); }
   };
@@ -684,7 +761,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
 
   const visibleTabs = customerMode ? CUSTOMER_TABS : TABS;
   const hasArtwork = Object.values(document.placements || {}).some(elements => elements?.length);
-  const customerWarnings = warnings.filter(warning => !['product_missing', 'artwork_missing', 'print_area_unverified', 'resolution_size_missing'].includes(warning.code)
+  const customerWarnings = warnings.filter(warning => !['product_missing', 'artwork_missing', 'resolution_size_missing'].includes(warning.code)
     && !(warning.code === 'variant_missing' && !document.productId)
     && !(warning.code === 'artwork_missing' && (!document.productId || !document.color || !document.size)));
   const customerSaveState = /failed|unavailable/i.test(saveState)
@@ -729,11 +806,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
       <div className="grid min-w-0 gap-4 lg:grid-cols-[270px_minmax(0,1fr)_280px]">
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.variants}</CardContent></Card><Card><CardContent className="p-4">{sidePanels.add}</CardContent></Card></aside>
         <div className="min-w-0 space-y-3">
-          <div className="flex gap-2 overflow-x-auto rounded-xl border bg-card p-2">{DESIGN_PLACEMENTS.map(([key, label]) => {
-            const state = placementState[key] || { enabled: false, reason: 'Choose a garment first.' };
-            return <button key={key} type="button" disabled={!state.enabled} onClick={() => { onField('activePlacement', key); setSelectedIds([]); }} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${document.activePlacement === key ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'} disabled:cursor-not-allowed disabled:opacity-40`} title={state.reason || (relevantAreas.some(item => item.placement === key) ? '' : 'Draft editing is available; production calibration is still required.')}>{label}</button>;
-          })}</div>
-          <DesignCanvas document={document} setDocument={setDocument} beginDocumentInteraction={beginDocumentInteraction} endDocumentInteraction={endDocumentInteraction} printArea={activeArea} sizingArea={sizingArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} />
+          <PlacementSelector locations={compatibleLocations} activeLocation={activeLocation} onSelect={onLocation} product={product} method={selectedMethod} customInstructions={document.placementSelections?.[document.activePlacement]?.customInstructions || ''} onCustomInstructions={onCustomLocationInstructions} />
+          <DesignCanvas document={document} setDocument={setDocument} beginDocumentInteraction={beginDocumentInteraction} endDocumentInteraction={endDocumentInteraction} printArea={activeArea} sizingArea={sizingArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} locationLabel={activeLocation?.customer_label || ''} />
           <p className="text-center text-xs text-muted-foreground">{customerMode ? 'Your preview uses the selected garment and color. Placement shown is approximate until the design is reviewed.' : 'The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.'}</p>
         </div>
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>

@@ -9,15 +9,21 @@ import {
   buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel, getStudioGarmentType, getVariantImage, isStudioEligibleProduct,
   placementAvailability, previewPhysicalScale, previewSurface,
 } from '../src/lib/designStudioCatalog.js';
+import {
+  designLocationIsCompatible, designLocationPreviewArea, designLocationSizingArea, getStudioAudience,
+  rotatedElementBounds, selectDesignLocation, upgradeStudioDocument,
+} from '../src/lib/designLocationRegistry.js';
 
 const document = createStudioDocument({
   productId: 'gildan-5000', color: 'Black', size: 'L', quantity: 2,
   placements: { front: [makeElement('image', { pixelWidth: 1800, pixelHeight: 1680, width: 50, height: 40 })] },
+  placementSelections: { front: { definitionId: 'front-id', definitionVersion: '2026-10-13' } },
 });
 const area = { placement: 'front', verified: true, enabled: true, width_in: 12, height_in: 14, min_dpi: 300 };
 assert.equal(effectiveDpi(document.placements.front[0], area), 300, 'effective DPI uses physical artwork width');
 assert.deepEqual(validatePlacement(document.placements.front, area), [], 'valid placement passes');
 assert.ok(validatePlacement([{ ...document.placements.front[0], x: 80 }], area).some(item => item.code === 'outside_print_area'), 'out-of-bounds artwork blocks production');
+assert.ok(validatePlacement([{ ...document.placements.front[0], x: 63, y: 30, width: 35, height: 35, rotation: 45 }], area).some(item => item.code === 'outside_print_area'), 'rotated artwork is checked by its true bounding box');
 assert.ok(validatePlacement(document.placements.front, { ...area, verified: false }).some(item => item.code === 'print_area_unverified'), 'unverified physical area blocks production');
 assert.deepEqual(validateDesign(document, [area]), [], 'complete design passes configured checks');
 const quality = artworkQualityReport({ type: 'image', pixelWidth: 1800, pixelHeight: 1800, intendedWidthIn: 12, intendedHeightIn: 12 }, null, 300);
@@ -124,6 +130,7 @@ const garmentReviewMigration = fs.readFileSync(new URL('../supabase/migrations/2
 const colorImageReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030021_design_studio_color_image_approval.sql', import.meta.url), 'utf8');
 const catalogCoverageMigration = fs.readFileSync(new URL('../supabase/migrations/202610040002_expand_design_studio_catalog_coverage.sql', import.meta.url), 'utf8');
 const previewCartDedupeMigration = fs.readFileSync(new URL('../supabase/migrations/202610040003_prevent_design_preview_cart_duplicates.sql', import.meta.url), 'utf8');
+const fastLocationMigration = fs.readFileSync(new URL('../supabase/migrations/202610130001_fast_design_location_registry.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const flags = fs.readFileSync(new URL('../src/config/storefrontFeatures.js', import.meta.url), 'utf8');
@@ -192,9 +199,20 @@ assert.match(edge, /\.eq\('design_id', design\.id\)[\s\S]*\.is\('archived_at', n
 assert.match(edge, /result\.error\?\.code === '23505'/, 'concurrent preview-cart attaches recover from the database uniqueness guard');
 assert.match(previewCartDedupeMigration, /unique index[\s\S]*owner_user_id, design_id[\s\S]*where archived_at is null/i, 'the database permits only one active preview-cart row per owner and design');
 assert.match(edge, /!isAdmin \|\| payload\.owner_only === true/, 'customer preview saved-design lists remain scoped to the signed-in owner even for an admin testing the customer view');
+assert.equal((fastLocationMigration.match(/\('(?:front|back)',\d+,/g) || []).length, 99, 'the dated source registry contains all 71 front and 28 back definitions');
+assert.match(fastLocationMigration, /create or replace view public\.storefront_design_locations/, 'the customer-safe registry view is separate from private provider metadata');
+assert.match(fastLocationMigration, /provider_location_id integer not null/, 'exact provider placement identifiers remain available to production records');
+assert.match(fastLocationMigration, /revoke all on public\.storefront_design_locations from anon, authenticated/, 'customers cannot query the placement registry outside the validated edge response');
+assert.match(edge, /service\.from\('storefront_design_locations'\)/, 'the Design Studio status response reads only customer-safe placement fields');
+assert.match(edge, /service\.from\('design_location_definitions'\)/, 'the server resolves customer-safe selections to the private source definition');
+assert.match(edge, /provider_location_id: definition\.provider_location_id/, 'immutable production specs preserve the exact provider location identifier');
+assert.match(edge, /function rotatedBounds/, 'server validation includes artwork rotation in boundary checks');
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
+assert.match(page, /Choose a placement/, 'the customer workflow offers the detailed placement selector');
+const placementSelectorSource = page.slice(page.indexOf('function PlacementSelector'), page.indexOf('function customerBlockerMessage'));
+assert.doesNotMatch(placementSelectorSource, /provider_location_id|FAST Design Location|S&S/, 'the placement picker does not display supplier names or numeric provider IDs');
 assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method selection is controlled by draft eligibility rather than vendor readiness');
 assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
 assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not expose canvas percentages');
@@ -225,5 +243,17 @@ assert.match(page, /persistDesign\(\{ createVersion: customerMode, busyKey: 'sav
 assert.match(page, /if \(customerMode && !privatePreview\)/, 'customer Add to Cart stays isolated to the authorized private preview until public release');
 assert.match(page, /customerMode \? 'Save Design' : 'Save'/, 'the customer action uses the plain Save Design label');
 assert.match(page, /customerMode \? <div className="mt-4[\s\S]*Add to Cart[\s\S]*: <div className="mt-4[\s\S]*Download Production Artwork/, 'customer cart action and admin production export render in separate interfaces');
+
+const location = { id: 'front-id', definition_version: '2026-10-13', view_side: 'front', customer_label: 'Full Front', customer_group: 'Front', surface_key: 'front', width_in: 12, height_in: 12, dimension_mode: 'fixed', units: 'inches', anchor_key: 'center_front', verified: true, applicable_garment_types: ['t_shirts'], applicable_audiences: ['adult'], applicable_methods: ['dtf'] };
+assert.equal(getStudioAudience(baseProduct), 'adult', 'adult catalog styles map to adult placement definitions');
+assert.equal(getStudioAudience({ ...baseProduct, name: 'Youth Tee' }), 'youth', 'youth catalog styles map to youth placement definitions');
+assert.equal(designLocationIsCompatible(location, { product: baseProduct, method: { method_key: 'dtf', compatible_placements: ['front'] }, placementState: { front: { enabled: true } } }), true, 'location compatibility requires garment, method, audience, and a real view');
+assert.equal(designLocationIsCompatible(location, { product: { ...baseProduct, design_studio_garment_type: 'zip_hoodies' }, method: { method_key: 'dtf', compatible_placements: ['front'] }, placementState: { front: { enabled: false } } }), false, 'unsupported split-front or missing-view combinations stay hidden');
+const selectedDocument = selectDesignLocation(createStudioDocument(), location);
+assert.equal(selectedDocument.placementSelections.front.definitionId, 'front-id', 'the selected registry definition is part of the saved design document');
+assert.equal(designLocationSizingArea(location).width_in, 12, 'official dimensions drive inch and pixel sizing while product calibration remains explicitly unverified');
+assert.deepEqual(designLocationPreviewArea(baseProduct, location), { x: 28, y: 22, width: 44, height: 56 }, 'the exact location maps to an intentional garment-view region');
+assert.ok(rotatedElementBounds({ x: 10, y: 10, width: 20, height: 10, rotation: 90 }).width < 11, 'rotation-aware bounds swap the element footprint');
+assert.equal(upgradeStudioDocument({ schemaVersion: 1, placements: { front: [makeElement('text')] } }).legacyPlacementReviewRequired, true, 'legacy artwork is flagged for review without being moved');
 
 console.log('Design Studio safety, validation, pricing, and persistence tests passed.');
