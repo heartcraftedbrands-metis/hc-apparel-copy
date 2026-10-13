@@ -278,6 +278,19 @@ function validateDocument(document: Record<string, unknown>, areas: Record<strin
       if (![x,y,width,height,bounds.x,bounds.y,bounds.width,bounds.height].every(Number.isFinite) || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > 100 || bounds.y + bounds.height > 100) {
         warnings.push({ code: 'outside_print_area', level: 'blocker', placement, element_id: element.id, message: 'Artwork extends outside the printable area.' });
       }
+      if (element.type === 'text') {
+        const fontId = safeText(element.fontId, 80).toLowerCase();
+        const fontSize = Number(element.fontSize || 0);
+        const letterSpacing = Number(element.letterSpacing || 0);
+        const lineSpacing = Number(element.lineSpacing || 0);
+        if (!safeText(element.text, 4000).trim()) warnings.push({ code: 'text_content_missing', level: 'blocker', placement, element_id: element.id, message: 'Enter wording for this text layer.' });
+        if (!['inter', 'montserrat', 'lora'].includes(fontId)) warnings.push({ code: 'text_font_unavailable', level: 'blocker', placement, element_id: element.id, message: 'Choose an available licensed Studio font for this text layer.' });
+        if (!Number.isFinite(fontSize) || fontSize < 6 || fontSize > 300) warnings.push({ code: 'text_font_size_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text font size must be between 6 and 300 points.' });
+        if (!Number.isFinite(letterSpacing) || letterSpacing < -.1 || letterSpacing > 1) warnings.push({ code: 'text_letter_spacing_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text letter spacing is outside the supported range.' });
+        if (!Number.isFinite(lineSpacing) || lineSpacing < .8 || lineSpacing > 3) warnings.push({ code: 'text_line_spacing_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text line spacing is outside the supported range.' });
+        if (!/^#[0-9a-f]{6}$/i.test(safeText(element.fill, 20))) warnings.push({ code: 'text_color_invalid', level: 'blocker', placement, element_id: element.id, message: 'Choose a valid text color.' });
+        if (!['left', 'center', 'right'].includes(safeText(element.textAlign, 20))) warnings.push({ code: 'text_alignment_invalid', level: 'blocker', placement, element_id: element.id, message: 'Choose a supported text alignment.' });
+      }
       if (element.type === 'image' && Number(element.pixelWidth) > 0 && Number(element.pixelHeight) > 0) {
         const isVector = element.fileKind === 'svg' || element.mimeType === 'image/svg+xml';
         if (isVector && element.containsEmbeddedRaster !== true) continue;
@@ -684,6 +697,12 @@ Deno.serve(async request => {
             original_pixel_width: Number(element.pixelWidth || 0) || null, original_pixel_height: Number(element.pixelHeight || 0) || null,
             effective_dpi: dpiX && dpiY ? Math.min(dpiX, dpiY) : null,
             vector_paths: element.type === 'image' && (element.fileKind === 'svg' || element.mimeType === 'image/svg+xml') && element.containsEmbeddedRaster !== true,
+            ...(element.type === 'text' ? {
+              text_content: safeText(element.text, 4000), font_id: safeText(element.fontId, 80), font_family: safeText(element.fontFamily, 160),
+              font_size_pt: Number(element.fontSize || 0), font_weight: Number(element.fontWeight || 400), font_style: safeText(element.fontStyle, 20),
+              text_color: safeText(element.fill, 20), text_align: safeText(element.textAlign, 20),
+              letter_spacing_em: Number(element.letterSpacing || 0), line_spacing: Number(element.lineSpacing || 1.2), curve: Number(element.curve || 0),
+            } : {}),
           };
         });
       });

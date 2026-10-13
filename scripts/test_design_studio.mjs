@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   artworkQualityReport, artworkSizeForUnit, calculatePrintingCharge, calculateStudioPricing, createStudioDocument, effectiveDpi, historyReducer,
-  initializeArtworkSizing, isRestrictedCustomizationProduct, makeElement, normalizedFileKind,
-  synchronizeArtworkResize, updateArtworkDimension, validateDesign, validatePlacement,
+  initialTextColorForGarment, initializeArtworkSizing, isRestrictedCustomizationProduct, makeElement, normalizeTextElement, normalizedFileKind, recalculateTextBounds,
+  synchronizeArtworkResize, updateArtworkDimension, updatePlacement, validateDesign, validatePlacement,
 } from '../src/lib/designStudio.js';
 import {
   buildMockupViews, getStudioCustomizationColors, getStudioGarmentLabel, getStudioGarmentType, getVariantImage, isStudioEligibleProduct,
@@ -59,6 +59,29 @@ assert.equal(movedOnly.intendedWidthIn, typedFourInches.intendedWidthIn, 'moving
 assert.equal(movedOnly.intendedHeightIn, typedFourInches.intendedHeightIn, 'moving artwork does not alter its physical height');
 const liveResizedArtwork = { ...typedFourInches, ...synchronizeArtworkResize(typedFourInches, 68.25, 30.7125, approximateScale) };
 assert.equal(initializeArtworkSizing(liveResizedArtwork, approximateScale), liveResizedArtwork, 'sub-pixel floating-point noise does not create a second history entry during live resizing');
+const nativeText = makeElement('text');
+assert.equal(nativeText.text, 'Your text', 'new text starts with an editable initial value');
+assert.equal(nativeText.type, 'text', 'new wording remains a native text layer rather than a flattened image');
+assert.equal(initialTextColorForGarment('Black'), '#F9F7F1', 'new text starts readable on a dark garment');
+assert.equal(initialTextColorForGarment('White'), '#4E602E', 'new text uses the HC olive on a light garment');
+const textBeforeCenter = { ...nativeText, x: 20, y: 30, width: 40, height: 12, rotation: 17 };
+const longerText = recalculateTextBounds(textBeforeCenter, { text: 'HeartCrafted\nfor Champions', fontId: 'lora', fontFamily: 'Lora', fontSize: 42, letterSpacing: .04, lineSpacing: 1.3 }, { width_in: 12, height_in: 12 });
+assert.equal(longerText.rotation, 17, 'editing wording preserves text rotation');
+assert.equal(Number((longerText.x + longerText.width / 2).toFixed(4)), 40, 'recalculated text keeps its horizontal center');
+assert.equal(Number((longerText.y + longerText.height / 2).toFixed(4)), 36, 'recalculated text keeps its vertical center');
+assert.equal(normalizeTextElement(longerText).fontId, 'lora', 'licensed font identifiers persist independently of labels');
+assert.equal(artworkQualityReport(longerText, area, 300), null, 'native editable text is never classified as low-resolution uploaded artwork');
+const scaledText = { ...longerText, ...updateArtworkDimension(longerText, 'width', 6, 'inches', { width_in: 12, height_in: 12 }, 300) };
+assert.equal(scaledText.aspectRatioLocked, true, 'native text proportions remain locked during physical resizing');
+assert.notEqual(scaledText.fontSize, longerText.fontSize, 'physical text resizing updates its font size instead of stretching letters');
+const independentTextDocument = updatePlacement(createStudioDocument(), 'front', () => [
+  { ...makeElement('text'), id: 'headline', text: 'Champions', fill: '#E9B525' },
+  { ...makeElement('text'), id: 'caption', text: 'Wear Love', fill: '#F9F7F1', fontId: 'lora', fontFamily: 'Lora' },
+]);
+const restoredTextDocument = JSON.parse(JSON.stringify(independentTextDocument));
+assert.equal(restoredTextDocument.placements.front[0].text, 'Champions', 'save and reload preserve the first independent text layer');
+assert.equal(restoredTextDocument.placements.front[1].fontId, 'lora', 'save and reload preserve formatting on a second independent text layer');
+assert.notEqual(restoredTextDocument.placements.front[0].fill, restoredTextDocument.placements.front[1].fill, 'independent text layers preserve separate colors');
 const packaged = calculatePrintingCharge({ ...document, decorationMethod: 'dtf', productionRoute: 'hc_transfer_press', placements: { front: [makeElement('text')], back: [makeElement('text')] } }, [
   { active: true, production_route: 'hc_transfer_press', print_method: 'dtf', placement: 'front', service_price: 19.99 },
 ], [{ active: true, method_key: 'dtf', placements: ['front', 'back'], service_price: 34.99 }]);
@@ -187,6 +210,7 @@ assert.match(flags, /designStudioPublic:\s*false/, 'public studio flag remains o
 assert.match(app, /path="\/DesignStudio"[\s\S]*STOREFRONT_FEATURES\.designStudioPublic[\s\S]*Navigate to="\/ShopGarments"/, 'customer studio route safely redirects while the public flag is off');
 
 const page = fs.readFileSync(new URL('../src/pages/AdminDesignStudio.jsx', import.meta.url), 'utf8');
+const textEditor = fs.readFileSync(new URL('../src/components/design-studio/TextEditorPanel.jsx', import.meta.url), 'utf8');
 assert.match(page, /Choose Garment/, 'garment selection is visible before the canvas');
 assert.match(page, /invoke\('catalog'\)/, 'the garment picker uses the authenticated server catalog rather than a broad public-view query');
 assert.match(edge, /action === 'catalog'/, 'the server exposes the approved Design Studio catalog independently of the admin coverage report');
@@ -217,6 +241,14 @@ assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method sele
 assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
 assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not expose canvas percentages');
 assert.match(page, /Minimum artwork resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
+assert.match(textEditor, /textarea[\s\S]*Text content/, 'native text editing supports multiline wording');
+assert.match(textEditor, /TEXT_COLOR_SWATCHES[\s\S]*Custom text color HEX/, 'text editing provides discoverable swatches and a custom HEX field');
+assert.match(textEditor, /AlignLeft[\s\S]*AlignCenter[\s\S]*AlignRight/, 'text editing exposes all supported alignments');
+assert.match(textEditor, /fontWeight[\s\S]*fontStyle/, 'bold and italic options update native font properties');
+assert.match(page, /mobilePanel === 'text'[\s\S]*Edit Text/, 'mobile uses a clearly titled Edit Text bottom sheet');
+assert.match(page, /Replace with editable text/, 'flattened image layers are identified and can be deliberately replaced with native text');
+assert.match(page, /await Promise\.all\(elements\.filter\(item => item\.type === 'text'/, 'production rendering waits for licensed fonts before measuring text');
+assert.match(edge, /text_content:[\s\S]*font_id:[\s\S]*text_color:[\s\S]*letter_spacing_em:/, 'production snapshots persist editable text content and formatting');
 const canvas = fs.readFileSync(new URL('../src/components/design-studio/DesignCanvas.jsx', import.meta.url), 'utf8');
 const sizeControls = fs.readFileSync(new URL('../src/components/design-studio/ArtworkSizeControls.jsx', import.meta.url), 'utf8');
 const sharedTheme = fs.readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');

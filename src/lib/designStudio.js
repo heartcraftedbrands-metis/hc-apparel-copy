@@ -26,9 +26,112 @@ export const DECORATION_METHODS = [
   ['dtg', 'DTG'],
 ];
 
-export const STUDIO_FONTS = [
-  'Arial', 'Georgia', 'Trebuchet MS', 'Verdana', 'Courier New', 'Times New Roman',
+export const STUDIO_FONT_OPTIONS = [
+  { id: 'inter', label: 'Inter', family: 'Inter', category: 'Clean sans serif', license: 'SIL Open Font License 1.1' },
+  { id: 'montserrat', label: 'Montserrat', family: 'Montserrat', category: 'Bold geometric sans', license: 'SIL Open Font License 1.1' },
+  { id: 'lora', label: 'Lora', family: 'Lora', category: 'Expressive serif', license: 'SIL Open Font License 1.1' },
 ];
+
+export const STUDIO_FONTS = STUDIO_FONT_OPTIONS.map(font => font.family);
+
+export const TEXT_COLOR_SWATCHES = [
+  '#111111', '#FFFFFF', '#F9F7F1', '#4E602E', '#E9B525', '#9F1D35', '#184E9E', '#14213D',
+];
+
+export const normalizeHexColor = value => {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toUpperCase();
+  if (/^#[0-9a-f]{3}$/i.test(raw)) return `#${raw.slice(1).split('').map(character => character.repeat(2)).join('')}`.toUpperCase();
+  return null;
+};
+
+export function initialTextColorForGarment(color) {
+  const raw = String(color || '').trim().toLowerCase();
+  const parsed = normalizeHexColor(raw);
+  if (parsed) {
+    const channels = [1, 3, 5].map(index => parseInt(parsed.slice(index, index + 2), 16) / 255)
+      .map(value => value <= .03928 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+    const luminance = .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2];
+    return luminance < .32 ? '#F9F7F1' : '#4E602E';
+  }
+  return /black|navy|midnight|charcoal|dark|forest|maroon|burgundy|purple|royal|red|brown|espresso|heather black/.test(raw)
+    ? '#F9F7F1' : '#4E602E';
+}
+
+export function studioFontForElement(element = {}) {
+  const byId = STUDIO_FONT_OPTIONS.find(font => font.id === element.fontId);
+  if (byId) return byId;
+  const byFamily = STUDIO_FONT_OPTIONS.find(font => font.family.toLowerCase() === String(element.fontFamily || '').toLowerCase());
+  if (byFamily) return byFamily;
+  return { id: 'legacy', label: element.fontFamily || 'Legacy font', family: element.fontFamily || 'Arial', category: 'Saved legacy font', license: 'Installed system font' };
+}
+
+export function normalizeTextElement(element = {}) {
+  const font = studioFontForElement(element);
+  return {
+    ...element,
+    fontId: font.id,
+    fontFamily: font.family,
+    fontSize: Math.min(300, Math.max(6, Number(element.fontSize || 48))),
+    fontWeight: Number(element.fontWeight) >= 600 ? 700 : 400,
+    fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
+    textAlign: ['left', 'center', 'right'].includes(element.textAlign) ? element.textAlign : 'center',
+    letterSpacing: Math.min(1, Math.max(-.1, Number(element.letterSpacing || 0))),
+    lineSpacing: Math.min(3, Math.max(.8, Number(element.lineSpacing || 1.2))),
+  };
+}
+
+export function textFontCss(element = {}) {
+  const normalized = normalizeTextElement(element);
+  return `${normalized.fontStyle} ${normalized.fontWeight} ${normalized.fontSize}px "${normalized.fontFamily}"`;
+}
+
+export async function ensureStudioFontLoaded(element = {}) {
+  const normalized = normalizeTextElement(element);
+  if (!globalThis.document?.fonts?.load) return normalized;
+  await globalThis.document.fonts.load(textFontCss(normalized), String(normalized.text || 'Your text'));
+  return normalized;
+}
+
+function measuredLineWidth(element, line) {
+  const normalized = normalizeTextElement(element);
+  const sample = line || ' ';
+  if (globalThis.document?.createElement) {
+    const canvas = globalThis.document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.font = `${normalized.fontStyle} ${normalized.fontWeight} 100px "${normalized.fontFamily}"`;
+      return context.measureText(sample).width / 100;
+    }
+  }
+  return Math.max(.5, [...sample].length * (normalized.fontFamily === 'Lora' ? .56 : .58));
+}
+
+export function recalculateTextBounds(element, patch = {}, printArea = null) {
+  const normalized = normalizeTextElement({ ...element, ...patch });
+  const lines = String(normalized.text ?? '').split(/\r?\n/);
+  const fontSizeIn = normalized.fontSize / 72;
+  const widthIn = Math.max(.12, ...lines.map(line => {
+    const characters = [...line];
+    return fontSizeIn * (measuredLineWidth(normalized, line) + Math.max(0, characters.length - 1) * normalized.letterSpacing);
+  }));
+  const heightIn = Math.max(.12, fontSizeIn * Math.max(1, lines.length) * normalized.lineSpacing);
+  const oldCenterX = Number(element.x || 0) + Number(element.width || 0) / 2;
+  const oldCenterY = Number(element.y || 0) + Number(element.height || 0) / 2;
+  const areaWidth = Number(printArea?.width_in || 0);
+  const areaHeight = Number(printArea?.height_in || 0);
+  const width = areaWidth > 0 ? (widthIn / areaWidth) * 100 : Math.max(2, Number(element.width || 50));
+  const height = areaHeight > 0 ? (heightIn / areaHeight) * 100 : Math.max(2, Number(element.height || 16));
+  return {
+    ...normalized,
+    intendedWidthIn: widthIn,
+    intendedHeightIn: heightIn,
+    width,
+    height,
+    x: oldCenterX - width / 2,
+    y: oldCenterY - height / 2,
+  };
+}
 
 export const ARTWORK_OUTPUT_PPI = 300;
 
@@ -78,8 +181,14 @@ export const makeElement = (type, overrides = {}) => ({
   groupId: null,
   fill: '#4e602e',
   text: type === 'text' ? 'Your text' : '',
-  fontFamily: 'Arial',
-  fontWeight: 700,
+  fontId: type === 'text' ? 'inter' : null,
+  fontFamily: type === 'text' ? 'Inter' : null,
+  fontSize: type === 'text' ? 48 : null,
+  fontWeight: type === 'text' ? 700 : null,
+  fontStyle: type === 'text' ? 'normal' : null,
+  textAlign: type === 'text' ? 'center' : null,
+  letterSpacing: type === 'text' ? 0 : null,
+  lineSpacing: type === 'text' ? 1.2 : null,
   curve: 0,
   shape: type === 'shape' ? 'rectangle' : null,
   ...overrides,
@@ -152,7 +261,7 @@ export function updateArtworkDimension(element, axis, rawValue, unit = element?.
   const nextInches = normalizedUnit === 'pixels' ? value / Number(targetPpi || ARTWORK_OUTPUT_PPI) : value;
   const current = artworkSizeInches(element, printArea);
   const ratio = sourceAspectRatio(element);
-  const locked = element?.aspectRatioLocked !== false;
+  const locked = element?.type === 'text' || element?.aspectRatioLocked !== false;
   const widthIn = axis === 'width' ? nextInches : locked ? nextInches * ratio : current.width;
   const heightIn = axis === 'height' ? nextInches : locked ? nextInches / ratio : current.height;
   const patch = {
@@ -161,6 +270,10 @@ export function updateArtworkDimension(element, axis, rawValue, unit = element?.
     intendedHeightIn: heightIn || null,
     aspectRatioLocked: locked,
   };
+  if (element?.type === 'text' && current.width && current.height) {
+    const scale = axis === 'width' ? nextInches / current.width : nextInches / current.height;
+    patch.fontSize = Math.min(300, Math.max(6, Number(element.fontSize || 48) * scale));
+  }
 
   if (Number(printArea?.width_in) > 0 && Number(printArea?.height_in) > 0) {
     if (widthIn) patch.width = Math.max(1, (widthIn / Number(printArea.width_in)) * 100);
@@ -222,6 +335,10 @@ export function synchronizeArtworkResize(element, nextWidthPercent, nextHeightPe
     ...(current.width && current.height ? {
       intendedWidthIn: current.width * widthRatio,
       intendedHeightIn: current.height * heightRatio,
+    } : {}),
+    ...(element?.type === 'text' ? {
+      aspectRatioLocked: true,
+      fontSize: Math.min(300, Math.max(6, Number(element.fontSize || 48) * Math.max(.05, Math.min(widthRatio, heightRatio)))),
     } : {}),
   };
 }

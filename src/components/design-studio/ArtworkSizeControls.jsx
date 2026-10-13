@@ -61,12 +61,14 @@ export default function ArtworkSizeControls({ element, patchElement, printArea, 
         </select>
       </label>
       <div className="text-[11px] font-medium">Proportions
-        <Button type="button" size="sm" variant="outline" aria-pressed={element.aspectRatioLocked !== false} onClick={() => patchElement({ aspectRatioLocked: element.aspectRatioLocked === false })} className="mt-1 h-9 w-full min-w-11 px-2">
-          {element.aspectRatioLocked === false ? <Unlock className="mr-1 h-3.5 w-3.5" /> : <Lock className="mr-1 h-3.5 w-3.5" />}{element.aspectRatioLocked === false ? 'Unlocked' : 'Locked'}
+        <Button type="button" size="sm" variant="outline" aria-pressed={element.type === 'text' || element.aspectRatioLocked !== false} disabled={element.type === 'text'} onClick={() => patchElement({ aspectRatioLocked: element.aspectRatioLocked === false })} className="mt-1 h-9 w-full min-w-11 px-2">
+          {element.type === 'text' || element.aspectRatioLocked !== false ? <Lock className="mr-1 h-3.5 w-3.5" /> : <Unlock className="mr-1 h-3.5 w-3.5" />}{element.type === 'text' || element.aspectRatioLocked !== false ? 'Locked' : 'Unlocked'}
         </Button>
       </div>
     </div>
-    <p className="text-[11px] text-muted-foreground">{unit === 'pixels'
+    <p className="text-[11px] text-muted-foreground">{element.type === 'text'
+      ? 'Editable text scales proportionally so letters are never stretched or distorted.'
+      : unit === 'pixels'
       ? `Output pixels use the ${targetPpi}-DPI production reference (${targetPpi} pixels = 1 inch). This does not add detail to the original upload.`
       : 'Dimensions are the intended printed size, independent of browser zoom.'}</p>
     {sizeError && <p role="alert" className="text-[11px] font-semibold text-red-700">{sizeError}</p>}

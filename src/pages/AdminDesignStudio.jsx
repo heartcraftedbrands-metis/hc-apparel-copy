@@ -8,14 +8,15 @@ import { toast } from 'sonner';
 import { supabase } from '@/api/supabaseClient';
 import ArtworkSizeControls from '@/components/design-studio/ArtworkSizeControls';
 import DesignCanvas from '@/components/design-studio/DesignCanvas';
+import TextEditorPanel from '@/components/design-studio/TextEditorPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
-  ACTIVE_PRODUCTION_ROUTES, DECORATION_METHODS, DESIGN_PLACEMENTS, STUDIO_FONTS,
+  ACTIVE_PRODUCTION_ROUTES, DECORATION_METHODS, DESIGN_PLACEMENTS,
   artworkQualityReport, calculatePrintingCharge, calculateStudioPricing, createHistory, createStudioDocument, historyReducer,
-  initializeArtworkSizing, makeElement, updatePlacement, validateDesign,
+  ensureStudioFontLoaded, initialTextColorForGarment, initializeArtworkSizing, makeElement, recalculateTextBounds, updatePlacement, validateDesign,
 } from '@/lib/designStudio';
 import { getCustomizationSizes, findCustomizationVariant } from '@/lib/productCustomization';
 import { getProductBrand, getPublicProductName } from '@/lib/productDisplayName';
@@ -87,6 +88,7 @@ async function imageForCanvas(url) {
 
 async function renderProductionPng(elements, area) {
   const dpi = 300;
+  await Promise.all(elements.filter(item => item.type === 'text' && item.visible).map(ensureStudioFontLoaded));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(Number(area.width_in) * dpi);
   canvas.height = Math.round(Number(area.height_in) * dpi);
@@ -117,22 +119,35 @@ async function renderProductionPng(elements, area) {
       else if (element.shape === 'line') { context.lineWidth = Math.max(2, height * .12); context.lineCap = 'round'; context.beginPath(); context.moveTo(0, height / 2); context.lineTo(width, height / 2); context.stroke(); }
       else context.fillRect(0, 0, width, height);
     } else if (element.type === 'text') {
-      context.fillStyle = element.fill;
-      const fontSize = Math.max(12, height * .72);
-      context.font = `${element.fontWeight || 700} ${fontSize}px "${element.fontFamily || 'Arial'}"`;
-      context.textAlign = 'center'; context.textBaseline = 'middle';
-      if (Number(element.curve)) {
-        const characters = [...String(element.text || '')];
-        const direction = Number(element.curve) > 0 ? -1 : 1;
-        const arc = Math.min(Math.PI * .9, Math.abs(Number(element.curve)) / 50 * Math.PI * .75);
+      const text = await ensureStudioFontLoaded(element);
+      const fontSize = Math.max(1, (text.fontSize / 72) * dpi);
+      const letterSpacing = text.letterSpacing * fontSize;
+      const lines = String(text.text ?? '').split(/\r?\n/);
+      const lineAdvance = fontSize * text.lineSpacing;
+      const measureLine = line => context.measureText(line).width + Math.max(0, [...line].length - 1) * letterSpacing;
+      const drawLine = (line, startX, baselineY) => {
+        if (!letterSpacing) { context.fillText(line, startX, baselineY); return; }
+        let cursor = startX;
+        for (const character of [...line]) { context.fillText(character, cursor, baselineY); cursor += context.measureText(character).width + letterSpacing; }
+      };
+      context.fillStyle = text.fill;
+      context.font = `${text.fontStyle} ${text.fontWeight} ${fontSize}px "${text.fontFamily}"`;
+      context.textAlign = 'left'; context.textBaseline = 'top';
+      if (Number(text.curve) && lines.length === 1) {
+        const characters = [...String(text.text || '')];
+        const direction = Number(text.curve) > 0 ? -1 : 1;
+        const arc = Math.min(Math.PI * .9, Math.abs(Number(text.curve)) / 50 * Math.PI * .75);
         const radius = Math.max(width, height) / Math.max(.2, arc);
         characters.forEach((character, index) => {
           const angle = direction * (-arc / 2 + (arc * (index + .5)) / Math.max(1, characters.length));
-          context.save(); context.translate(width / 2 + Math.sin(angle) * radius, height / 2 + direction * (radius - Math.cos(angle) * radius)); context.rotate(direction * angle); context.fillText(character, 0, 0); context.restore();
+          context.save(); context.translate(width / 2 + Math.sin(angle) * radius, height / 2 + direction * (radius - Math.cos(angle) * radius)); context.rotate(direction * angle); context.fillText(character, 0, -fontSize / 2); context.restore();
         });
       } else {
-        const measured = Math.max(1, context.measureText(element.text || '').width);
-        context.save(); context.translate(width / 2, height / 2); context.scale(Math.min(1, width / measured), 1); context.fillText(element.text || '', 0, 0); context.restore();
+        lines.forEach((line, index) => {
+          const measured = measureLine(line);
+          const lineX = text.textAlign === 'left' ? 0 : text.textAlign === 'right' ? width - measured : (width - measured) / 2;
+          drawLine(line, lineX, index * lineAdvance);
+        });
       }
     }
     context.restore();
@@ -265,7 +280,7 @@ function VariantPanel({ products, product, document, methods, onProduct, onField
   </div>;
 }
 
-function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
+function LayerPanel({ document, setDocument, selectedIds, setSelectedIds, onEditText, onReplaceImageWithText }) {
   const placement = document.activePlacement;
   const layers = document.placements?.[placement] || [];
   const patch = (id, values) => setDocument(updatePlacement(document, placement, items => items.map(item => item.id === id ? { ...item, ...values } : item)));
@@ -285,8 +300,11 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
     {[...layers].reverse().map((layer, reverseIndex) => {
       const index = layers.length - reverseIndex - 1;
       return <div key={layer.id} className={`rounded-xl border p-3 ${selectedIds.includes(layer.id) ? 'border-primary bg-primary/5' : 'bg-card'}`}>
-        <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={() => setSelectedIds([layer.id])}>{layer.name}</button>
+        <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={() => { setSelectedIds([layer.id]); if (layer.type === 'text') onEditText?.(layer.id); }}>{layer.name}</button>
+        <p className="mt-1 text-[11px] text-muted-foreground">{layer.type === 'text' ? 'Editable text layer' : layer.type === 'image' ? 'Image artwork · its pixels are not editable text' : 'Shape layer'}</p>
         <div className="mt-2 flex flex-wrap gap-1">
+          {layer.type === 'text' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onEditText?.(layer.id)}><Type className="mr-1 h-4 w-4" />Edit Text</Button>}
+          {layer.type === 'image' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onReplaceImageWithText?.(layer)}><Type className="mr-1 h-4 w-4" />Replace with editable text</Button>}
           <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`} onClick={() => patch(layer.id, { visible: !layer.visible })}>{layer.visible ? <Eye className="h-4 w-4" /> : <X className="h-4 w-4" />}</Button>
           <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`${layer.locked ? 'Unlock' : 'Lock'} ${layer.name}`} onClick={() => patch(layer.id, { locked: !layer.locked })}><LockKeyhole className={`h-4 w-4 ${layer.locked ? 'text-primary' : 'opacity-40'}`} /></Button>
           <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`Move ${layer.name} forward`} onClick={() => move(index, 1)}>↑</Button><Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={`Move ${layer.name} backward`} onClick={() => move(index, -1)}>↓</Button>
@@ -297,19 +315,15 @@ function LayerPanel({ document, setDocument, selectedIds, setSelectedIds }) {
   </div>;
 }
 
-function EditorFields({ selected, patchSelected, printArea, methodKey = 'dtf', targetPpi = 300, customerMode = false }) {
+function EditorFields({ selected, patchSelected, patchTextSelected, printArea, methodKey = 'dtf', targetPpi = 300, customerMode = false, onDone }) {
   if (!selected) return null;
   const enforcedTargetPpi = Math.max(300, Number(targetPpi || 300));
   const quality = artworkQualityReport(selected, printArea, enforcedTargetPpi);
   const isVector = selected.fileKind === 'svg' || selected.mimeType === 'image/svg+xml';
-  return <Card><CardHeader className="pb-2"><CardTitle className="text-base text-primary">Selected layer</CardTitle></CardHeader><CardContent className="space-y-3">
+  return <Card><CardHeader className="pb-2"><CardTitle className="text-base text-primary">{selected.type === 'text' ? 'Edit Text' : 'Selected layer'}</CardTitle></CardHeader><CardContent className="space-y-3">
     <Field label="Layer name"><Input value={selected.name} onChange={event => patchSelected({ name: event.target.value })} /></Field>
-    {selected.type === 'text' && <>
-      <Field label="Text"><Input value={selected.text} onChange={event => patchSelected({ text: event.target.value })} /></Field>
-      <Field label="Font"><select value={selected.fontFamily} onChange={event => patchSelected({ fontFamily: event.target.value })} className="h-10 w-full rounded-md border bg-card px-3">{STUDIO_FONTS.map(font => <option key={font}>{font}</option>)}</select></Field>
-      <Field label={`Curve: ${selected.curve || 0}`}><input type="range" min="-50" max="50" value={selected.curve || 0} onChange={event => patchSelected({ curve: Number(event.target.value) })} className="w-full" /></Field>
-    </>}
-    {(selected.type === 'text' || selected.type === 'shape') && <Field label="Color"><Input type="color" value={selected.fill || DEFAULT_ARTWORK_COLOR} onChange={event => patchSelected({ fill: event.target.value })} className="h-10 p-1" /></Field>}
+    {selected.type === 'text' && <TextEditorPanel element={selected} onChange={patchTextSelected || patchSelected} onDone={onDone} showTitle={false} />}
+    {selected.type === 'shape' && <Field label="Color"><Input type="color" value={selected.fill || DEFAULT_ARTWORK_COLOR} onChange={event => patchSelected({ fill: event.target.value })} className="h-10 p-1" /></Field>}
     {selected.type !== 'image' && <ArtworkSizeControls element={selected} patchElement={patchSelected} printArea={printArea} targetPpi={enforcedTargetPpi} customerMode={customerMode} />}
     {selected.type === 'image' && <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-xs">
       <div><p className="text-sm font-black text-primary">Artwork Quality</p><p className="mt-1 rounded-md bg-primary px-3 py-2 text-sm font-bold text-primary-foreground">Minimum artwork resolution: 300 DPI at the selected print size.</p><p className="mt-2">{isVector && !selected.containsEmbeddedRaster ? 'Original artwork: genuine vector paths' : `Original image: ${Number(selected.pixelWidth || 0).toLocaleString()} × ${Number(selected.pixelHeight || 0).toLocaleString()} pixels`}</p><p>Transparency: {selected.hasTransparency === true ? 'Yes' : selected.hasTransparency === false ? 'No' : 'Not reported'}</p><p>{selected.resolutionX ? `File metadata: ${Math.round(selected.resolutionX)} DPI (informational only; it does not determine quality).` : 'Resolution metadata: Not present. Quality is calculated from original pixels and selected print size.'}</p></div>
@@ -586,19 +600,48 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
     if (!selection) return;
     setDocument({ ...document, placementSelections: { ...document.placementSelections, [surface]: { ...selection, customInstructions: value } }, updatedAt: new Date().toISOString() });
   };
+  const openTextEditor = id => {
+    setSelectedIds([id]);
+    if (window.matchMedia('(max-width: 1023px)').matches) setMobilePanel('text');
+  };
   const addElement = element => {
     const normalized = initializeArtworkSizing(element, sizingArea);
     setDocument(updatePlacement(document, document.activePlacement, items => [...items, normalized]));
-    setSelectedIds([normalized.id]); setMobilePanel('');
+    setSelectedIds([normalized.id]);
+    if (normalized.type === 'text') openTextEditor(normalized.id); else setMobilePanel('');
+  };
+  const addText = () => {
+    const element = recalculateTextBounds(makeElement('text', { fill: initialTextColorForGarment(document.color) }), {}, sizingArea);
+    void ensureStudioFontLoaded(element);
+    addElement(element);
   };
   const addTemplate = () => {
     const groupId = crypto.randomUUID();
     const badge = makeElement('shape', { name: 'HC badge', shape: 'circle', groupId, x: 30, y: 22, width: 40, height: 40, fill: DEFAULT_ARTWORK_COLOR });
-    const text = makeElement('text', { name: 'HC badge text', text: 'HC APPAREL', groupId, x: 33, y: 34, width: 34, height: 12, fill: DEFAULT_ARTWORK_CONTRAST, fontFamily: 'Georgia', fontWeight: 700, curve: 26 });
+    const text = recalculateTextBounds(makeElement('text', { name: 'HC badge text', text: 'HC APPAREL', groupId, x: 33, y: 34, width: 34, height: 12, fill: DEFAULT_ARTWORK_CONTRAST, fontId: 'lora', fontFamily: 'Lora', fontWeight: 700, curve: 26 }), {}, sizingArea);
     setDocument(updatePlacement(document, document.activePlacement, items => [...items, initializeArtworkSizing(badge, sizingArea), initializeArtworkSizing(text, sizingArea)]));
     setSelectedIds([badge.id, text.id]); setMobilePanel('');
   };
   const patchSelected = values => setDocument(updatePlacement(document, document.activePlacement, items => items.map(item => selectedIds.includes(item.id) ? { ...item, ...values } : item)));
+  const patchTextSelected = values => {
+    const updated = updatePlacement(document, document.activePlacement, items => items.map(item => {
+      if (!selectedIds.includes(item.id) || item.type !== 'text') return item;
+      const next = recalculateTextBounds(item, values, sizingArea);
+      void ensureStudioFontLoaded(next);
+      return next;
+    }));
+    setDocument(updated);
+  };
+  const replaceImageWithText = layer => {
+    const replacement = recalculateTextBounds(makeElement('text', {
+      name: `${layer.name || 'Artwork'} replacement text`,
+      fill: initialTextColorForGarment(document.color),
+      x: Number(layer.x || 25), y: Number(layer.y || 25), rotation: Number(layer.rotation || 0), groupId: layer.groupId || null,
+    }), {}, sizingArea);
+    void ensureStudioFontLoaded(replacement);
+    setDocument(updatePlacement(document, document.activePlacement, items => items.map(item => item.id === layer.id ? replacement : item)));
+    openTextEditor(replacement.id);
+  };
   const upload = async event => {
     const file = event.target.files?.[0]; if (!file) return;
     setBusy('upload');
@@ -774,9 +817,9 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
       : (designId && JSON.stringify(document) === savedJsonRef.current) ? 'Saved' : 'Changes not saved';
   const currentCartItem = designId ? previewCart.find(item => item.design_id === designId) : null;
   const sidePanels = {
-    add: <AddPanel onText={() => addElement(makeElement('text'))} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} customerMode={customerMode} />,
+    add: <AddPanel onText={addText} onShape={shape => addElement(makeElement('shape', { shape, name: `${shape[0].toUpperCase()}${shape.slice(1)}` }))} onTemplate={addTemplate} onUpload={upload} busy={busy === 'upload'} customerMode={customerMode} />,
     variants: <VariantPanel products={products} product={product} document={document} methods={methods} onProduct={onProduct} onField={onField} onMethod={onMethod} loading={productsLoading} error={productsError} onRetry={loadProducts} onDone={() => setMobilePanel(customerMode ? 'add' : '')} customerMode={customerMode} />,
-    layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />,
+    layers: <LayerPanel document={document} setDocument={setDocument} selectedIds={selectedIds} setSelectedIds={setSelectedIds} onEditText={openTextEditor} onReplaceImageWithText={replaceImageWithText} />,
   };
 
   return <div className="min-h-screen bg-background pb-40 lg:pb-8">
@@ -810,10 +853,10 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
         <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.variants}</CardContent></Card><Card><CardContent className="p-4">{sidePanels.add}</CardContent></Card></aside>
         <div className="min-w-0 space-y-3">
           <PlacementSelector locations={compatibleLocations} activeLocation={activeLocation} onSelect={onLocation} product={product} method={selectedMethod} customInstructions={document.placementSelections?.[document.activePlacement]?.customInstructions || ''} onCustomInstructions={onCustomLocationInstructions} />
-          <DesignCanvas document={document} setDocument={setDocument} beginDocumentInteraction={beginDocumentInteraction} endDocumentInteraction={endDocumentInteraction} printArea={activeArea} sizingArea={sizingArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} locationLabel={activeLocation?.customer_label || ''} />
+          <DesignCanvas document={document} setDocument={setDocument} beginDocumentInteraction={beginDocumentInteraction} endDocumentInteraction={endDocumentInteraction} printArea={activeArea} sizingArea={sizingArea} selectedIds={selectedIds} setSelectedIds={setSelectedIds} previewMode={previewMode} mockup={activeMockup} previewArea={canvasArea} unavailableReason={placementState[document.activePlacement]?.reason} targetPpi={targetPpi} customerMode={customerMode} locationLabel={activeLocation?.customer_label || ''} onEditText={openTextEditor} />
           <p className="text-center text-xs text-muted-foreground">{customerMode ? 'Your preview uses the selected garment and color. Placement shown is approximate until the design is reviewed.' : 'The garment photo is the current live catalog variant or an admin-mapped authorized view. Artwork overlays are approximate previews and the garment photograph is never included in production artwork.'}</p>
         </div>
-        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>
+        <aside className="hidden space-y-4 lg:block"><Card><CardContent className="p-4">{sidePanels.layers}</CardContent></Card><EditorFields selected={selected} patchSelected={patchSelected} patchTextSelected={patchTextSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></aside>
       </div>
       <section className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="space-y-2">{customerMode ? <>
@@ -879,7 +922,8 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
 
     {tab === 'settings' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Safe rollout settings</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid gap-3 sm:grid-cols-2"><p className="rounded-xl border p-4"><strong>Admin preview</strong><br /><span className="text-green-700">Enabled</span></p><p className="rounded-xl border p-4"><strong>Public Design Studio</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Custom-print checkout</strong><br /><span className="text-amber-700">Disabled</span></p><p className="rounded-xl border p-4"><strong>Vendor submission</strong><br /><span className="text-amber-700">Disabled</span></p></div><p className="text-muted-foreground">The previously hidden Custom Printing page remains hidden. Turning on public design and custom checkout requires a separate Super Admin approval after verified print areas, service prices, provider mappings, shipping, and QA are complete.</p></CardContent></Card><Card><CardHeader><CardTitle>Artwork quality target</CardTitle></CardHeader><CardContent><form onSubmit={saveRasterTarget} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Default raster target (DPI)" hint="The production-readiness minimum is 300 DPI. File metadata alone never proves sufficient resolution."><Input name="default_raster_ppi" type="number" min="300" max="1200" defaultValue={targetPpi} /></Field><Button type="submit">Save target</Button></form></CardContent></Card><GarmentReviewPanel review={catalogReview} loading={catalogReviewLoading} error={catalogReviewError} onRefresh={loadCatalogReview} onSave={saveCatalogReview} busy={busy} /></main>}
 
-    {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-primary"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}{key === 'layers' && <div className="mt-4"><EditorFields selected={selected} patchSelected={patchSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} /></div>}</SheetContent></Sheet>)}
+    {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[calc(100dvh_-_4.75rem_-_env(safe-area-inset-bottom))] overflow-y-auto rounded-t-2xl pb-[max(5.5rem,calc(1rem_+_env(safe-area-inset-bottom)))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-primary"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}</SheetContent></Sheet>)}
+      <Sheet open={mobilePanel === 'text'} onOpenChange={open => setMobilePanel(open ? 'text' : '')}><SheetContent side="bottom" className="max-h-[calc(100dvh_-_4.75rem_-_env(safe-area-inset-bottom))] overflow-y-auto rounded-t-2xl pb-[max(6rem,calc(1rem_+_env(safe-area-inset-bottom)))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-primary"><Type className="h-5 w-5" />Edit Text</SheetTitle></SheetHeader><div className="mt-3"><EditorFields selected={selected} patchSelected={patchSelected} patchTextSelected={patchTextSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} onDone={() => setMobilePanel('')} /></div></SheetContent></Sheet>
       <div className={`fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-4 border-t bg-card px-2 pb-2 pt-2 shadow-[0_-4px_16px_rgba(0,0,0,.08)] ${customerMode ? 'sm:hidden' : 'lg:hidden'}`}>
         {[["variants", Shirt, customerMode ? 'Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Button key={key} type="button" variant="ghost" className="h-auto flex-col gap-1 text-[11px]" onClick={() => setMobilePanel(key)}><Icon className="h-5 w-5" />{label}</Button>)}
         <Button className="h-auto flex-col gap-1 bg-accent text-[11px] text-accent-foreground hover:bg-accent/90" onClick={save} disabled={Boolean(busy)}><Save className="h-5 w-5" />{busy === 'save' ? 'Saving…' : customerMode ? 'Save Design' : 'Save'}</Button>
