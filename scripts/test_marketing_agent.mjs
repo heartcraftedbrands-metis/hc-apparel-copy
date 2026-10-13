@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const migration = fs.readFileSync(new URL('../supabase/migrations/202610130002_facebook_pinterest_marketing_agent.sql', import.meta.url), 'utf8');
+const edge = fs.readFileSync(new URL('../supabase/functions/marketing-agent/index.ts', import.meta.url), 'utf8');
+const component = fs.readFileSync(new URL('../src/components/marketing/MarketingAgent.jsx', import.meta.url), 'utf8');
+const calendar = fs.readFileSync(new URL('../src/components/marketing/MarketingContentCalendar.jsx', import.meta.url), 'utf8');
+const center = fs.readFileSync(new URL('../src/pages/AdminMarketingCenter.jsx', import.meta.url), 'utf8');
+
+assert.match(migration, /'Draft','Approved','Scheduled','Publishing','Published','Failed','Cancelled'/, 'database has the complete requested post state machine');
+assert.match(migration, /marketing_agent_validate_transition/, 'invalid post state transitions are blocked in the database');
+assert.match(migration, /idempotency_key uuid not null default gen_random_uuid\(\)/, 'every agent post receives an idempotency key');
+assert.match(migration, /inbound_reply_generation_enabled boolean not null default false check \(inbound_reply_generation_enabled = false\)/, 'incoming reply generation is permanently disabled');
+assert.match(migration, /incoming_comment_triggers_enabled boolean not null default false check \(incoming_comment_triggers_enabled = false\)/, 'incoming comment triggers are permanently disabled');
+assert.match(migration, /direct_messages_enabled boolean not null default false check \(direct_messages_enabled = false\)/, 'direct messaging is permanently disabled');
+assert.match(migration, /insert into storage\.buckets\(id,name,public[\s\S]*'marketing-private-assets','marketing-private-assets',false/, 'uploaded marketing originals use a private bucket');
+assert.match(migration, /schedule_timezone = 'America\/New_York'/, 'post scheduling is constrained to Eastern Time');
+assert.match(migration, /metrics jsonb not null default '\{\}'::jsonb/, 'metrics start empty rather than fabricated');
+
+assert.match(edge, /rpc\('is_admin'\)/, 'every Marketing Agent action requires an authenticated admin');
+assert.match(edge, /marketing-agent\/originals\/\$\{auth\.user\.id\}\/\$\{crypto\.randomUUID\(\)\}/, 'original assets are stored in an owner-scoped private path');
+assert.match(edge, /marketing-agent\/derivatives\//, 'publishing uses a distinct derivative asset');
+assert.match(edge, /product\?\.kind === 'digital'[\s\S]*asset\.imageUrl = String\(product\.image_url/, 'digital mockups publish only the customer-safe watermarked preview');
+assert.match(edge, /if \(product && !product\.available\) fail/, 'availability is checked during draft generation and again before scheduling');
+assert.match(edge, /offer_claim_allowed: Boolean\(product\?\.offer_active\)/, 'offer eligibility is stored from verified live price data');
+assert.match(edge, /verifyUrl\(destination, 'destination'\)[\s\S]*verifyUrl\(String\(post\.image_url/, 'destination and image requests are revalidated immediately before publishing');
+assert.match(edge, /post\.buffer_post_id[\s\S]*reconciled: true/, 'a recorded platform request is reconciled instead of duplicated');
+assert.match(edge, /nearbyBufferPosts[\s\S]*no matching queued post could be confirmed[\s\S]*request was not repeated/i, 'an uncertain platform response is reconciled before retry and never blindly repeated');
+assert.match(edge, /local publishing lock could not be recorded[\s\S]*Nothing was sent to Buffer/, 'a local publishing lock is required before the remote handoff');
+assert.match(edge, /platform_post_id: created\.id/, 'platform request IDs are retained for review');
+assert.match(edge, /automatic_publishing_enabled[\s\S]*authorization_scope/, 'automatic publishing requires explicit campaign scope');
+assert.match(edge, /campaign\.platforms\?\.includes\(post\.platform\)/, 'a post outside the authorized platform scope cannot publish');
+assert.match(edge, /campaign\.start_date[\s\S]*campaign\.end_date/, 'campaign start and end dates are enforced before handoff');
+assert.match(edge, /interaction_policy:[\s\S]*incoming_comment_replies: false[\s\S]*direct_messages: false[\s\S]*other_accounts: false/, 'the capability response makes prohibited interactions explicit');
+assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
+assert.match(edge, /No estimated metrics/, 'the agent explicitly refuses estimated engagement metrics');
+assert.match(edge, /utm_source[\s\S]*utm_medium[\s\S]*utm_campaign[\s\S]*utm_content/, 'published destinations receive platform-specific tracking');
+assert.match(edge, /Never mention suppliers, wholesale systems, internal IDs, integrations, or internal program names/, 'generation prompt blocks internal sourcing language');
+assert.match(edge, /if \(\/\\bS&S\\b\|S&S Activewear\|supplier\|wholesale\|internal program\/i\.test\(joined\)\)/, 'generated customer copy is rejected if sourcing language leaks');
+
+assert.match(component, /Facebook \+ Pinterest content operations/, 'Marketing Center exposes the Facebook and Pinterest agent');
+assert.match(component, /Original saved privately/, 'asset handling accurately explains private originals');
+assert.match(component, /Create Drafts/, 'draft generation remains the default action');
+assert.match(component, /Approve/, 'human approval is discoverable');
+assert.match(component, /Emergency stop this campaign/, 'campaign emergency stop is discoverable and confirmed');
+assert.match(component, /Replies and DMs off/, 'interaction limitations are visible to admins');
+assert.match(component, /No official metrics retrieved/, 'the UI never substitutes fake performance numbers');
+assert.match(component, /America\/New_York/, 'calendar and queue use Eastern Time');
+assert.match(calendar, /MarketingAgentCalendarQueue/, 'the approval queue is integrated into the existing Content Calendar');
+assert.match(center, /label:'Marketing Agent'/, 'the agent is integrated into the existing Marketing Center navigation');
+
+console.log('Marketing Agent guardrail tests passed.');

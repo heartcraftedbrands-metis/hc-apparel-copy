@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, Copy, Download, ExternalLink, Save, Upload
 import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MarketingAgentCalendarQueue } from '@/components/marketing/MarketingAgent';
 
 const statuses = ['Idea', 'Draft', 'Ready to Publish', 'Published', 'Archived', 'Needs Update'];
 const scheduleStatuses = ['Planned', 'Ready', 'Scheduled via Buffer', 'Published', 'Failed'];
@@ -163,7 +164,7 @@ function DraftEditor({ source, onSave, onClose, onNotice, onError }) {
   </div>;
 }
 
-export default function MarketingContentCalendar({ campaigns, drafts, accounts, onSave, onReload, onNotice, onError }) {
+export default function MarketingContentCalendar({ campaigns, drafts, accounts, onSave, onReload, onNotice, onError, onOpenAgent }) {
   const [filter, setFilter] = useState('All');
   const [scope, setScope] = useState('Pinterest plan');
   const [openId, setOpenId] = useState(null);
@@ -231,6 +232,7 @@ export default function MarketingContentCalendar({ campaigns, drafts, accounts, 
     </article>;
   };
   return <div className="min-w-0 space-y-5">
+    <MarketingAgentCalendarQueue onOpenAgent={onOpenAgent} />
     <section className="overflow-hidden rounded-xl border bg-white"><div className="border-b p-4"><h2 className="font-black text-primary">Today's Content</h2><p className="mt-1 text-sm text-muted-foreground">{dateLabel(todayKey)} · {todayRows.length} calendar item{todayRows.length === 1 ? '' : 's'}</p></div><div className="grid gap-3 p-3 sm:p-4">{todayRows.length ? todayRows.map(renderRow) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active-channel campaign content is planned for today.</p>}</div></section>
     {pinterestPlanRows.length > 0 && <section className="overflow-hidden rounded-xl border bg-white p-4">
       <h2 className="font-black text-primary">October 9–22 Pinterest Sales Plan</h2>
