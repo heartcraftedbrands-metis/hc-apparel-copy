@@ -201,6 +201,10 @@ assert.doesNotMatch(edge, /hoodie\|hooded sweatshirt\|crewneck/, 'server eligibi
 assert.match(edge, /enteredWidth[\s\S]*intendedWidthIn[\s\S]*pixelWidth[\s\S]*printWidth/, 'server quality validation uses original upload pixels and selected physical inches');
 assert.doesNotMatch(edge, /code: 'method_unavailable'/, 'production readiness is no longer mislabeled as draft method availability');
 assert.match(edge, /\.is\('archived_at', null\)\.neq\('status', 'archived'\)/, 'confirmed QA fixtures are excluded from active saved designs by both archive markers');
+assert.match(edge, /action === 'archive_test_design'/, 'confirmed authenticated QA designs have a protected cleanup action');
+assert.match(edge, /\/\^AUTH QA\\b\/i\.test/, 'the cleanup action is restricted to explicitly labeled AUTH QA records');
+assert.match(edge, /design\.owner_user_id !== user\.id/, 'an admin can archive only their own authenticated QA design through the acceptance path');
+assert.match(edge, /rpc\('archive_confirmed_test_design'/, 'QA cleanup reuses the retention archive instead of hard-deleting customer design data');
 assert.doesNotMatch(edge, /Deno\.env\.get\([^)]*\).*console\.log/s, 'server secrets are not logged');
 assert.match(app, /ProtectedRoute requiredRole="admin"[\s\S]*AdminDesignStudio/, 'preview route is admin protected');
 assert.match(app, /path="\/AdminDesignStudio"[\s\S]*AdminDesignStudio customerMode privatePreview/, 'the protected preview renders the customer experience with the isolated preview cart enabled');
@@ -232,6 +236,8 @@ assert.match(edge, /service\.from\('design_location_definitions'\)/, 'the server
 assert.match(edge, /provider_location_id: definition\.provider_location_id/, 'immutable production specs preserve the exact provider location identifier');
 assert.match(edge, /function rotatedBounds/, 'server validation includes artwork rotation in boundary checks');
 assert.match(page, /Not checkout-ready/, 'incomplete preview cart entries explain checkout blockers');
+assert.match(page, /Archive QA/, 'the authenticated acceptance UI exposes cleanup only for labeled QA designs');
+assert.match(page, /archive_test_design/, 'the QA cleanup control uses the validated server action');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
 assert.match(page, /Choose a placement/, 'the customer workflow offers the detailed placement selector');

@@ -783,6 +783,25 @@ Deno.serve(async request => {
       return reply({ design: data }, 200, origin);
     }
 
+    if (action === 'archive_test_design') {
+      if (!isAdmin) fail('Admin access is required to archive a Studio QA record.', 403);
+      const designId = safeText(payload.design_id, 80);
+      const { data: design, error: designError } = await service.from('design_documents')
+        .select('id,name,status,owner_user_id,archived_at')
+        .eq('id', designId)
+        .maybeSingle();
+      if (designError || !design || design.owner_user_id !== user.id) fail('Owned Studio QA design not found.', 404);
+      if (!/^AUTH QA\b/i.test(safeText(design.name, 240))) fail('Only explicitly labeled AUTH QA designs can use this cleanup action.', 409);
+      if (design.status === 'ordered') fail('Ordered designs cannot be archived as QA fixtures.', 409);
+      const { data: archived, error: archiveError } = await service.rpc('archive_confirmed_test_design', {
+        p_design_id: design.id,
+        p_reason: 'Confirmed authenticated Design Studio text-editor acceptance fixture.',
+        p_provenance: 'Created and verified by the authorized 2026-10-13 authenticated Design Studio acceptance run.',
+      });
+      if (archiveError) fail(`The QA design could not be archived (${archiveError.code || 'database error'}).`, 500, archiveError.code || 'qa_archive_failed');
+      return reply({ archive: archived }, 200, origin);
+    }
+
     if (action === 'attach_preview_cart') {
       if (!isAdmin) fail('Admin access is required for the isolated preview cart.', 403);
       const versionId = safeText(payload.design_version_id, 80);
