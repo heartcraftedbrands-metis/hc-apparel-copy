@@ -216,7 +216,7 @@ assert.doesNotMatch(placementSelectorSource, /provider_location_id|FAST Design L
 assert.match(page, /disabled=\{item\.draft_selectable === false\}/, 'method selection is controlled by draft eligibility rather than vendor readiness');
 assert.doesNotMatch(page, /Coming soon/, 'customer-facing method names do not contain promotional availability labels');
 assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not expose canvas percentages');
-assert.match(page, /Minimum resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
+assert.match(page, /Minimum artwork resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
 const canvas = fs.readFileSync(new URL('../src/components/design-studio/DesignCanvas.jsx', import.meta.url), 'utf8');
 const sizeControls = fs.readFileSync(new URL('../src/components/design-studio/ArtworkSizeControls.jsx', import.meta.url), 'utf8');
 const sharedTheme = fs.readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
