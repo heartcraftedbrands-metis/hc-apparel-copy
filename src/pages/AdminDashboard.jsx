@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Archive, BarChart3, CalendarDays, ChevronDown, ChevronRight, Clock,
   DollarSign, FileText, Inbox, Mail, MessageSquare, Package, Settings,
-  ShoppingBag, Sparkles, Store, Truck, User, Megaphone, Palette,
+  ShoppingBag, Sparkles, Store, Truck, User, Megaphone, Palette, CarFront,
 } from 'lucide-react';
 import StripePaymentStatus from '@/components/admin/StripePaymentStatus';
 import PaymentFeesInitializer from '@/components/admin/PaymentFeesInitializer';
@@ -82,6 +82,7 @@ export default function AdminDashboard() {
     { to: '/AdminTeamProductivity', label: 'Team & Productivity Settings', desc: 'Manage team assignments and internal productivity settings.', icon: <User /> },
   ];
   const financeCards = [
+    { to: '/AdminMileage', label: 'Mileage', desc: 'Review trips by driver, business, vehicle, month, and classification.', icon: <CarFront /> },
     { to: '/AdminQuarterlyTaxCenter', label: 'Quarterly Tax Center', desc: 'Review and download quarterly sales, tax, payment, refund, and order records.', icon: <FileText /> },
     { to: '/AdminProfitCalc', label: 'Profit Calculator', desc: 'Estimate product and order margins with current business costs.', icon: <BarChart3 /> },
     { to: '/AdminAnalytics', label: 'Sales Analytics', desc: 'Review sales and order performance.', icon: <DollarSign /> },

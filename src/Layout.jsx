@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays, Megaphone } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays, Megaphone, CarFront } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
@@ -164,6 +164,7 @@ function LayoutInner({ children }) {
                         <Link to="/AdminDashboard"><DropdownMenuItem><BarChart3 className="w-4 h-4 mr-2" />Admin Dashboard</DropdownMenuItem></Link>
                         <Link to="/AdminInbox"><DropdownMenuItem><Inbox className="w-4 h-4 mr-2" />HC Apparel Inbox{inboxBadge > 0 && <span className="ml-auto rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700">{inboxBadge}</span>}</DropdownMenuItem></Link>
                         <Link to="/AdminOperationsDashboard"><DropdownMenuItem><Package className="w-4 h-4 mr-2" />Customer Orders</DropdownMenuItem></Link>
+                        <Link to="/AdminMileage"><DropdownMenuItem><CarFront className="w-4 h-4 mr-2" />Mileage</DropdownMenuItem></Link>
                         <Link to="/AdminVendorOrders"><DropdownMenuItem><Truck className="w-4 h-4 mr-2" />S&amp;S Fulfillment Orders</DropdownMenuItem></Link>
                         <Link to="/AdminGarmentCatalog"><DropdownMenuItem><Archive className="w-4 h-4 mr-2" />Garment Catalog</DropdownMenuItem></Link>
                         <Link to="/AdminDigitalMockups"><DropdownMenuItem><Sparkles className="w-4 h-4 mr-2" />Digital Mockups</DropdownMenuItem></Link>

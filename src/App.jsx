@@ -98,6 +98,7 @@ import AdminQuarterlyTaxCenter from './pages/AdminQuarterlyTaxCenter';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 import AdminDesignStudio from './pages/AdminDesignStudio';
 import AdminDigitalMockups from './pages/AdminDigitalMockups';
+import AdminMileage from './pages/AdminMileage';
 
 const { Layout } = pagesConfig;
 
@@ -168,6 +169,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminDesignStudio" element={<LayoutWrapper currentPageName="AdminDesignStudio"><AdminDesignStudio customerMode privatePreview /></LayoutWrapper>} />
       <Route path="/AdminDesignStudioAdmin" element={<LayoutWrapper currentPageName="AdminDesignStudioAdmin"><AdminDesignStudio /></LayoutWrapper>} />
       <Route path="/AdminDigitalMockups" element={<LayoutWrapper currentPageName="AdminDigitalMockups"><AdminDigitalMockups /></LayoutWrapper>} />
+      <Route path="/AdminMileage" element={<LayoutWrapper currentPageName="AdminMileage"><AdminMileage /></LayoutWrapper>} />
       <Route path="/AdminBrandPages" element={<LayoutWrapper currentPageName="AdminBrandPages"><AdminBrandPages /></LayoutWrapper>} />
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />
