@@ -72,7 +72,7 @@ returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   q public.quote_requests%rowtype; existing_order public.orders%rowtype; created_order public.orders%rowtype;
   state public.ops_invoice_number_state%rowtype; invoice_record public.ops_shared_records%rowtype;
-  year_number integer; sequence_number integer; invoice_number text; invoice_record_id text;
+  year_number integer; sequence_number integer; invoice_number text; invoice_record_id text; invoice_payload jsonb;
 begin
   select * into q from public.quote_requests where id = p_quote_request_id for update;
   if not found or q.source <> 'design_studio' or q.owner_user_id <> auth.uid() then raise exception 'Quote not found.' using errcode='P0002'; end if;
@@ -91,11 +91,19 @@ begin
   select coalesce(max(r.sequence_number),0)+1 into sequence_number from public.ops_invoice_number_registry r where r.business_id='hc-apparel' and r.invoice_year=year_number;
   invoice_number := state.number_prefix||'-'||year_number::text||'-'||lpad(sequence_number::text,4,'0');
   invoice_record_id := 'studio-invoice:'||q.id;
+  invoice_payload := jsonb_build_object(
+    'id',invoice_record_id,'invoiceNumber',invoice_number,'customerName',q.full_name,'customerEmail',q.email,'customerPhone',coalesce(q.phone,''),
+    'dueDate',(current_date + 7)::text,'notes','Accepted HC Apparel Design Studio quote '||q.id,
+    'lineItems',jsonb_build_array(jsonb_build_object('description',coalesce(q.what_to_print,'Custom apparel design'),'quantity',1,'unitPrice',q.customer_quote_price)),
+    'shippingAmount',0,'shippingPending',false,'taxRate',0,'taxStatus','reviewed','subtotal',q.customer_quote_price,'total',q.customer_quote_price,
+    'status','draft','paymentStatus','unpaid','revision',1,'quoteRequestId',q.id,'designId',q.design_id,'designVersionId',q.design_version_id,
+    'acceptedQuoteVersion',p_quote_version,'orderId',created_order.id,'terms',q.quote_terms
+  );
   insert into public.ops_shared_records(id,business_id,record_type,source_system,source_record_id,status,payload,created_by,updated_by)
-  values(invoice_record_id,'hc-apparel','invoice','hc_apparel',q.id,'draft',jsonb_build_object('invoiceNumber',invoice_number,'customerName',q.full_name,'customerEmail',q.email,'amount',q.customer_quote_price,'balanceDue',q.customer_quote_price,'paymentStatus','unpaid','quoteRequestId',q.id,'designId',q.design_id,'designVersionId',q.design_version_id,'acceptedQuoteVersion',p_quote_version,'orderId',created_order.id,'items',created_order.order_items,'terms',q.quote_terms),auth.uid(),auth.uid()) returning * into invoice_record;
+  values(invoice_record_id,'hc-apparel','invoice','hc_apparel',q.id,'draft',invoice_payload,auth.uid(),auth.uid()) returning * into invoice_record;
   insert into public.ops_invoice_number_registry(business_id,invoice_number,record_id,invoice_year,sequence_number,registered_by) values('hc-apparel',invoice_number,invoice_record_id,year_number,sequence_number,auth.uid());
   insert into public.ops_action_queue(idempotency_key,business_id,record_id,action_type,expected_revision,request_payload,requested_by)
-  values((substr(md5('send:'||q.id||':'||p_quote_version),1,8)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),9,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),13,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),17,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),21,12))::uuid,'hc-apparel',invoice_record_id,'send_invoice',invoice_record.revision,jsonb_build_object('quoteRequestId',q.id,'acceptedQuoteVersion',p_quote_version,'orderId',created_order.id),auth.uid());
+  values((substr(md5('send:'||q.id||':'||p_quote_version),1,8)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),9,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),13,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),17,4)||'-'||substr(md5('send:'||q.id||':'||p_quote_version),21,12))::uuid,'hc-apparel',invoice_record_id,'send_invoice',invoice_record.revision,jsonb_build_object('quoteRequestId',q.id,'acceptedQuoteVersion',p_quote_version,'orderId',created_order.id,'finalInvoice',invoice_payload),auth.uid());
   update public.quote_requests set status='approved',workflow_status='customer_approved',quote_accepted_at=now(),accepted_quote_version=p_quote_version,converted_order_id=created_order.id,resulting_order_id=created_order.id,invoice_id=invoice_record_id,invoice_status='queued' where id=q.id;
   return jsonb_build_object('duplicate_prevented',false,'order_id',created_order.id,'invoice_id',invoice_record_id,'invoice_number',invoice_number,'invoice_status','queued');
 end $$;
