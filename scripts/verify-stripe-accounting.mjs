@@ -38,7 +38,12 @@ assert(fees.reduce((sum, row) => sum + row.amount_cents, 0) === 38 && fees.every
 const settlement = imported.find(row => row.transaction_kind === 'payment_settlement');
 assert(settlement?.amount_cents === 8097 && Number(settlement.source_data.amount_gross) === 83.7 && Number(settlement.source_data.amount_fee) === 2.73, 'Settlement gross, charge fee, or net does not match.');
 const raceTrac = imported.find(row => row.provider_transaction_id.startsWith('trxn_65VZrf'));
-assert(raceTrac?.review_status === 'review_needed' && !raceTrac.chart_account_id && raceTrac.suggested_chart_account_id === 'hc-apparel-5510', 'RaceTrac must remain unclassified in review.');
+assert(raceTrac?.review_status === 'review_needed'
+  && raceTrac.spend_classification === 'business'
+  && raceTrac.manual_category_override === true
+  && !raceTrac.chart_account_id
+  && !raceTrac.suggested_chart_account_id,
+'RaceTrac must remain an uncategorized, manually classified business expense in review.');
 assert(accounts.length >= 25 && rules.length >= 3, 'Chart of Accounts or rule seed is incomplete.');
 assert(feeExpenses.length === 2 && feeExpenses.every(row => row.sync_state === 'synced'), 'The two separate platform-fee expenses are not synchronized.');
 const invoice = invoiceRows[0]?.payload;
