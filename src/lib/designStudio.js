@@ -24,6 +24,7 @@ export const DECORATION_METHODS = [
   ['flock_vinyl', 'Flock Vinyl'],
   ['embroidery', 'Embroidery'],
   ['dtg', 'DTG'],
+  ['screen_printing', 'Screen Printing'],
 ];
 
 export const STUDIO_FONT_OPTIONS = [
@@ -151,8 +152,8 @@ export const createStudioDocument = (overrides = {}) => ({
   size: '',
   quantity: 1,
   productionRoute: 'hc_transfer_press',
-  printMethod: 'dtf',
-  decorationMethod: 'dtf',
+  printMethod: '',
+  decorationMethod: '',
   activePlacement: 'front',
   placements: Object.fromEntries(DESIGN_PLACEMENTS.map(([key]) => [key, []])),
   placementSelections: {},

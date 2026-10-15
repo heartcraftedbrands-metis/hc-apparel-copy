@@ -23,6 +23,8 @@ const studioBrands = new Set([
   'bella + canvas', 'american apparel', 'tultex',
 ]);
 const studioCatalogCategories = new Set(['t_shirts', 'hoodies', 'crewnecks']);
+const vinylMethodKeys = new Set(['soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl']);
+const quoteRequiredMethodKeys = new Set(['dtf', 'dtg', 'embroidery', 'screen_print', 'screen_printing']);
 const reply = (body: unknown, status: number, origin: string) => new Response(JSON.stringify(body), {
   status,
   headers: {
@@ -364,7 +366,13 @@ Deno.serve(async request => {
           printifyConnection = { configured: true, verified: false, shop_count: 0, safe_error: (error as Error).message };
         }
       }
-      return reply({ settings, pricing_configs: pricingConfigs || [], pricing_packages: pricingPackages || [], decoration_methods: decorationMethods || [], design_locations: designLocations || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
+      const publicPricing = isAdmin ? (pricingConfigs || []) : (pricingConfigs || [])
+        .filter(item => vinylMethodKeys.has(item.print_method))
+        .map(({ transfer_cost: _transfer, preparation_labor_cost: _prep, pressing_labor_cost: _press, packaging_cost: _pack, other_fee: _other, notes: _notes, ...item }) => item);
+      const publicPackages = isAdmin ? (pricingPackages || []) : (pricingPackages || [])
+        .filter(item => vinylMethodKeys.has(item.method_key))
+        .map(({ source_note: _source, ...item }) => item);
+      return reply({ settings, pricing_configs: publicPricing, pricing_packages: publicPackages, decoration_methods: decorationMethods || [], design_locations: designLocations || [], printify: { ...printify, ...printifyConnection, token_exposed: false } }, 200, origin);
     }
 
     if (!isAdmin) {
@@ -642,7 +650,7 @@ Deno.serve(async request => {
         return itemColor.toLowerCase() === color.toLowerCase() && itemSize.toLowerCase() === size.toLowerCase();
       }) : null;
       if (color && size && variants.length && (!selectedVariant || Number(selectedVariant.inventory ?? 0) <= 0)) fail('The selected catalog variant is not currently available.');
-      const methodKey = safeText(document.decorationMethod || document.printMethod || 'dtf', 80);
+      const methodKey = safeText(document.decorationMethod || document.printMethod, 80);
       const { data: method } = await service.from('design_decoration_methods').select('*').eq('method_key', methodKey).maybeSingle();
       if (!method) fail('Choose a recognized print or decoration method.');
       if (method.draft_selectable === false) fail('This decoration method is not selectable for design drafts.');
@@ -783,6 +791,100 @@ Deno.serve(async request => {
       return reply({ design: data }, 200, origin);
     }
 
+    if (action === 'list_quote_requests') {
+      const { data, error } = await service.from('quote_requests')
+        .select('id,design_id,design_version_id,status,workflow_status,product_type,quantity,garment_colors,sizes_needed,print_method,decoration_methods,created_date,updated_date,quote_sent_at,quote_accepted_at,quote_version,quote_terms,customer_quote_price,invoice_id,invoice_status,resulting_order_id')
+        .eq('source', 'design_studio').eq('owner_user_id', user.id).order('created_date', { ascending: false });
+      if (error) fail('Quote requests could not be loaded.', 500, error.code || 'quote_list_failed');
+      return reply({ quotes: data || [] }, 200, origin);
+    }
+
+    if (action === 'submit_quote_request') {
+      const versionId = safeText(payload.design_version_id, 80);
+      const { data: version } = await service.from('design_versions').select('*').eq('id', versionId).maybeSingle();
+      if (!version || version.owner_user_id !== user.id) fail('Saved design version not found.', 404);
+      const { data: design } = await service.from('design_documents').select('*').eq('id', version.design_id).maybeSingle();
+      if (!design || design.owner_user_id !== user.id) fail('Saved design not found.', 404);
+      const document = (version.document_snapshot || {}) as Record<string, unknown>;
+      const methodKeys = Array.isArray(document.decorationMethods)
+        ? document.decorationMethods.map(value => safeText(value, 80)).filter(Boolean)
+        : [safeText(document.decorationMethod || document.printMethod, 80)].filter(Boolean);
+      if (!methodKeys.length || !methodKeys.some(value => quoteRequiredMethodKeys.has(value))) fail('This design uses customer-priced vinyl and does not require a quote.', 409, 'quote_not_required');
+      const name = safeText(payload.full_name || user.user_metadata?.full_name, 160);
+      const email = safeText(payload.email || user.email, 320).toLowerCase();
+      if (!name || !/^\S+@\S+\.\S+$/.test(email)) fail('Your name and a valid email are required.');
+      const requestKey = `design-studio:${user.id}:${version.checksum}`;
+      const placements = Object.entries((document.placements || {}) as Record<string, unknown[]>)
+        .filter(([, elements]) => Array.isArray(elements) && elements.some(value => (value as Record<string, unknown>).visible !== false))
+        .map(([surface]) => surface);
+      const printMethod = methodKeys.includes('embroidery') ? 'embroidery' : methodKeys.some(value => value === 'screen_print' || value === 'screen_printing') ? 'screen_print' : methodKeys.every(value => vinylMethodKeys.has(value)) ? 'vinyl' : 'dtf';
+      const garmentType = safeText(document.garmentType, 80);
+      const productType = garmentType === 'pullover_hoodies' || garmentType === 'zip_hoodies' ? 'hoodies' : garmentType === 'crewnecks' ? 'sweatshirts' : 't_shirts';
+      const record = {
+        owner_user_id: user.id, created_by_email: email, source: 'design_studio', design_id: design.id,
+        design_version_id: version.id, design_checksum: version.checksum, request_key: requestKey,
+        design_snapshot: document, garment_selections: { product_id: document.productId || null, product_name: document.productName || null, sku: document.productSku || null, color: document.color || null, size: document.size || null, quantity: Math.max(1, Number(document.quantity) || 1) },
+        decoration_methods: methodKeys, placements, preview_url: safeText(document.productImage, 1500) || null,
+        full_name: name, email, phone: safeText(payload.phone, 50) || null, preferred_contact: 'email',
+        product_type: productType, quantity: Math.max(1, Number(document.quantity) || 1), sizes_needed: safeText(document.size, 200), garment_colors: safeText(document.color, 200),
+        print_placement: placements, print_method: printMethod, artwork_status: 'print_ready', artwork_file_url: null,
+        project_notes: safeText(payload.notes, 4000) || null, what_to_print: safeText(document.name || design.name, 500),
+        status: 'new', workflow_status: 'quote_request_received', customer_quote_price: 0,
+      };
+      let result = await service.from('quote_requests').insert(record).select('*').single();
+      let duplicatePrevented = false;
+      if (result.error?.code === '23505') {
+        duplicatePrevented = true;
+        result = await service.from('quote_requests').select('*').eq('request_key', requestKey).single();
+      }
+      if (result.error) fail(`The quote request could not be saved (${result.error.code || 'database error'}).`, 500, result.error.code || 'quote_submit_failed');
+      return reply({ quote: result.data, duplicate_prevented: duplicatePrevented }, 200, origin);
+    }
+
+    if (action === 'publish_quote') {
+      if (!isAdmin) fail('Admin access is required.', 403);
+      const quoteId = safeText(payload.quote_request_id, 80);
+      const price = Number(payload.customer_price);
+      const terms = safeText(payload.terms, 4000);
+      if (!(price > 0) || !terms) fail('A positive customer price and customer-visible terms are required.');
+      const { data: quote } = await service.from('quote_requests').select('*').eq('id', quoteId).eq('source', 'design_studio').maybeSingle();
+      if (!quote) fail('Design Studio quote request not found.', 404);
+      if (quote.status === 'quote_sent' && Number(quote.customer_quote_price) === price && quote.quote_terms === terms) {
+        return reply({ quote, version: quote.quote_version, duplicate_prevented: true, notification_status: quote.notification_status || 'unknown' }, 200, origin);
+      }
+      const nextVersion = Number(quote.quote_version || 0) + 1;
+      const operationKey = `design-quote:${quote.id}:v${nextVersion}`;
+      const snapshot = { full_name: quote.full_name, email: quote.email, garment_selections: quote.garment_selections, decoration_methods: quote.decoration_methods, placements: quote.placements, preview_url: quote.preview_url };
+      const versionResult = await service.from('design_quote_versions').insert({ quote_request_id: quote.id, version_number: nextVersion, customer_price: price, terms, customer_snapshot: snapshot, design_version_id: quote.design_version_id, design_checksum: quote.design_checksum, created_by: user.id });
+      if (versionResult.error) fail(`The quote version could not be preserved (${versionResult.error.code || 'database error'}).`, 500, versionResult.error.code || 'quote_version_failed');
+      const sentAt = new Date().toISOString();
+      const update = await service.from('quote_requests').update({ customer_quote_price: price, quote_terms: terms, quote_version: nextVersion, quote_sent_at: sentAt, status: 'quote_sent', workflow_status: 'quote_reviewed', quote_response_sent: true, notification_operation_key: operationKey }).eq('id', quote.id).select('*').single();
+      if (update.error) fail('The quote version was preserved but could not be published.', 500, update.error.code || 'quote_publish_failed');
+      const apiKey = env('BREVO_API_KEY');
+      if (!apiKey) {
+        await service.from('quote_requests').update({ notification_status: 'blocked', notification_error: 'Brevo email delivery is not configured.' }).eq('id', quote.id);
+        return reply({ quote: update.data, version: nextVersion, notification_status: 'blocked', blocker: 'Brevo email delivery is not configured.', operation_key: operationKey }, 200, origin);
+      }
+      const logo = 'https://bxsdajpldrdesnvjiubt.supabase.co/storage/v1/object/public/storefront-assets/legacy/8498fd234f415ff5_4bf10d633_1.png';
+      const quoteUrl = 'https://www.ilovehcapparel.net/DesignStudio';
+      const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
+      const html = `<!doctype html><html><body style="margin:0;background:#f8f4ee;font-family:Arial,sans-serif;color:#202018"><table role="presentation" width="100%"><tr><td align="center" style="padding:24px 12px"><table role="presentation" width="100%" style="max-width:640px;background:#fff;border:1px solid #c9a47a;border-radius:14px;overflow:hidden"><tr><td align="center" style="background:#4a5e2a;padding:22px"><img src="${logo}" width="220" alt="HC Apparel logo" style="max-width:100%;height:auto"></td></tr><tr><td style="padding:28px"><p>Hello ${escapeHtml(quote.full_name)},</p><p>Thank you for designing with HC Apparel. Your personalized quote is ready.</p><div style="background:#f8f4ee;border:1px solid #e6d8c5;border-radius:10px;padding:18px"><p style="font-size:22px;color:#4a5e2a"><strong>$${price.toFixed(2)}</strong></p><p style="white-space:pre-wrap">${escapeHtml(terms)}</p></div><p style="text-align:center;margin:28px 0"><a href="${quoteUrl}" style="display:inline-block;background:#4a5e2a;color:#fff;padding:14px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View &amp; Accept Quote</a></p><p>Sign in with the email used for your design to review the preserved quote version. After acceptance, HC Apparel will create one invoice for payment.</p><p>Warmly,<br><strong style="color:#4a5e2a">HC Apparel</strong></p></td></tr><tr><td style="background:#c9a47a;height:8px"></td></tr></table></td></tr></table></body></html>`;
+      await service.from('quote_requests').update({ notification_status: 'sending', notification_error: null }).eq('id', quote.id);
+      const emailResponse = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': apiKey, accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ sender: { email: env('INVOICE_SENDER_EMAIL') || 'support@ilovehcapparel.net', name: 'HC Apparel' }, to: [{ email: quote.email, name: quote.full_name }], subject: 'Your HC Apparel Design Quote', htmlContent: html, textContent: `Hello ${quote.full_name},\n\nYour HC Apparel design quote for $${price.toFixed(2)} is ready.\n\n${terms}\n\nView and accept: ${quoteUrl}\n\nThank you for supporting HC Apparel.` }), signal: AbortSignal.timeout(20000) });
+      const emailResult = await emailResponse.json().catch(() => ({}));
+      const notificationStatus = emailResponse.ok ? 'accepted' : 'failed';
+      await service.from('quote_requests').update({ notification_status: notificationStatus, notification_provider_message_id: safeText(emailResult.messageId, 200) || null, notification_error: emailResponse.ok ? null : `Brevo rejected the message (${emailResponse.status}).` }).eq('id', quote.id);
+      return reply({ quote: { ...update.data, notification_status: notificationStatus, notification_provider_message_id: safeText(emailResult.messageId, 200) || null }, version: nextVersion, notification_status: notificationStatus, operation_key: operationKey }, 200, origin);
+    }
+
+    if (action === 'accept_quote') {
+      const quoteId = safeText(payload.quote_request_id, 80);
+      const expectedVersion = Math.max(1, Number(payload.quote_version) || 0);
+      const { data, error } = await auth.rpc('accept_design_studio_quote', { p_quote_request_id: quoteId, p_quote_version: expectedVersion });
+      if (error) fail(error.message || 'The quote could not be accepted.', error.code === '55000' ? 409 : 400, error.code || 'quote_accept_failed');
+      return reply(data, 200, origin);
+    }
+
     if (action === 'archive_test_design') {
       if (!isAdmin) fail('Admin access is required to archive a Studio QA record.', 403);
       const designId = safeText(payload.design_id, 80);
@@ -812,6 +914,8 @@ Deno.serve(async request => {
       const document = (version.document_snapshot || {}) as Record<string, unknown>;
       const productId = safeText(document.productId, 100);
       const methodKey = safeText(document.decorationMethod || document.printMethod || 'dtf', 80);
+      const combinedMethods = Array.isArray(document.decorationMethods) ? document.decorationMethods.map(value => safeText(value, 80)) : [methodKey];
+      if (combinedMethods.some(value => quoteRequiredMethodKeys.has(value))) fail('This design requires a personalized quote and cannot be added to cart.', 409, 'quote_required');
       const [{ data: method }, { data: product }, { data: configs }, { data: packages }] = await Promise.all([
         service.from('design_decoration_methods').select('*').eq('method_key', methodKey).maybeSingle(),
         productId ? service.from('products').select('*').eq('id', productId).maybeSingle() : Promise.resolve({ data: null }),

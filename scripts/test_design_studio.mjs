@@ -153,6 +153,7 @@ const garmentReviewMigration = fs.readFileSync(new URL('../supabase/migrations/2
 const colorImageReviewMigration = fs.readFileSync(new URL('../supabase/migrations/202610030021_design_studio_color_image_approval.sql', import.meta.url), 'utf8');
 const catalogCoverageMigration = fs.readFileSync(new URL('../supabase/migrations/202610040002_expand_design_studio_catalog_coverage.sql', import.meta.url), 'utf8');
 const previewCartDedupeMigration = fs.readFileSync(new URL('../supabase/migrations/202610040003_prevent_design_preview_cart_duplicates.sql', import.meta.url), 'utf8');
+const quoteWorkflowMigration = fs.readFileSync(new URL('../supabase/migrations/202610150014_design_studio_quote_workflow.sql', import.meta.url), 'utf8');
 const fastLocationMigration = fs.readFileSync(new URL('../supabase/migrations/202610130001_fast_design_location_registry.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
@@ -223,6 +224,14 @@ assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields are stripp
 assert.match(page, /Approved exact-color front photographs/, 'admin coverage provides an exact-photo assignment control');
 assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer limited to T-shirts');
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
+assert.match(edge, /quoteRequiredMethodKeys[\s\S]*quote_required/, 'the server prevents quote-required and mixed-method designs from entering the cart path');
+assert.match(edge, /action === 'submit_quote_request'/, 'quote requests are created from immutable owned design versions');
+assert.match(edge, /requestKey = `design-studio:\$\{user\.id\}:\$\{version\.checksum\}`/, 'identical quote-request retries share a stable idempotency key');
+assert.match(edge, /filter\(item => vinylMethodKeys\.has\(item\.print_method\)\)/, 'customer status responses expose automatic pricing only for vinyl methods');
+assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields remain private');
+assert.match(quoteWorkflowMigration, /create table if not exists public\.design_quote_versions/, 'customer quote versions are immutable database records');
+assert.match(quoteWorkflowMigration, /orders_quote_request_once_uidx/, 'one accepted request can create only one resulting order');
+assert.match(quoteWorkflowMigration, /accept_design_studio_quote[\s\S]*for update[\s\S]*ops_action_queue/, 'quote acceptance atomically locks the request and queues one invoice through Heart Command Center');
 assert.match(edge, /\.eq\('design_id', design\.id\)[\s\S]*\.is\('archived_at', null\)/, 'reattaching a saved design is deduplicated by active design identity across reloads and versions');
 assert.match(edge, /result\.error\?\.code === '23505'/, 'concurrent preview-cart attaches recover from the database uniqueness guard');
 assert.match(previewCartDedupeMigration, /unique index[\s\S]*owner_user_id, design_id[\s\S]*where archived_at is null/i, 'the database permits only one active preview-cart row per owner and design');
@@ -240,6 +249,11 @@ assert.match(page, /Archive QA/, 'the authenticated acceptance UI exposes cleanu
 assert.match(page, /archive_test_design/, 'the QA cleanup control uses the validated server action');
 assert.doesNotMatch(page, /localStorage\.getItem\('hc_design_preview_cart'/, 'preview cart no longer depends on one browser profile');
 assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration method instead of an internal production vendor');
+assert.match(page, /Quote Required/, 'quote-required methods replace automatic pricing with the required quote panel');
+assert.match(page, /Submit your design for a personalized quote\. Once you accept your quote, we’ll send an invoice for payment\./, 'the exact approved customer quote message is used');
+assert.match(page, /quoteRequired \? 'Request Quote'/, 'the final customer action changes to Request Quote');
+assert.match(page, /!methodKey \?/, 'no automatic amount is shown before a decoration method is selected');
+assert.match(page, /vinylPriceReady/, 'vinyl amounts require both a valid garment price and configured decoration pricing');
 assert.match(page, /Choose a placement/, 'the customer workflow offers the detailed placement selector');
 const placementSelectorSource = page.slice(page.indexOf('function PlacementSelector'), page.indexOf('function customerBlockerMessage'));
 assert.doesNotMatch(placementSelectorSource, /provider_location_id|FAST Design Location|S&S/, 'the placement picker does not display supplier names or numeric provider IDs');

@@ -188,6 +188,21 @@ export default function AdminQuoteRequestDetail() {
     },
     onError: (error) => toast.error(error.message),
   });
+  const publishStudioQuote = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('design-studio', { body: { action: 'publish_quote', quote_request_id: id, customer_price: Number(form.customer_quote_price), terms: form.customer_notes || '' } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: ({ quote, notification_status: notificationStatus, duplicate_prevented: duplicatePrevented }) => {
+      setForm(current => ({ ...current, ...quote }));
+      qc.invalidateQueries({ queryKey: ['quote_request', id] }); qc.invalidateQueries({ queryKey: ['quote_requests'] });
+      if (notificationStatus === 'accepted') toast.success(duplicatePrevented ? 'The existing published quote was preserved; no duplicate email was sent.' : 'Quote version published and accepted by the email provider.');
+      else toast.warning(`Quote version published, but email delivery is ${notificationStatus || 'not verified'}. Do not resend blindly.`);
+    },
+    onError: error => toast.error(error.message || 'The quote could not be published.'),
+  });
 
   const createDraftMutation = useMutation({
     mutationFn: async () => {
@@ -483,6 +498,7 @@ export default function AdminQuoteRequestDetail() {
                     className="w-4 h-4 accent-primary" />
                   <label htmlFor="qr-sent" className="text-xs font-medium cursor-pointer">Quote response sent to customer</label>
                 </div>
+                {form.source === 'design_studio' && <div className="space-y-2 rounded-xl border border-[#c9a47a] bg-[#f8f4ee] p-3"><p className="text-xs text-muted-foreground">Publishing preserves an immutable customer-visible version. Enter the total customer price below and customer-facing terms in Customer Notes. Internal costs and notes are never included.</p><Button type="button" className="w-full" onClick={() => publishStudioQuote.mutate()} disabled={publishStudioQuote.isPending || !(Number(form.customer_quote_price) > 0) || !String(form.customer_notes || '').trim()}>{publishStudioQuote.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}Publish Studio Quote</Button></div>}
                 <div className="grid grid-cols-2 gap-2">
                   <AdminInput label="Vendor product" value={form.vendor_product_name} onChange={v => set('vendor_product_name', v)} />
                   <AdminInput label="Style number" value={form.vendor_style_number} onChange={v => set('vendor_style_number', v)} />
