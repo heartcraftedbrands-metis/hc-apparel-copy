@@ -226,6 +226,7 @@ assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer l
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
 assert.match(edge, /quoteRequiredMethodKeys[\s\S]*quote_required/, 'the server prevents quote-required and mixed-method designs from entering the cart path');
 assert.match(edge, /action === 'submit_quote_request'/, 'quote requests are created from immutable owned design versions');
+assert.match(edge, /'caveat'[\s\S]*'graduate'[\s\S]*'rye'[\s\S]*'bungee'[\s\S]*'cinzel-decorative'[\s\S]*'fredoka'/, 'the server accepts every bundled licensed apparel font');
 assert.match(edge, /requestKey = `design-studio:\$\{user\.id\}:\$\{version\.checksum\}`/, 'identical quote-request retries share a stable idempotency key');
 assert.match(edge, /filter\(item => vinylMethodKeys\.has\(item\.print_method\)\)/, 'customer status responses expose automatic pricing only for vinyl methods');
 assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields remain private');
@@ -256,6 +257,11 @@ assert.match(page, /Print \/ Decoration Method/, 'customers choose a decoration 
 assert.match(page, /Quote Required/, 'quote-required methods replace automatic pricing with the required quote panel');
 assert.match(page, /Submit your design for a personalized quote\. Once you accept your quote, we’ll send an invoice for payment\./, 'the exact approved customer quote message is used');
 assert.match(page, /quoteRequired \? 'Request Quote'/, 'the final customer action changes to Request Quote');
+assert.match(page, /Your quote request has been received!/, 'a durable quote save replaces the mobile form with a receipt');
+assert.match(page, /No payment is due yet\./, 'quote receipt does not imply acceptance or payment');
+assert.match(page, /design_version_id === savedVersion\.id/, 'an interrupted response recovers the durable request by immutable design version');
+assert.match(page, /Production review notes do not block this quote request\./, 'production placement warnings are distinguished from quote intake requirements');
+assert.match(page, /quoteSubmitError[\s\S]*role="alert"/, 'submission failures remain visible inside the mobile form');
 assert.match(page, /!methodKey \?/, 'no automatic amount is shown before a decoration method is selected');
 assert.match(page, /vinylPriceReady/, 'vinyl amounts require both a valid garment price and configured decoration pricing');
 assert.match(page, /Choose a placement/, 'the customer workflow offers the detailed placement selector');
@@ -267,6 +273,9 @@ assert.doesNotMatch(page, /Width %|Height %/, 'customer sizing controls do not e
 assert.match(page, /Minimum artwork resolution: 300 DPI at the selected print size\./, 'Artwork Quality prominently states the production minimum');
 assert.match(textEditor, /textarea[\s\S]*Text content/, 'native text editing supports multiline wording');
 assert.match(textEditor, /TEXT_COLOR_SWATCHES[\s\S]*Custom text color HEX/, 'text editing provides discoverable swatches and a custom HEX field');
+assert.match(textEditor, /Search fonts[\s\S]*Font category/, 'the compact font picker is searchable by apparel category');
+assert.match(textEditor, /text\.text\?\.trim\(\) \|\| 'Your text'/, 'font cards preview the customer’s actual editable text');
+assert.match(textEditor, /ensureStudioFontLoaded\(candidate\)/, 'a font is loaded before it can change text measurements');
 assert.match(textEditor, /AlignLeft[\s\S]*AlignCenter[\s\S]*AlignRight/, 'text editing exposes all supported alignments');
 assert.match(textEditor, /fontWeight[\s\S]*fontStyle/, 'bold and italic options update native font properties');
 assert.match(page, /mobilePanel === 'text'[\s\S]*Edit Text/, 'mobile uses a clearly titled Edit Text bottom sheet');
@@ -277,6 +286,8 @@ const canvas = fs.readFileSync(new URL('../src/components/design-studio/DesignCa
 const sizeControls = fs.readFileSync(new URL('../src/components/design-studio/ArtworkSizeControls.jsx', import.meta.url), 'utf8');
 const sharedTheme = fs.readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 const designStudioLib = fs.readFileSync(new URL('../src/lib/designStudio.js', import.meta.url), 'utf8');
+for (const fontId of ['inter', 'montserrat', 'lora', 'caveat', 'graduate', 'rye', 'bungee', 'cinzel-decorative', 'fredoka']) assert.match(designStudioLib, new RegExp(`id: '${fontId}'`), `${fontId} remains registered as an editable Studio font`);
+assert.match(designStudioLib, /document\.fonts\.check[\s\S]*could not be loaded/, 'font loading fails visibly instead of silently substituting a fallback');
 assert.match(canvas, /synchronizeArtworkResize\(original, nextWidth, nextHeight, sizingArea\)/, 'live handle resizing updates physical size through the shared preview scale');
 assert.match(canvas, /\{ transient: true \}/, 'pointer movement updates the shared document continuously during a drag');
 assert.match(canvas, /window\.document\.activeElement\?\.blur\?\.\(\)/, 'starting a canvas gesture releases a focused dimension input so every visible sizing control follows the drag');

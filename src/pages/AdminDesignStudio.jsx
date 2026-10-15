@@ -407,6 +407,10 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const [quoteRequests, setQuoteRequests] = useState([]);
   const [quoteFormOpen, setQuoteFormOpen] = useState(false);
   const [quoteForm, setQuoteForm] = useState({ full_name: '', email: '', phone: '', notes: '' });
+  const [quoteReceipt, setQuoteReceipt] = useState(null);
+  const [quoteSubmitError, setQuoteSubmitError] = useState('');
+  const quoteNameRef = useRef(null);
+  const quoteEmailRef = useRef(null);
   const [catalogReview, setCatalogReview] = useState({ items: [], coverage: [], qualifying_count: 0, approved_count: 0, needs_image_review_count: 0 });
   const [catalogReviewLoading, setCatalogReviewLoading] = useState(false);
   const [catalogReviewError, setCatalogReviewError] = useState('');
@@ -516,7 +520,9 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const loadQuoteRequests = useCallback(async () => {
     if (!customerMode) return;
     const data = await invoke('list_quote_requests');
-    setQuoteRequests(data.quotes || []);
+    const quotes = data.quotes || [];
+    setQuoteRequests(quotes);
+    return quotes;
   }, [customerMode]);
   useEffect(() => { Promise.all([loadProducts(), loadDesigns(), loadStatus(), loadPreviewCart()]).catch(error => { setSaveState(`Load failed · ${error.message}`); toast.error(error.message); }); }, [loadDesigns, loadPreviewCart, loadProducts, loadStatus]);
   useEffect(() => {
@@ -754,17 +760,41 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
   const openQuoteForm = async () => {
     const { data } = await supabase.auth.getUser();
     setQuoteForm(value => ({ ...value, full_name: value.full_name || data.user?.user_metadata?.full_name || '', email: value.email || data.user?.email || '' }));
+    setQuoteSubmitError('');
+    const existing = quoteRequests.find(item => item.design_id === designId && (!version?.id || item.design_version_id === version.id));
+    setQuoteReceipt(existing || null);
     setQuoteFormOpen(true);
   };
   const submitQuoteRequest = async event => {
-    event.preventDefault(); setBusy('quote');
+    event.preventDefault();
+    setQuoteSubmitError('');
+    if (!quoteForm.full_name.trim()) {
+      setQuoteSubmitError('Enter your full name so HC Apparel can review your request.');
+      quoteNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); quoteNameRef.current?.focus(); return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(quoteForm.email.trim())) {
+      setQuoteSubmitError('Enter a valid email address for your quote.');
+      quoteEmailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); quoteEmailRef.current?.focus(); return;
+    }
+    setBusy('quote');
+    let savedVersion = version;
     try {
-      let savedVersion = version;
       if (!savedVersion || JSON.stringify(document) !== savedJsonRef.current) savedVersion = (await persistDesign({ createVersion: true, busyKey: 'quote', announce: false })).version;
       const result = await invoke('submit_quote_request', { design_version_id: savedVersion.id, ...quoteForm });
-      await loadQuoteRequests(); setQuoteFormOpen(false); setTab('quotes');
-      toast.success(result.duplicate_prevented ? 'Your existing request is shown; no duplicate was created.' : 'Your quote request was submitted.');
-    } catch (error) { toast.error(error.message); } finally { setBusy(''); }
+      setQuoteReceipt(result.quote);
+      await loadQuoteRequests();
+    } catch (error) {
+      let recovered = null;
+      if (savedVersion?.id) {
+        try { recovered = (await loadQuoteRequests())?.find(item => item.design_version_id === savedVersion.id); } catch { /* Preserve the original submission error. */ }
+      }
+      if (recovered) {
+        setQuoteReceipt(recovered);
+      } else {
+        const message = error.message || 'Your quote request could not be confirmed. Your design and contact information are still here; check your connection and retry.';
+        setQuoteSubmitError(message);
+      }
+    } finally { setBusy(''); }
   };
   const acceptQuote = async item => {
     if (!window.confirm(`Accept quote version ${item.quote_version} for $${Number(item.customer_quote_price).toFixed(2)} and create your invoice?`)) return;
@@ -992,7 +1022,7 @@ export default function AdminDesignStudio({ customerMode = false, privatePreview
 
     {tab === 'quotes' && <main className="mx-auto max-w-6xl space-y-4 p-4"><Card><CardHeader><CardTitle>Quote Requests</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Submitted designs are reviewed by HC Apparel. Customer pricing appears only after a personalized quote is sent.</p></CardContent></Card><div className="grid gap-3 md:grid-cols-2">{quoteRequests.map(item => <Card key={item.id}><CardContent className="space-y-2 p-4"><p className="font-bold text-primary">{item.product_type?.replaceAll('_', ' ') || 'Custom apparel'} · Qty {item.quantity}</p><p className="text-sm">{(item.decoration_methods || [item.print_method]).join(', ')}</p><p className="text-xs text-muted-foreground">Submitted {new Date(item.created_date).toLocaleString()}</p>{item.status === 'quote_sent' && <div className="rounded-xl border border-[#c9a47a] bg-[#f8f4ee] p-3"><p className="text-lg font-bold text-[#4a5e2a]">${Number(item.customer_quote_price).toFixed(2)}</p><p className="mt-1 whitespace-pre-wrap text-sm">{item.quote_terms}</p><Button className="mt-3 w-full" onClick={() => acceptQuote(item)} disabled={busy === `accept-${item.id}`}>{busy === `accept-${item.id}` ? 'Accepting…' : 'Accept Quote & Create Invoice'}</Button></div>}<span className="inline-block rounded-full bg-muted px-2 py-1 text-xs">{item.invoice_status || item.status}</span></CardContent></Card>)}{!quoteRequests.length && <p className="text-sm text-muted-foreground">No quote requests yet.</p>}</div></main>}
 
-    <Sheet open={quoteFormOpen} onOpenChange={setQuoteFormOpen}><SheetContent side="bottom" className="mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-.5rem)] overflow-y-auto overscroll-contain rounded-t-2xl pb-[max(2rem,env(safe-area-inset-bottom))] sm:max-w-xl"><SheetHeader><SheetTitle>Request Quote</SheetTitle></SheetHeader><form onSubmit={submitQuoteRequest} className="mt-4 space-y-4"><p className="rounded-xl bg-primary/5 p-3 text-sm text-primary">Submit your design for a personalized quote. Once you accept your quote, we’ll send an invoice for payment.</p><Field label="Full name"><Input className="h-12" autoComplete="name" required value={quoteForm.full_name} onChange={event => setQuoteForm(value => ({ ...value, full_name: event.target.value }))} /></Field><Field label="Email"><Input className="h-12" autoComplete="email" inputMode="email" required type="email" value={quoteForm.email} onChange={event => setQuoteForm(value => ({ ...value, email: event.target.value }))} /></Field><Field label="Phone (optional)"><Input className="h-12" autoComplete="tel" inputMode="tel" type="tel" value={quoteForm.phone} onChange={event => setQuoteForm(value => ({ ...value, phone: event.target.value }))} /></Field><Field label="Notes (optional)"><textarea className="min-h-28 w-full rounded-md border bg-card p-3 text-base" value={quoteForm.notes} onChange={event => setQuoteForm(value => ({ ...value, notes: event.target.value }))} /></Field><Button type="submit" className="sticky bottom-0 h-12 w-full shadow-lg" disabled={busy === 'quote'}>{busy === 'quote' ? 'Submitting…' : 'Request Quote'}</Button></form></SheetContent></Sheet>
+    <Sheet open={quoteFormOpen} onOpenChange={open => { setQuoteFormOpen(open); if (!open) setQuoteSubmitError(''); }}><SheetContent side="bottom" className="mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-.5rem)] overflow-y-auto overscroll-contain rounded-t-2xl pb-[max(2rem,env(safe-area-inset-bottom))] sm:max-w-xl"><SheetHeader><SheetTitle>{quoteReceipt ? 'Quote Request Received' : 'Request Quote'}</SheetTitle></SheetHeader>{quoteReceipt ? <section className="mt-4 space-y-4" aria-live="polite"><div className="rounded-2xl border border-[#c9a47a] bg-[#f8f4ee] p-5 text-[#202018]"><CheckCircle2 className="h-9 w-9 text-[#4a5e2a]" /><h3 className="mt-3 text-xl font-black text-[#4a5e2a]">Your quote request has been received!</h3><p className="mt-2 text-sm">HC Apparel will review your design and email you a personalized quote. No payment is due yet.</p></div><dl className="grid gap-3 rounded-xl border bg-card p-4 text-sm"><div><dt className="text-xs font-bold uppercase text-muted-foreground">Reference</dt><dd className="break-all font-mono font-semibold">{quoteReceipt.id}</dd></div><div><dt className="text-xs font-bold uppercase text-muted-foreground">Design and garment</dt><dd>{quoteReceipt.garment_selections?.product_name || document.productName || 'Custom apparel'} · {quoteReceipt.garment_selections?.color || document.color || 'Color pending'} · {quoteReceipt.garment_selections?.size || document.size || 'Size pending'} · Qty {quoteReceipt.quantity || document.quantity || 1}<br />{(quoteReceipt.decoration_methods || [quoteReceipt.print_method]).filter(Boolean).join(', ')} · {(quoteReceipt.placements || []).join(', ') || 'Placement to review'}</dd></div><div><dt className="text-xs font-bold uppercase text-muted-foreground">Submitted email</dt><dd className="break-all">{quoteReceipt.email || quoteForm.email}</dd></div><div><dt className="text-xs font-bold uppercase text-muted-foreground">Status</dt><dd><span className="inline-block rounded-full bg-[#4a5e2a] px-3 py-1 font-bold text-white">Awaiting review</span></dd></div></dl><div className="grid grid-cols-2 gap-2"><Button type="button" variant="outline" className="h-12" onClick={() => setQuoteFormOpen(false)}>Done</Button><Button type="button" className="h-12" onClick={() => { setQuoteFormOpen(false); setTab('quotes'); }}>View Request</Button></div></section> : <form noValidate onSubmit={submitQuoteRequest} className="mt-4 space-y-4"><p className="rounded-xl bg-primary/5 p-3 text-sm text-primary">Submit your design for a personalized quote. Once you accept your quote, we’ll send an invoice for payment.</p>{warnings.some(item => item.level === 'blocker') && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-bold">Production review notes do not block this quote request.</p><p className="mt-1">HC Apparel will verify placement, print area, and artwork quality before production. You can request pricing now.</p></div>}{quoteSubmitError && <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm font-semibold text-destructive">{quoteSubmitError}</p>}<Field label="Full name"><Input ref={quoteNameRef} className={`h-12 ${quoteSubmitError && !quoteForm.full_name.trim() ? 'border-destructive ring-1 ring-destructive' : ''}`} autoComplete="name" value={quoteForm.full_name} onChange={event => setQuoteForm(value => ({ ...value, full_name: event.target.value }))} /></Field><Field label="Email"><Input ref={quoteEmailRef} className={`h-12 ${quoteSubmitError && !/^\S+@\S+\.\S+$/.test(quoteForm.email.trim()) ? 'border-destructive ring-1 ring-destructive' : ''}`} autoComplete="email" inputMode="email" type="email" value={quoteForm.email} onChange={event => setQuoteForm(value => ({ ...value, email: event.target.value }))} /></Field><Field label="Phone (optional)"><Input className="h-12" autoComplete="tel" inputMode="tel" type="tel" value={quoteForm.phone} onChange={event => setQuoteForm(value => ({ ...value, phone: event.target.value }))} /></Field><Field label="Notes (optional)"><textarea className="min-h-28 w-full rounded-md border bg-card p-3 text-base" value={quoteForm.notes} onChange={event => setQuoteForm(value => ({ ...value, notes: event.target.value }))} /></Field><Button type="submit" className="sticky bottom-0 h-12 w-full shadow-lg" disabled={busy === 'quote'}>{busy === 'quote' ? 'Submitting…' : 'Request Quote'}</Button></form>}</SheetContent></Sheet>
 
     {tab === 'studio' && <>{[['variants', Shirt, customerMode ? 'Choose Garment' : 'Variants'], ['add', Plus, 'Add Design'], ['layers', Layers, 'Layers']].map(([key, Icon, label]) => <Sheet key={key} open={mobilePanel === key} onOpenChange={open => setMobilePanel(open ? key : '')}><SheetContent side="bottom" className="max-h-[calc(100dvh_-_4.75rem_-_env(safe-area-inset-bottom))] overflow-y-auto rounded-t-2xl pb-[max(5.5rem,calc(1rem_+_env(safe-area-inset-bottom)))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-primary"><Icon className="h-5 w-5" />{label}</SheetTitle></SheetHeader>{sidePanels[key]}</SheetContent></Sheet>)}
       <Sheet open={mobilePanel === 'text'} onOpenChange={open => setMobilePanel(open ? 'text' : '')}><SheetContent side="bottom" className="max-h-[calc(100dvh_-_4.75rem_-_env(safe-area-inset-bottom))] overflow-y-auto rounded-t-2xl pb-[max(6rem,calc(1rem_+_env(safe-area-inset-bottom)))] sm:mx-auto sm:max-w-2xl"><SheetHeader><SheetTitle className="flex items-center gap-2 text-primary"><Type className="h-5 w-5" />Edit Text</SheetTitle></SheetHeader><div className="mt-3"><EditorFields selected={selected} patchSelected={patchSelected} patchTextSelected={patchTextSelected} printArea={sizingArea} methodKey={methodKey} targetPpi={targetPpi} customerMode={customerMode} onDone={() => setMobilePanel('')} /></div></SheetContent></Sheet>

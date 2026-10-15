@@ -28,9 +28,15 @@ export const DECORATION_METHODS = [
 ];
 
 export const STUDIO_FONT_OPTIONS = [
-  { id: 'inter', label: 'Inter', family: 'Inter', category: 'Clean sans serif', license: 'SIL Open Font License 1.1' },
-  { id: 'montserrat', label: 'Montserrat', family: 'Montserrat', category: 'Bold geometric sans', license: 'SIL Open Font License 1.1' },
-  { id: 'lora', label: 'Lora', family: 'Lora', category: 'Expressive serif', license: 'SIL Open Font License 1.1' },
+  { id: 'inter', label: 'Inter', family: 'Inter', category: 'Clean', weights: [400, 700], styles: ['normal', 'italic'], license: 'SIL Open Font License 1.1' },
+  { id: 'montserrat', label: 'Montserrat', family: 'Montserrat', category: 'Clean', weights: [400, 700], styles: ['normal', 'italic'], license: 'SIL Open Font License 1.1' },
+  { id: 'lora', label: 'Lora', family: 'Lora', category: 'Elegant', weights: [400, 700], styles: ['normal', 'italic'], license: 'SIL Open Font License 1.1' },
+  { id: 'caveat', label: 'Caveat', family: 'Caveat', category: 'Script & handwritten', weights: [400, 700], styles: ['normal'], license: 'SIL Open Font License 1.1' },
+  { id: 'graduate', label: 'Graduate', family: 'Graduate', category: 'Varsity & sports', weights: [400], styles: ['normal'], license: 'SIL Open Font License 1.1' },
+  { id: 'rye', label: 'Rye', family: 'Rye', category: 'Retro & vintage', weights: [400], styles: ['normal'], license: 'SIL Open Font License 1.1' },
+  { id: 'bungee', label: 'Bungee', family: 'Bungee', category: 'Graffiti & display', weights: [400], styles: ['normal'], license: 'SIL Open Font License 1.1' },
+  { id: 'cinzel-decorative', label: 'Cinzel Decorative', family: 'Cinzel Decorative', category: 'Elegant', weights: [400, 700], styles: ['normal'], license: 'SIL Open Font License 1.1' },
+  { id: 'fredoka', label: 'Fredoka', family: 'Fredoka', category: 'Playful & rounded', weights: [400, 700], styles: ['normal'], license: 'SIL Open Font License 1.1' },
 ];
 
 export const STUDIO_FONTS = STUDIO_FONT_OPTIONS.map(font => font.family);
@@ -64,7 +70,7 @@ export function studioFontForElement(element = {}) {
   if (byId) return byId;
   const byFamily = STUDIO_FONT_OPTIONS.find(font => font.family.toLowerCase() === String(element.fontFamily || '').toLowerCase());
   if (byFamily) return byFamily;
-  return { id: 'legacy', label: element.fontFamily || 'Legacy font', family: element.fontFamily || 'Arial', category: 'Saved legacy font', license: 'Installed system font' };
+  return { id: 'legacy', label: element.fontFamily || 'Legacy font', family: element.fontFamily || 'Arial', category: 'Saved legacy font', weights: [400, 700], styles: ['normal', 'italic'], license: 'Previously saved font' };
 }
 
 export function normalizeTextElement(element = {}) {
@@ -74,8 +80,8 @@ export function normalizeTextElement(element = {}) {
     fontId: font.id,
     fontFamily: font.family,
     fontSize: Math.min(300, Math.max(6, Number(element.fontSize || 48))),
-    fontWeight: Number(element.fontWeight) >= 600 ? 700 : 400,
-    fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
+    fontWeight: font.weights?.includes(700) && Number(element.fontWeight) >= 600 ? 700 : 400,
+    fontStyle: font.styles?.includes('italic') && element.fontStyle === 'italic' ? 'italic' : 'normal',
     textAlign: ['left', 'center', 'right'].includes(element.textAlign) ? element.textAlign : 'center',
     letterSpacing: Math.min(1, Math.max(-.1, Number(element.letterSpacing || 0))),
     lineSpacing: Math.min(3, Math.max(.8, Number(element.lineSpacing || 1.2))),
@@ -90,7 +96,10 @@ export function textFontCss(element = {}) {
 export async function ensureStudioFontLoaded(element = {}) {
   const normalized = normalizeTextElement(element);
   if (!globalThis.document?.fonts?.load) return normalized;
-  await globalThis.document.fonts.load(textFontCss(normalized), String(normalized.text || 'Your text'));
+  const loaded = await globalThis.document.fonts.load(textFontCss(normalized), String(normalized.text || 'Your text'));
+  if (!loaded?.length || !globalThis.document.fonts.check(textFontCss(normalized), String(normalized.text || 'Your text'))) {
+    throw new Error(`${normalized.fontFamily} could not be loaded. Your text was preserved; reconnect and retry before proofing or exporting.`);
+  }
   return normalized;
 }
 

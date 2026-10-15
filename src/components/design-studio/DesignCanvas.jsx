@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Copy, Eye, EyeOff, Group, Hand, Lock, Move, RotateCw, Trash2, Type, Ungroup, Unlock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ArtworkSizeControls from '@/components/design-studio/ArtworkSizeControls';
-import { ARTWORK_OUTPUT_PPI, DESIGN_PLACEMENTS, artworkSizeInches, normalizeTextElement, synchronizeArtworkResize, updatePlacement } from '@/lib/designStudio';
+import { ARTWORK_OUTPUT_PPI, DESIGN_PLACEMENTS, artworkSizeInches, ensureStudioFontLoaded, normalizeTextElement, synchronizeArtworkResize, updatePlacement } from '@/lib/designStudio';
 import { rotatedElementBounds } from '@/lib/designLocationRegistry';
 
 const DEFAULT_AREA = { x: 28, y: 22, width: 44, height: 58 };
@@ -24,6 +24,13 @@ function Shape({ element }) {
 
 function TextElement({ area, element, sizingArea }) {
   const text = normalizeTextElement(element);
+  const [fontReady, setFontReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setFontReady(false);
+    ensureStudioFontLoaded(text).then(() => { if (active) setFontReady(true); }).catch(() => { if (active) setFontReady(false); });
+    return () => { active = false; };
+  }, [text.fontFamily, text.fontSize, text.fontStyle, text.fontWeight, text.text]);
   const x = area.x + (text.x / 100) * area.width;
   const y = area.y + (text.y / 100) * area.height;
   const width = (text.width / 100) * area.width;
@@ -37,6 +44,7 @@ function TextElement({ area, element, sizingArea }) {
   const textX = text.textAlign === 'left' ? x : text.textAlign === 'right' ? x + width : x + width / 2;
   const anchor = text.textAlign === 'left' ? 'start' : text.textAlign === 'right' ? 'end' : 'middle';
   const style = { fontFamily: text.fontFamily, fontStyle: text.fontStyle, fontWeight: text.fontWeight, letterSpacing: `${text.letterSpacing}em` };
+  if (!fontReady) return <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fill="hsl(var(--muted-foreground))" fontSize="3">Loading font…</text>;
   if (Number(text.curve) && lines.length === 1) {
     const direction = Number(text.curve) > 0 ? -1 : 1;
     const pathId = `curve-${text.id}`;

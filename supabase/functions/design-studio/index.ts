@@ -286,7 +286,7 @@ function validateDocument(document: Record<string, unknown>, areas: Record<strin
         const letterSpacing = Number(element.letterSpacing || 0);
         const lineSpacing = Number(element.lineSpacing || 0);
         if (!safeText(element.text, 4000).trim()) warnings.push({ code: 'text_content_missing', level: 'blocker', placement, element_id: element.id, message: 'Enter wording for this text layer.' });
-        if (!['inter', 'montserrat', 'lora'].includes(fontId)) warnings.push({ code: 'text_font_unavailable', level: 'blocker', placement, element_id: element.id, message: 'Choose an available licensed Studio font for this text layer.' });
+        if (!['inter', 'montserrat', 'lora', 'caveat', 'graduate', 'rye', 'bungee', 'cinzel-decorative', 'fredoka'].includes(fontId)) warnings.push({ code: 'text_font_unavailable', level: 'blocker', placement, element_id: element.id, message: 'Choose an available licensed Studio font for this text layer.' });
         if (!Number.isFinite(fontSize) || fontSize < 6 || fontSize > 300) warnings.push({ code: 'text_font_size_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text font size must be between 6 and 300 points.' });
         if (!Number.isFinite(letterSpacing) || letterSpacing < -.1 || letterSpacing > 1) warnings.push({ code: 'text_letter_spacing_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text letter spacing is outside the supported range.' });
         if (!Number.isFinite(lineSpacing) || lineSpacing < .8 || lineSpacing > 3) warnings.push({ code: 'text_line_spacing_invalid', level: 'blocker', placement, element_id: element.id, message: 'Text line spacing is outside the supported range.' });
@@ -793,7 +793,7 @@ Deno.serve(async request => {
 
     if (action === 'list_quote_requests') {
       const { data, error } = await service.from('quote_requests')
-        .select('id,design_id,design_version_id,status,workflow_status,product_type,quantity,garment_colors,sizes_needed,print_method,decoration_methods,created_date,updated_date,quote_sent_at,quote_accepted_at,quote_version,quote_terms,customer_quote_price,invoice_id,invoice_status,resulting_order_id')
+        .select('id,request_key,design_id,design_version_id,design_checksum,status,workflow_status,full_name,email,garment_selections,placements,product_type,quantity,garment_colors,sizes_needed,print_method,decoration_methods,created_date,updated_date,quote_sent_at,quote_accepted_at,quote_version,quote_terms,customer_quote_price,invoice_id,invoice_status,resulting_order_id')
         .eq('source', 'design_studio').eq('owner_user_id', user.id).order('created_date', { ascending: false });
       if (error) fail('Quote requests could not be loaded.', 500, error.code || 'quote_list_failed');
       return reply({ quotes: data || [] }, 200, origin);
