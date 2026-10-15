@@ -40,3 +40,5 @@ outputs/
 error.txt
 __pycache__/
 *.pyc
+.vercel
+.env*
