@@ -472,6 +472,8 @@ Deno.serve(async request => {
   });
 
   try {
+    const priorSyncResult = await admin.from('ops_financial_sync_state').select('capability_status').eq('source', 'stripe').maybeSingle();
+    const priorCapabilities = priorSyncResult.data?.capability_status || {};
     const stripeKeys = configuredStripeKeys();
     if (!stripeKeys.length) throw Object.assign(new Error('The existing live Stripe server keys are unavailable to the financial sync worker.'), { status: 424 });
     const invoiceResult = await admin.from('ops_shared_records').select('*').eq('id', TINA_INVOICE_ID).eq('record_type', 'invoice').single();
@@ -688,6 +690,9 @@ Deno.serve(async request => {
     if (allocationsResult.error) throw allocationsResult.error;
     const allocations = allocationsResult.data || [];
     const confirmedCostsCents = allocations.reduce((sum, item) => sum + Number(item.allocated_amount_cents || 0), 0);
+    const platformFeeCents = allocations.filter(item => item.relationship === 'platform_fee')
+      .reduce((sum, item) => sum + Number(item.allocated_amount_cents || 0), 0);
+    const fulfillmentCostsCents = confirmedCostsCents - platformFeeCents;
 
     let trackingAvailable = false;
     let trackingError = '';
@@ -740,7 +745,9 @@ Deno.serve(async request => {
         status: paymentIntent.status,
       },
       relatedCosts: {
-        verifiedActualCosts: money(confirmedCostsCents),
+        verifiedActualCosts: money(fulfillmentCostsCents),
+        verifiedAccountPlatformFees: money(platformFeeCents),
+        totalVerifiedCostsAndAccountFees: money(confirmedCostsCents),
         reviewQueueCount: costReviewNeeded,
         complete: costsComplete,
         paymentVerificationSeparate: true,
@@ -749,7 +756,12 @@ Deno.serve(async request => {
       margin: {
         final: costsComplete ? money(grossCents - feeCents - refundCents - confirmedCostsCents) : null,
         knownAmountAfterVerifiedCosts: money(grossCents - feeCents - refundCents - confirmedCostsCents),
+        knownAmountAfterVerifiedCostsAndFees: money(grossCents - feeCents - refundCents - confirmedCostsCents),
         knownAmountBeforeUnverifiedFulfillmentCosts: money(grossCents - feeCents - refundCents - confirmedCostsCents),
+        grossCollected: money(grossCents),
+        processingFee: money(feeCents),
+        accountPlatformFees: money(platformFeeCents),
+        verifiedCosts: money(fulfillmentCostsCents),
         complete: costsComplete,
       },
       financialAccountTransactions: {
@@ -787,6 +799,7 @@ Deno.serve(async request => {
 
     const enrichedPayload = {
       ...invoice,
+      accountPlatformFees: money(platformFeeCents),
       financialReconciliation: reconciliation,
       trackingNumber: TINA_TRACKING_NUMBER,
       shippingCarrier: 'USPS',
@@ -800,7 +813,7 @@ Deno.serve(async request => {
         blankGarments: 11.96,
         transfersPrinting: 31.80,
         postage: 15,
-        recordedActualCostTotal: money(confirmedCostsCents),
+        recordedActualCostTotal: money(fulfillmentCostsCents),
         complete: costsComplete,
         missing: missingCostCategories,
       },
@@ -814,7 +827,9 @@ Deno.serve(async request => {
     }).eq('id', TINA_INVOICE_ID);
     if (invoiceUpdate.error) throw invoiceUpdate.error;
 
+    const categoryResult = await admin.rpc('ops_apply_categorization_batch', { p_business_id: BUSINESS_ID });
     const capabilityStatus = {
+      ...priorCapabilities,
       paymentIntentsRead: true,
       paymentIntentLiveRead: Boolean(paymentCredential),
       paymentIntentReadError: paymentReadError || null,
@@ -831,6 +846,9 @@ Deno.serve(async request => {
       paymentAccountId: accountId,
       configuredAccountChecks: paymentCredential?.inspected || [],
       issuingAccounts,
+      categorization: categoryResult.error
+        ? { status: 'failed', error: safe(categoryResult.error.message, 300) }
+        : { status: 'active', chartOfAccounts: 'shared', ruleEngine: 'active', evaluated: Number(categoryResult.data || 0), evaluatedAt: checkedAt },
     };
     const syncStatus = treasuryAvailable && trackingAvailable ? 'synced' : 'partial';
     const syncErrors = [
