@@ -733,10 +733,15 @@ Deno.serve(async request => {
     ];
     const costsComplete = missingCostCategories.length === 0;
     const checkedAt = new Date().toISOString();
+    const reconciliationSource = treasuryAvailable
+      ? 'Stripe live payment, Stripe Treasury transaction API, private purchase evidence, and USPS Tracking 3.2'
+      : priorCapabilities?.balanceHistoryCsv?.status === 'imported'
+        ? 'Verified Stripe payment record, imported Stripe Balance History CSV, private purchase evidence, and USPS Tracking 3.2'
+        : 'Verified Stripe payment record, private purchase evidence, and USPS Tracking 3.2';
     const reconciliation = {
       status: costsComplete ? 'complete' : 'incomplete',
       checkedAt,
-      source: 'Stripe live payment, Stripe Financial Account/Treasury, private purchase evidence, and USPS Tracking 3.2',
+      source: reconciliationSource,
       customerPayment: {
         paymentIntentId, chargeId: paymentData.charge?.id || null,
         balanceTransactionId: paymentData.balance?.id || null,
