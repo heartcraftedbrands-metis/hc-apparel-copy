@@ -229,6 +229,10 @@ assert.match(edge, /action === 'submit_quote_request'/, 'quote requests are crea
 assert.match(edge, /requestKey = `design-studio:\$\{user\.id\}:\$\{version\.checksum\}`/, 'identical quote-request retries share a stable idempotency key');
 assert.match(edge, /filter\(item => vinylMethodKeys\.has\(item\.print_method\)\)/, 'customer status responses expose automatic pricing only for vinyl methods');
 assert.match(edge, /delete safeVariant\[key\]/, 'supplier cost fields remain private');
+assert.match(edge, /meta name="viewport"/, 'quote email declares a mobile viewport');
+assert.match(edge, /table-layout:fixed/, 'quote email tables cannot expand beyond narrow phone viewports');
+assert.match(edge, /hc-button[\s\S]*display:block!important/, 'quote email action becomes a full-width mobile-friendly control');
+assert.match(edge, /overflow-wrap:anywhere/, 'long quote terms cannot cause horizontal email overflow');
 assert.match(quoteWorkflowMigration, /create table if not exists public\.design_quote_versions/, 'customer quote versions are immutable database records');
 assert.match(quoteWorkflowMigration, /orders_quote_request_once_uidx/, 'one accepted request can create only one resulting order');
 assert.match(quoteWorkflowMigration, /accept_design_studio_quote[\s\S]*for update[\s\S]*ops_action_queue/, 'quote acceptance atomically locks the request and queues one invoice through Heart Command Center');
