@@ -74,9 +74,9 @@ export default function AdminQuoteRequestDetail() {
   const [showConvertModal, setShowConvertModal] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState(null);
 
-  const { data: request, isLoading } = useQuery({
+  const { data: request, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['quote_request', id],
-    queryFn: () => base44.entities.QuoteRequest.list('-created_date').then(list => list.find(r => r.id === id)),
+    queryFn: () => base44.entities.QuoteRequest.get(id),
     enabled: !!id,
   });
 
@@ -230,9 +230,10 @@ export default function AdminQuoteRequestDetail() {
   };
 
   if (!id) return <div className="p-8 text-center text-muted-foreground">No quote request selected.</div>;
+  if (isError) return <div className="min-h-screen flex items-center justify-center p-4"><div role="alert" className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800"><p className="font-bold">This quote request could not be loaded.</p><p className="mt-1 text-sm">{error?.message || 'Please check your connection and try again.'}</p><Button variant="outline" className="mt-4" onClick={() => refetch()}>Try again</Button></div></div>;
   if (isLoading || !form) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+    <div className="min-h-screen flex flex-col gap-3 items-center justify-center" role="status">
+      <Loader2 className="w-6 h-6 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Loading quote request details…</p>
     </div>
   );
 
@@ -256,6 +257,7 @@ export default function AdminQuoteRequestDetail() {
               <p className="text-primary-foreground/70 text-sm mt-0.5">
                 {form.email} · {form.phone || 'No phone'} · Submitted {form.created_date ? new Date(form.created_date).toLocaleDateString() : '—'}
               </p>
+              <p className="text-primary-foreground/70 text-xs mt-1 break-all">Reference: {form.id} · Source: {form.source === 'design_studio' ? 'Design Studio' : 'Bulk quote form'}</p>
             </div>
             <Badge className={`text-sm px-3 py-1 mt-1 ${STATUS_MAP[form.status]?.color || 'bg-gray-100 text-gray-700'}`}>
               {STATUS_MAP[form.status]?.label || form.status}
@@ -407,6 +409,7 @@ export default function AdminQuoteRequestDetail() {
                   <p className="text-sm whitespace-pre-wrap">{form.project_notes}</p>
                 </div>
               )}
+              {form.garment_selections && <DesignStudioDetails form={form} />}
             </Section>
 
             {/* Artwork & Files */}
@@ -424,6 +427,9 @@ export default function AdminQuoteRequestDetail() {
                     <FileImage className="w-4 h-4" />Customer Mockup
                   </a>
                 )}
+                {form.preview_url && (
+                  <a href={form.preview_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2 bg-primary/5 border border-primary/20 rounded-lg text-sm text-primary font-medium hover:bg-primary/10"><FileImage className="w-4 h-4" />Open Design Preview</a>
+                )}
                 {form.artwork_link && (
                   <a href={form.artwork_link} target="_blank" rel="noreferrer"
                     className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg text-sm font-medium hover:bg-muted/70">
@@ -436,7 +442,7 @@ export default function AdminQuoteRequestDetail() {
                   <AlertTriangle className="w-4 h-4 flex-shrink-0" />Customer requested artwork preparation help
                 </div>
               )}
-              {!form.artwork_file_url && !form.mockup_file_url && !form.artwork_link && (
+              {!form.artwork_file_url && !form.mockup_file_url && !form.artwork_link && !form.preview_url && (
                 <p className="text-sm text-muted-foreground">No artwork files submitted.</p>
               )}
             </Section>
@@ -713,6 +719,22 @@ function InfoGrid({ items }) {
       ))}
     </div>
   );
+}
+
+function DesignStudioDetails({ form }) {
+  const garments = Array.isArray(form.garment_selections) ? form.garment_selections : [form.garment_selections].filter(Boolean);
+  const methods = (form.decoration_methods || []).map(value => PRINT_LABELS[value] || value).join(', ');
+  const placements = (form.placements || []).map(value => typeof value === 'string' ? value : value?.name || value?.placement || 'Placement').join(', ');
+  return <div className="mt-4 space-y-3 border-t border-border pt-4">
+    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Design Studio selections</p>
+    {garments.map((garment, index) => <div key={`${garment.product_id || garment.sku || 'garment'}-${index}`} className="rounded-xl border bg-background p-3">
+      <p className="font-semibold text-sm">{garment.product_name || garment.name || 'Selected garment'}</p>
+      <InfoGrid items={[["SKU", garment.sku], ["Color", garment.color], ["Size", garment.size], ["Quantity", garment.quantity]]} />
+      {garment.sizes && <p className="mt-2 text-sm"><span className="text-muted-foreground">Size quantities: </span>{Object.entries(garment.sizes).map(([size, quantity]) => `${size}: ${quantity}`).join(', ')}</p>}
+    </div>)}
+    <InfoGrid items={[["Decoration method", methods], ["Placements", placements], ["Production-review notes", form.production_review_notes || form.admin_notes]]} />
+    {form.design_snapshot?.artwork?.length > 0 && <div><p className="text-xs text-muted-foreground mb-2">Artwork previews</p><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{form.design_snapshot.artwork.map((item, index) => item.url && <a key={item.id || index} href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border"><img src={item.url} alt={item.name || `Submitted artwork ${index + 1}`} className="aspect-square h-full w-full object-contain" loading="lazy" /></a>)}</div></div>}
+  </div>;
 }
 
 function AdminInput({ label, value, onChange }) {

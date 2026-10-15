@@ -1,214 +1,32 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, Search, Loader2, MessageSquare } from 'lucide-react';
-import { ssVendorOrderStageLabel } from '@/lib/ssVendorOrderWorkflow';
-import { isActiveInboxItem, isArchivedInboxItem } from '@/lib/inboxFilters';
-
-export const STATUSES = [
-  { value: 'new', label: 'New', color: 'bg-blue-100 text-blue-700' },
-  { value: 'reviewing', label: 'Reviewing', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'waiting_on_customer', label: 'Waiting on Customer', color: 'bg-orange-100 text-orange-700' },
-  { value: 'quote_sent', label: 'Quote Sent', color: 'bg-purple-100 text-purple-700' },
-  { value: 'approved', label: 'Approved', color: 'bg-green-100 text-green-700' },
-  { value: 'declined', label: 'Declined', color: 'bg-red-100 text-red-700' },
-  { value: 'completed', label: 'Completed', color: 'bg-teal-100 text-teal-700' },
-  { value: 'converted_to_order', label: 'Converted to Order', color: 'bg-primary/10 text-primary' },
-  { value: 'archived', label: 'Archived', color: 'bg-gray-100 text-gray-600' },
-];
-export const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.value, s]));
-
-export const PRODUCT_LABELS = {
-  t_shirts: 'T-Shirts', hoodies: 'Hoodies', sweatshirts: 'Sweatshirts', tank_tops: 'Tank Tops',
-  sportswear: 'Sportswear', youth_apparel: 'Youth Apparel', bulk_order: 'Bulk Order', other: 'Other',
-};
-
-export const CONTACT_LABELS = {
-  email: 'Email', phone: 'Phone Call', text: 'Text Message',
-};
-
-const PRODUCT_TYPES = [
-  { value: 't_shirts', label: 'T-Shirts' },
-  { value: 'hoodies', label: 'Hoodies' },
-  { value: 'sweatshirts', label: 'Sweatshirts' },
-  { value: 'tank_tops', label: 'Tank Tops' },
-  { value: 'sportswear', label: 'Sportswear' },
-  { value: 'youth_apparel', label: 'Youth Apparel' },
-  { value: 'bulk_order', label: 'Bulk Order' },
-  { value: 'other', label: 'Other' },
-];
-
-const SORT_OPTIONS = [
-  { value: 'newest', label: 'Newest First' },
-  { value: 'oldest', label: 'Oldest First' },
-  { value: 'date_needed', label: 'Date Needed (Soonest)' },
-  { value: 'quantity_desc', label: 'Quantity (High to Low)' },
-  { value: 'quantity_asc', label: 'Quantity (Low to High)' },
-];
-
-export default function AdminQuoteRequests() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [productFilter, setProductFilter] = useState('all');
-  const [contactFilter, setContactFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('newest');
-
-  const { data: requests = [], isLoading } = useQuery({
-    queryKey: ['quote_requests'],
-    queryFn: () => base44.entities.QuoteRequest.list('-created_date'),
-  });
-
-  const filtered = requests
-    .filter(r => {
-      const matchSearch = !search || [r.full_name, r.email, r.business_name, r.phone]
-        .some(v => v?.toLowerCase().includes(search.toLowerCase()));
-      const matchStatus = statusFilter === 'all'
-        ? isActiveInboxItem(r)
-        : statusFilter === 'archived' ? isArchivedInboxItem(r) : r.status === statusFilter && isActiveInboxItem(r);
-      const matchProduct = productFilter === 'all' || r.product_type === productFilter;
-      const matchContact = contactFilter === 'all' || r.preferred_contact === contactFilter;
-      return matchSearch && matchStatus && matchProduct && matchContact;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'oldest') return new Date(a.created_date) - new Date(b.created_date);
-      if (sortBy === 'date_needed') {
-        if (!a.date_needed) return 1;
-        if (!b.date_needed) return -1;
-        return new Date(a.date_needed) - new Date(b.date_needed);
-      }
-      if (sortBy === 'quantity_desc') return (b.quantity || 0) - (a.quantity || 0);
-      if (sortBy === 'quantity_asc') return (a.quantity || 0) - (b.quantity || 0);
-      return new Date(b.created_date) - new Date(a.created_date); // newest
-    });
-
-  const newCount = requests.filter(r => isActiveInboxItem(r) && r.status === 'new').length;
-
-  return (
-    <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-              <MessageSquare className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-extrabold text-foreground">Quote Requests</h1>
-                {newCount > 0 && (
-                  <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{newCount} new</span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">Bulk quote submissions for orders of 50 or more</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-          <div className="relative sm:col-span-2 lg:col-span-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search name, email…" value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger><SelectValue placeholder="All Statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              {STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={productFilter} onValueChange={setProductFilter}>
-            <SelectTrigger><SelectValue placeholder="All Products" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Products</SelectItem>
-              {PRODUCT_TYPES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={contactFilter} onValueChange={setContactFilter}>
-            <SelectTrigger><SelectValue placeholder="Contact Method" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Contact Methods</SelectItem>
-              <SelectItem value="email">Email</SelectItem>
-              <SelectItem value="phone">Phone Call</SelectItem>
-              <SelectItem value="text">Text Message</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger><SelectValue placeholder="Sort By" /></SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Table */}
-        <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-muted/40 border-b border-border">
-                <tr>
-                  {['Customer', 'Business', 'Contact', 'Product', 'Qty', 'Date Needed', 'Status', 'Submitted', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {isLoading ? (
-                  <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">
-                    <Loader2 className="w-5 h-5 animate-spin inline mr-2" />Loading…
-                  </td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">No quote requests found.</td></tr>
-                ) : filtered.map(r => {
-                  const s = STATUS_MAP[r.status] || STATUS_MAP['new'];
-                  return (
-                    <tr key={r.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-sm">{r.full_name}</p>
-                        <p className="text-xs text-muted-foreground">{r.email}</p>
-                        {r.phone && <p className="text-xs text-muted-foreground">{r.phone}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{r.business_name || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{CONTACT_LABELS[r.preferred_contact] || r.preferred_contact || '—'}</td>
-                      <td className="px-4 py-3 text-sm">{PRODUCT_LABELS[r.product_type] || r.product_type || '—'}</td>
-                      <td className="px-4 py-3 text-sm font-medium">{r.quantity || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{r.date_needed || '—'}</td>
-                      <td className="px-4 py-3">
-                        <Badge className={`text-xs ${s.color}`}>{s.label}</Badge>
-                        {r.workflow_status && (
-                          <p className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">
-                            {ssVendorOrderStageLabel(r.workflow_status)}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {r.created_date ? new Date(r.created_date).toLocaleDateString() : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link to={`/AdminQuoteRequestDetail?id=${r.id}`}>
-                          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs whitespace-nowrap">
-                            <Eye className="w-3.5 h-3.5" />View Details
-                          </Button>
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {filtered.length > 0 && (
-            <div className="px-4 py-3 border-t border-border bg-muted/20 text-xs text-muted-foreground">
-              Showing {filtered.length} of {requests.length} requests
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+import React,{useState}from'react';
+import{useNavigate}from'react-router-dom';
+import{useMutation,useQuery,useQueryClient}from'@tanstack/react-query';
+import{Archive,Eye,Loader2,MessageSquare,RotateCcw,Search}from'lucide-react';
+import{toast}from'sonner';
+import{base44}from'@/api/base44Client';
+import{supabase}from'@/api/supabaseClient';
+import{Button}from'@/components/ui/button';import{Input}from'@/components/ui/input';import{Badge}from'@/components/ui/badge';
+import{Select,SelectContent,SelectItem,SelectTrigger,SelectValue}from'@/components/ui/select';
+import{ssVendorOrderStageLabel}from'@/lib/ssVendorOrderWorkflow';import{isActiveInboxItem,isArchivedInboxItem}from'@/lib/inboxFilters';
+export const STATUSES=[['new','New','bg-blue-100 text-blue-700'],['reviewing','Reviewing','bg-yellow-100 text-yellow-700'],['waiting_on_customer','Waiting on Customer','bg-orange-100 text-orange-700'],['quote_sent','Quote Sent','bg-purple-100 text-purple-700'],['approved','Approved','bg-green-100 text-green-700'],['declined','Declined','bg-red-100 text-red-700'],['completed','Completed','bg-teal-100 text-teal-700'],['converted_to_order','Converted to Order','bg-primary/10 text-primary'],['archived','Archived','bg-gray-100 text-gray-600']].map(([value,label,color])=>({value,label,color}));
+export const STATUS_MAP=Object.fromEntries(STATUSES.map(s=>[s.value,s]));
+export const PRODUCT_LABELS={t_shirts:'T-Shirts',hoodies:'Hoodies',sweatshirts:'Sweatshirts',tank_tops:'Tank Tops',sportswear:'Sportswear',youth_apparel:'Youth Apparel',bulk_order:'Bulk Order',other:'Other'};
+export const CONTACT_LABELS={email:'Email',phone:'Phone Call',text:'Text Message'};
+const sourceLabel=r=>r.source==='design_studio'?'Design Studio':'Bulk quote form';
+export default function AdminQuoteRequests(){
+ const nav=useNavigate(),qc=useQueryClient();const[search,setSearch]=useState(''),[status,setStatus]=useState('all'),[product,setProduct]=useState('all'),[contact,setContact]=useState('all'),[sort,setSort]=useState('newest');
+ const{data:requests=[],isLoading,isError,error,refetch}=useQuery({queryKey:['quote_requests'],queryFn:()=>base44.entities.QuoteRequest.list('-created_date')});
+ const changeArchive=useMutation({mutationFn:async({request,restore})=>{const{data,error:e}=await supabase.rpc(restore?'restore_quote_request':'archive_quote_request',restore?{p_quote_request_id:request.id}:{p_quote_request_id:request.id,p_reason:'Archived by administrator.'});if(e)throw e;return data},onSuccess:(_,v)=>{qc.invalidateQueries({queryKey:['quote_requests']});toast.success(v.restore?'Quote request restored.':'Quote request archived.')},onError:e=>toast.error(e.message||'The request could not be updated.')});
+ const filtered=requests.filter(r=>{const text=[r.full_name,r.email,r.business_name,r.phone,r.id].join(' ').toLowerCase();const sm=status==='all'?isActiveInboxItem(r):status==='archived'?isArchivedInboxItem(r):r.status===status&&isActiveInboxItem(r);return(!search||text.includes(search.toLowerCase()))&&sm&&(product==='all'||r.product_type===product)&&(contact==='all'||r.preferred_contact===contact)}).sort((a,b)=>sort==='oldest'?new Date(a.created_date)-new Date(b.created_date):sort==='quantity_desc'?(b.quantity||0)-(a.quantity||0):sort==='quantity_asc'?(a.quantity||0)-(b.quantity||0):new Date(b.created_date)-new Date(a.created_date));
+ const open=r=>nav(`/AdminQuoteRequestDetail?id=${r.id}`),newCount=requests.filter(r=>isActiveInboxItem(r)&&r.status==='new').length,archivedCount=requests.filter(isArchivedInboxItem).length;
+ const Actions=({r})=><div className="flex gap-2"><Button className="min-h-11 flex-1 gap-2" variant="outline" onClick={e=>{e.stopPropagation();open(r)}}><Eye className="w-4 h-4"/>View Request</Button><Button className="min-h-11 gap-2" variant="outline" disabled={changeArchive.isPending} onClick={e=>{e.stopPropagation();changeArchive.mutate({request:r,restore:isArchivedInboxItem(r)})}} aria-label={`${isArchivedInboxItem(r)?'Restore':'Archive'} ${r.full_name}`}>{isArchivedInboxItem(r)?<><RotateCcw className="w-4 h-4"/>Restore</>:<Archive className="w-4 h-4"/>}</Button></div>;
+ return <div className="min-h-screen bg-background px-3 py-4 pb-28 md:p-8"><div className="max-w-7xl mx-auto"><header className="mb-6 flex gap-3"><div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center"><MessageSquare className="w-5 h-5 text-primary-foreground"/></div><div><div className="flex items-center gap-2"><h1 className="text-2xl font-extrabold">Quote Requests</h1>{newCount>0&&<span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{newCount} new</span>}</div><p className="text-sm text-muted-foreground">Design Studio and bulk quote requests.</p></div></header>
+ <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4"><div className="relative sm:col-span-2 lg:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/><Input className="pl-9 min-h-11" placeholder="Search requests…" value={search} onChange={e=>setSearch(e.target.value)}/></div><Filter value={status} set={setStatus} options={[['all',`Active (${requests.filter(isActiveInboxItem).length})`],...STATUSES.filter(s=>s.value!=='archived').map(s=>[s.value,s.label]),['archived',`Archived (${archivedCount})`]]}/><Filter value={product} set={setProduct} options={[['all','All Products'],...Object.entries(PRODUCT_LABELS)]}/><Filter value={contact} set={setContact} options={[['all','All Contact Methods'],...Object.entries(CONTACT_LABELS)]}/><Filter value={sort} set={setSort} options={[['newest','Newest First'],['oldest','Oldest First'],['quantity_desc','Quantity (High to Low)'],['quantity_asc','Quantity (Low to High)']]}/></div>
+ {isLoading?<State><Loader2 className="w-5 h-5 animate-spin inline mr-2"/>Loading quote requests…</State>:isError?<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800"><b>Quote requests could not be loaded.</b><p className="text-sm mt-1">{error?.message}</p><Button variant="outline" className="mt-3" onClick={()=>refetch()}>Try again</Button></div>:<><div className="grid gap-3 md:hidden">{filtered.map(r=><Card key={r.id} r={r} open={open} Actions={Actions}/>)}{!filtered.length&&<State>No quote requests found.</State>}</div><div className="hidden md:block bg-white border rounded-2xl overflow-hidden shadow-sm"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-muted/40 border-b"><tr>{['Customer','Source','Product','Qty','Status','Submitted',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase whitespace-nowrap">{h}</th>)}</tr></thead><tbody className="divide-y">{filtered.map(r=><Row key={r.id} r={r} open={open} Actions={Actions}/>)}</tbody></table></div>{!filtered.length&&<State>No quote requests found.</State>}</div><p className="mt-3 text-xs text-muted-foreground">Showing {filtered.length} of {requests.length} requests. The 50-item minimum applies only to the bulk quote form, not Design Studio requests.</p></>}
+ </div></div>
 }
+function Filter({value,set,options}){return <Select value={value} onValueChange={set}><SelectTrigger className="min-h-11"><SelectValue/></SelectTrigger><SelectContent>{options.map(([v,l])=><SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select>}
+function State({children}){return <div className="rounded-2xl border bg-white py-12 text-center text-muted-foreground">{children}</div>}
+function Value({label,value}){return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value}</p></div>}
+function Card({r,open,Actions}){const s=STATUS_MAP[r.status]||STATUS_MAP.new;return <article onClick={()=>open(r)} className="rounded-2xl border bg-white p-4 shadow-sm active:bg-muted/30 cursor-pointer"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="font-bold truncate">{r.full_name||'Unnamed customer'}</h2><p className="text-sm text-muted-foreground truncate">{r.email}</p></div><Badge className={`shrink-0 text-xs ${s.color}`}>{s.label}</Badge></div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><Value label="Source" value={sourceLabel(r)}/><Value label="Submitted" value={r.created_date?new Date(r.created_date).toLocaleDateString():'—'}/><Value label="Garment" value={PRODUCT_LABELS[r.product_type]||r.product_type||'—'}/><Value label="Quantity" value={r.quantity||'—'}/></div><p className="mt-3 text-xs text-muted-foreground break-all">Reference: {r.id}</p><div className="mt-4"><Actions r={r}/></div></article>}
+function Row({r,open,Actions}){const s=STATUS_MAP[r.status]||STATUS_MAP.new;return <tr onClick={()=>open(r)} className="hover:bg-muted/20 cursor-pointer"><td className="px-4 py-3"><b className="text-sm">{r.full_name}</b><p className="text-xs text-muted-foreground">{r.email}</p></td><td className="px-4 py-3 text-sm">{sourceLabel(r)}</td><td className="px-4 py-3 text-sm">{PRODUCT_LABELS[r.product_type]||r.product_type||'—'}</td><td className="px-4 py-3 text-sm">{r.quantity||'—'}</td><td className="px-4 py-3"><Badge className={`text-xs ${s.color}`}>{s.label}</Badge>{r.workflow_status&&<p className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">{ssVendorOrderStageLabel(r.workflow_status)}</p>}</td><td className="px-4 py-3 text-xs whitespace-nowrap">{r.created_date?new Date(r.created_date).toLocaleDateString():'—'}</td><td className="px-4 py-3 min-w-56"><Actions r={r}/></td></tr>}
