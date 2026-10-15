@@ -403,6 +403,9 @@ verify_jwt = false # Public catalog and guest checkout; privileged actions self-
 [functions.productivity-calendar]
 verify_jwt = false # Google callback is public; every POST action verifies the admin JWT itself.
 
+[functions.operations-financial-sync]
+verify_jwt = false # Service/admin authorization is enforced inside the worker, including legacy service-role JWTs.
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
