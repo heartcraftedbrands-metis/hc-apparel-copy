@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const migration = await readFile(new URL('../supabase/migrations/202610140005_tina_costs_and_shipment.sql', import.meta.url), 'utf8');
+const correction = await readFile(new URL('../supabase/migrations/202610150013_personal_expense_and_shipment_email.sql', import.meta.url), 'utf8');
 const worker = await readFile(new URL('../supabase/functions/operations-financial-sync/index.ts', import.meta.url), 'utf8');
+const shipmentEmail = await readFile(new URL('../supabase/functions/shipment-update-email/index.ts', import.meta.url), 'utf8');
 
 const requiredMigrationEvidence = [
   "'HCA-2026-0002'",
@@ -21,6 +23,25 @@ const requiredMigrationEvidence = [
 for (const marker of requiredMigrationEvidence) {
   assert.ok(migration.includes(marker), `Migration is missing required marker: ${marker}`);
 }
+
+for (const marker of [
+  "'paymentSourceType', 'Personal'",
+  "'paymentMethodLabel', 'Personal Visa ending 6216'",
+  "'reimbursementStatus', 'not_requested'",
+  "'knownIncompleteOrderRemainder', 21.83",
+  "'calculatedFinancialAccountBalance', 51.09",
+  "'personallyPaidBusinessCost', 31.80",
+]) assert.ok(correction.includes(marker), `Personal-payment correction is missing required marker: ${marker}`);
+
+for (const marker of [
+  'Your HC Apparel Order — Tracking Details',
+  'Priority Mail Padded Flat Rate Envelope',
+  'Track Your Package',
+  'HC Apparel logo',
+  'shipment_email_operation_key',
+  "input.action === 'status'",
+]) assert.ok(shipmentEmail.includes(marker), `Shipment email workflow is missing required marker: ${marker}`);
+assert.doesNotMatch(shipmentEmail, /PerfecPress|31\.80|paymentSourceType|Personal Visa/);
 
 assert.match(worker, /\/v1\/treasury\/financial_accounts/);
 assert.match(worker, /\/v1\/treasury\/transactions/);
