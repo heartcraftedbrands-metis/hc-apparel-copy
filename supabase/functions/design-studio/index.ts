@@ -25,6 +25,7 @@ const studioBrands = new Set([
 const studioCatalogCategories = new Set(['t_shirts', 'hoodies', 'crewnecks']);
 const vinylMethodKeys = new Set(['soft_vinyl', 'puff_vinyl', 'glitter_vinyl', 'flock_vinyl']);
 const quoteRequiredMethodKeys = new Set(['dtf', 'dtg', 'embroidery', 'screen_print', 'screen_printing']);
+const quoteWorkflowColumns = 'id,owner_user_id,source,request_key,design_id,design_version_id,design_checksum,design_snapshot,garment_selections,decoration_methods,placements,preview_url,full_name,email,phone,product_type,quantity,garment_colors,sizes_needed,print_method,created_date,updated_date,status,workflow_status,quote_sent_at,quote_accepted_at,quote_version,quote_terms,customer_quote_price,invoice_id,invoice_status,resulting_order_id,notification_status,notification_operation_key,notification_provider_message_id,notification_error';
 const reply = (body: unknown, status: number, origin: string) => new Response(JSON.stringify(body), {
   status,
   headers: {
@@ -831,11 +832,11 @@ Deno.serve(async request => {
         project_notes: safeText(payload.notes, 4000) || null, what_to_print: safeText(document.name || design.name, 500),
         status: 'new', workflow_status: 'quote_request_received', customer_quote_price: 0,
       };
-      let result = await service.from('quote_requests').insert(record).select('*').single();
+      let result = await service.from('quote_requests').insert(record).select(quoteWorkflowColumns).single();
       let duplicatePrevented = false;
       if (result.error?.code === '23505') {
         duplicatePrevented = true;
-        result = await service.from('quote_requests').select('*').eq('request_key', requestKey).single();
+        result = await service.from('quote_requests').select(quoteWorkflowColumns).eq('request_key', requestKey).single();
       }
       if (result.error) fail(`The quote request could not be saved (${result.error.code || 'database error'}).`, 500, result.error.code || 'quote_submit_failed');
       return reply({ quote: result.data, duplicate_prevented: duplicatePrevented }, 200, origin);
@@ -847,7 +848,7 @@ Deno.serve(async request => {
       const price = Number(payload.customer_price);
       const terms = safeText(payload.terms, 4000);
       if (!(price > 0) || !terms) fail('A positive customer price and customer-visible terms are required.');
-      const { data: quote } = await service.from('quote_requests').select('*').eq('id', quoteId).eq('source', 'design_studio').maybeSingle();
+      const { data: quote } = await service.from('quote_requests').select(quoteWorkflowColumns).eq('id', quoteId).eq('source', 'design_studio').maybeSingle();
       if (!quote) fail('Design Studio quote request not found.', 404);
       if (quote.status === 'quote_sent' && Number(quote.customer_quote_price) === price && quote.quote_terms === terms) {
         return reply({ quote, version: quote.quote_version, duplicate_prevented: true, notification_status: quote.notification_status || 'unknown' }, 200, origin);
@@ -858,7 +859,7 @@ Deno.serve(async request => {
       const versionResult = await service.from('design_quote_versions').insert({ quote_request_id: quote.id, version_number: nextVersion, customer_price: price, terms, customer_snapshot: snapshot, design_version_id: quote.design_version_id, design_checksum: quote.design_checksum, created_by: user.id });
       if (versionResult.error) fail(`The quote version could not be preserved (${versionResult.error.code || 'database error'}).`, 500, versionResult.error.code || 'quote_version_failed');
       const sentAt = new Date().toISOString();
-      const update = await service.from('quote_requests').update({ customer_quote_price: price, quote_terms: terms, quote_version: nextVersion, quote_sent_at: sentAt, status: 'quote_sent', workflow_status: 'quote_reviewed', quote_response_sent: true, notification_operation_key: operationKey }).eq('id', quote.id).select('*').single();
+      const update = await service.from('quote_requests').update({ customer_quote_price: price, quote_terms: terms, quote_version: nextVersion, quote_sent_at: sentAt, status: 'quote_sent', workflow_status: 'quote_reviewed', quote_response_sent: true, notification_operation_key: operationKey }).eq('id', quote.id).select(quoteWorkflowColumns).single();
       if (update.error) fail('The quote version was preserved but could not be published.', 500, update.error.code || 'quote_publish_failed');
       const apiKey = env('BREVO_API_KEY');
       if (!apiKey) {

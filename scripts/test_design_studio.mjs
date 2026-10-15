@@ -154,6 +154,8 @@ const colorImageReviewMigration = fs.readFileSync(new URL('../supabase/migration
 const catalogCoverageMigration = fs.readFileSync(new URL('../supabase/migrations/202610040002_expand_design_studio_catalog_coverage.sql', import.meta.url), 'utf8');
 const previewCartDedupeMigration = fs.readFileSync(new URL('../supabase/migrations/202610040003_prevent_design_preview_cart_duplicates.sql', import.meta.url), 'utf8');
 const quoteWorkflowMigration = fs.readFileSync(new URL('../supabase/migrations/202610150014_design_studio_quote_workflow.sql', import.meta.url), 'utf8');
+const quotePermissionMigration = fs.readFileSync(new URL('../supabase/migrations/202610150015_design_studio_quote_service_permissions.sql', import.meta.url), 'utf8');
+const bulkQuoteScopeMigration = fs.readFileSync(new URL('../supabase/migrations/202610150016_scope_bulk_quote_minimum.sql', import.meta.url), 'utf8');
 const fastLocationMigration = fs.readFileSync(new URL('../supabase/migrations/202610130001_fast_design_location_registry.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/design-studio/index.ts', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
@@ -226,6 +228,9 @@ assert.doesNotMatch(page, /Choose an eligible T-shirt/, 'selector is no longer l
 assert.match(edge, /action === 'attach_preview_cart'/, 'cart attachment uses the authenticated server workflow');
 assert.match(edge, /quoteRequiredMethodKeys[\s\S]*quote_required/, 'the server prevents quote-required and mixed-method designs from entering the cart path');
 assert.match(edge, /action === 'submit_quote_request'/, 'quote requests are created from immutable owned design versions');
+assert.doesNotMatch(edge.slice(edge.indexOf("action === 'submit_quote_request'"), edge.indexOf("action === 'accept_quote'")), /from\('quote_requests'\)[\s\S]{0,160}select\('\*'\)/, 'quote workflow returns only explicitly granted columns');
+assert.match(quotePermissionMigration, /grant insert \([\s\S]*request_key[\s\S]*\) on table public\.quote_requests to service_role/, 'server quote intake has narrowly scoped insert privileges');
+assert.match(bulkQuoteScopeMigration, /product_type, ''\) <> 'bulk_order'/, 'the legacy 50-piece minimum does not reject Design Studio quote quantities');
 assert.match(edge, /'caveat'[\s\S]*'graduate'[\s\S]*'rye'[\s\S]*'bungee'[\s\S]*'cinzel-decorative'[\s\S]*'fredoka'/, 'the server accepts every bundled licensed apparel font');
 assert.match(edge, /requestKey = `design-studio:\$\{user\.id\}:\$\{version\.checksum\}`/, 'identical quote-request retries share a stable idempotency key');
 assert.match(edge, /filter\(item => vinylMethodKeys\.has\(item\.print_method\)\)/, 'customer status responses expose automatic pricing only for vinyl methods');
