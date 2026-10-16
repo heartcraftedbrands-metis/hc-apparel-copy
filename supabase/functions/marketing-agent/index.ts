@@ -243,9 +243,13 @@ async function approvalEmail(service: Db, request: Record<string, unknown>) {
   const page = text(request.page_display_name || request.page_key, 120);
   const kind = request.request_type === 'chat_reply' ? 'chat reply' : 'post';
   const url = reviewUrl(String(request.id));
-  const html = `<div style="font-family:Arial,sans-serif;color:#292b22;max-width:640px;margin:auto"><div style="background:#41462f;color:#fff;padding:24px"><h1 style="margin:0;font-size:24px">HC Marketing approval</h1></div><div style="background:#f7f2e8;padding:24px"><p><strong>Page:</strong> ${page}</p><p><strong>Request:</strong> ${kind}</p><p><strong>Version:</strong> ${version}</p><div style="white-space:pre-wrap;background:#fff;border:1px solid #d7c6a1;padding:16px">${text(request.proposed_content, 3000).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] || c))}</div>${request.image_url ? `<p><img src="${text(request.image_url, 2000)}" alt="Proposed marketing image preview" style="max-width:100%;height:auto"></p>` : ''}<p style="margin-top:24px"><a href="${url}" style="display:inline-block;background:#a47d35;color:#fff;padding:13px 20px;text-decoration:none;border-radius:6px;font-weight:bold">Review securely</a></p><p style="font-size:13px">Opening this email or link does not approve or send anything. Sign in to Approve, Edit, Reject, or Schedule the exact version shown.</p></div></div>`;
+  const context = request.context && typeof request.context === 'object' ? request.context as Record<string, unknown> : {};
+  const destination = text(context.destination_url, 1500);
+  const proposedTime = text(context.proposed_posting_time || request.scheduled_at, 100);
+  const details = `${destination ? `<p><strong>Destination:</strong> <a href="${destination}">${destination}</a></p>` : ''}${proposedTime ? `<p><strong>Proposed time:</strong> ${proposedTime} (America/New_York)</p>` : ''}`;
+  const html = `<div style="font-family:Arial,sans-serif;color:#292b22;max-width:640px;margin:auto"><div style="background:#41462f;color:#fff;padding:24px"><h1 style="margin:0;font-size:24px">HC Marketing approval</h1></div><div style="background:#f7f2e8;padding:24px"><p><strong>Page:</strong> ${page}</p><p><strong>Request:</strong> ${kind}</p><p><strong>Version:</strong> ${version}</p>${details}<div style="white-space:pre-wrap;background:#fff;border:1px solid #d7c6a1;padding:16px">${text(request.proposed_content, 5000).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] || c))}</div>${request.image_url ? `<p><img src="${text(request.image_url, 2000)}" alt="Proposed marketing image preview" style="max-width:100%;height:auto"></p>` : ''}<p style="margin-top:24px"><a href="${url}" style="display:inline-block;background:#a47d35;color:#fff;padding:13px 20px;text-decoration:none;border-radius:6px;font-weight:bold">Review securely</a></p><p style="font-size:13px">Opening this email or link does not approve or send anything. Sign in to Approve, Edit, Reject, or Schedule the exact version shown.</p></div></div>`;
   try {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ sender: { name: 'HC Apparel', email: env('INVOICE_SENDER_EMAIL') || 'support@ilovehcapparel.net' }, to: [{ email: ownerEmail, name: 'King Terik' }], subject: `Approval required: ${page} ${kind}`, htmlContent: html, textContent: `HC Marketing approval\nPage: ${page}\nRequest: ${kind}\nVersion: ${version}\n\n${text(request.proposed_content, 3000)}\n\nReview securely: ${url}\nOpening this link does not approve or send anything.` }), signal: AbortSignal.timeout(20000) });
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ sender: { name: 'HC Apparel', email: env('INVOICE_SENDER_EMAIL') || 'support@ilovehcapparel.net' }, to: [{ email: ownerEmail, name: 'King Terik' }], subject: `Approval required: ${page} ${kind}`, htmlContent: html, textContent: `HC Marketing approval\nPage: ${page}\nRequest: ${kind}\nVersion: ${version}${destination ? `\nDestination: ${destination}` : ''}${proposedTime ? `\nProposed time: ${proposedTime} (America/New_York)` : ''}\n\n${text(request.proposed_content, 5000)}\n\nReview securely: ${url}\nOpening this link does not approve or send anything.` }), signal: AbortSignal.timeout(20000) });
     const body = await response.json().catch(() => ({}));
     const patch = response.ok ? { status: 'accepted', provider_message_id: body.messageId || null, sent_at: new Date().toISOString(), failure_reason: null } : { status: 'failed', failure_reason: `Brevo rejected the request (${response.status}).` };
     await service.from('marketing_approval_notifications').update(patch).eq('id', notification.id);
@@ -463,6 +467,16 @@ Deno.serve(async request => {
       const { data, error } = await service.from('marketing_approval_requests').update({ status: 'outdated', failure_reason: 'A newer incoming message changed the conversation context.', updated_at: new Date().toISOString() }).eq('id', id).eq('request_type', 'chat_reply').in('status', ['pending','approved']).select().maybeSingle();
       if (error || !data) fail('The reply draft was not eligible to mark outdated.');
       return reply({ approval: data }, 200, origin);
+    }
+
+    if (action === 'send_pending_approval_notifications') {
+      const requestedIds = Array.isArray(input.approval_ids) ? input.approval_ids.map(value => text(value, 100)).filter(Boolean).slice(0, 20) : [];
+      if (!requestedIds.length) fail('Choose approval requests to notify.');
+      const { data: pending, error } = await service.from('marketing_approval_requests').select('*').in('id', requestedIds).eq('page_key', 'hc_apparel').eq('status', 'pending');
+      if (error) fail('Pending approval requests could not be loaded.', 503);
+      const results = [];
+      for (const item of pending || []) results.push({ approval_id: item.id, notification: await approvalEmail(service, { ...item, page_display_name: 'HC Apparel' }) });
+      return reply({ results }, 200, origin);
     }
 
     if (action === 'search_products') {
