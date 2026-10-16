@@ -39,6 +39,39 @@ function StatePill({ state }) {
   const tone = state === 'Published' ? 'bg-green-100 text-green-800' : state === 'Failed' ? 'bg-red-100 text-red-800' : state === 'Cancelled' ? 'bg-muted text-muted-foreground' : state === 'Approved' ? 'bg-blue-100 text-blue-800' : state === 'Scheduled' || state === 'Publishing' ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary';
   return <span className={`rounded-full px-2.5 py-1 text-xs font-black ${tone}`}>{state || 'Draft'}</span>;
 }
+
+function ApprovalCaptionEditor({ item, onSave, onCancel, saving }) {
+  const [caption, setCaption] = useState(item.proposed_content || '');
+  const title = item.context?.post_title || 'HC Apparel';
+  return <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="caption-editor-title">
+    <div className="flex max-h-[100dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-2xl bg-[#f7f2e8] shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
+      <header className="flex items-start justify-between gap-3 border-b border-[#d7c6a1] bg-primary px-4 py-4 text-primary-foreground sm:px-6">
+        <div><p className="text-xs font-black uppercase tracking-[0.16em] text-accent">HC Apparel</p><h2 id="caption-editor-title" className="mt-1 text-xl font-black">Edit Facebook caption</h2><p className="mt-1 text-sm text-primary-foreground/80">Saving creates a new version that requires fresh approval.</p></div>
+        <button type="button" className="min-h-11 min-w-11 rounded-full border border-white/30 p-2" onClick={onCancel} aria-label="Close caption editor"><X className="mx-auto h-5 w-5" /></button>
+      </header>
+      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[1fr_0.9fr]">
+        <div className="space-y-3 p-4 sm:p-6">
+          <label className="block text-sm font-black text-primary" htmlFor={`caption-${item.id}`}>Full caption</label>
+          <textarea id={`caption-${item.id}`} autoFocus className="min-h-[18rem] w-full resize-y rounded-xl border border-[#bda979] bg-white p-4 text-base leading-7 text-foreground shadow-inner focus:outline-none focus:ring-2 focus:ring-accent" value={caption} onChange={event => setCaption(event.target.value)} />
+          <p className="text-xs text-muted-foreground">Paragraphs, links, and hashtags are saved exactly as entered. The image and proposed posting time stay unchanged.</p>
+        </div>
+        <aside className="border-t border-[#d7c6a1] bg-[#efe5d2] p-4 sm:p-6 lg:border-l lg:border-t-0" aria-label="Facebook post preview">
+          <p className="mb-3 text-xs font-black uppercase tracking-wider text-primary">Facebook preview</p>
+          <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+            <div className="flex items-center gap-3 p-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-primary text-sm font-black text-white">HC</div><div><p className="font-bold">HC Apparel</p><p className="text-xs text-muted-foreground">Draft · Not published</p></div></div>
+            <p className="whitespace-pre-wrap break-words px-3 pb-3 text-sm leading-6">{caption || 'Your caption preview will appear here.'}</p>
+            {item.image_url && <img src={item.image_url} alt={item.context?.alt_text || title} className="max-h-[24rem] w-full border-y bg-muted object-contain" />}
+            <div className="p-3"><p className="text-xs uppercase text-muted-foreground">ilovehcapparel.net</p><p className="font-bold">{title}</p></div>
+          </div>
+        </aside>
+      </div>
+      <footer className="flex flex-col-reverse gap-2 border-t border-[#d7c6a1] bg-white p-4 sm:flex-row sm:justify-end sm:px-6">
+        <Button className="min-h-11" variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
+        <Button className="min-h-11" onClick={() => onSave(caption)} disabled={saving || !caption.trim()}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Draft</Button>
+      </footer>
+    </div>
+  </div>;
+}
 const serviceName = channel => String(channel?.service || '').toLowerCase();
 const localDateTime = value => value ? new Date(value).toISOString().slice(0, 16) : '';
 const money = value => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : '—';
@@ -101,6 +134,7 @@ export default function MarketingAgent() {
   const [brief, setBrief] = useState({ notes: '', cta: 'Shop HC Apparel', destination_url: '', platforms: ['facebook', 'pinterest'] });
   const [research, setResearch] = useState(emptyResearch);
   const [approvalDraft, setApprovalDraft] = useState({ page_key: 'hc_apparel', request_type: 'post', source_kind: 'photo', proposed_content: '', source_material: '', conversation_id: '', incoming_message_id: '' });
+  const [editingApproval, setEditingApproval] = useState(null);
 
   const load = async () => {
     setBusy(current => current || 'load');
@@ -165,9 +199,8 @@ export default function MarketingAgent() {
   const reviewApproval = (item, decision) => {
     const payload = { approval_id: item.id, decision, content_version: item.content_version, content_hash: item.content_hash };
     if (decision === 'edit') {
-      const proposed_content = window.prompt('Edit the proposed content. Saving creates a new version that requires fresh approval.', item.proposed_content);
-      if (proposed_content === null) return;
-      payload.proposed_content = proposed_content;
+      setEditingApproval(item);
+      return;
     }
     if (decision === 'schedule') {
       const scheduled_at = window.prompt('Schedule time in ISO format, including time zone offset. This records the approved calendar time; publishing remains a separate connected-channel action.', new Date(Date.now() + 86400000).toISOString());
@@ -176,9 +209,20 @@ export default function MarketingAgent() {
     }
     run('review_approval', payload, decision === 'edit' ? 'Edited version saved and fresh approval requested.' : `Request ${decision === 'reject' ? 'rejected' : 'approved'}. No post or reply was sent.`);
   };
+  const saveApprovalEdit = async proposedContent => {
+    const item = editingApproval;
+    if (!item) return;
+    setBusy('review_approval'); setError(''); setNotice('');
+    try {
+      await agent('review_approval', { approval_id: item.id, decision: 'edit', content_version: item.content_version, content_hash: item.content_hash, proposed_content: proposedContent });
+      setEditingApproval(null); setNotice('Edited version saved and fresh approval requested. Nothing was published or scheduled.'); await load();
+    } catch (issue) { setError(issue.message); }
+    finally { setBusy(''); }
+  };
   const notifyPending = () => run('send_pending_approval_notifications', { approval_ids: (data.approvals || []).filter(item => item.page_key === 'hc_apparel' && item.status === 'pending' && !(data.notifications || []).some(note => note.approval_request_id === item.id && note.content_version === item.content_version)).map(item => item.id) }, 'Missing approval emails processed. No post was published or scheduled.');
 
   return <div className="space-y-5">
+    {editingApproval && <ApprovalCaptionEditor item={editingApproval} onSave={saveApprovalEdit} onCancel={() => setEditingApproval(null)} saving={busy === 'review_approval'} />}
     <div className="rounded-2xl bg-primary p-5 text-primary-foreground shadow-sm"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-accent">HC Apparel Marketing Agent</p><h1 className="mt-2 text-2xl font-black sm:text-3xl">Facebook + Pinterest content operations</h1><p className="mt-2 max-w-3xl text-sm text-primary-foreground/80">Private asset intake, verified catalog facts, platform-specific drafts, human approval, campaign-scoped scheduling, traceable retries, and Eastern Time planning.</p></div><Button variant="outline" className="border-primary-foreground/30 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={load} disabled={Boolean(busy)}><RefreshCw className={`mr-2 h-4 w-4 ${busy === 'load' ? 'animate-spin' : ''}`} />Refresh</Button></div></div>
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {notice && <p className="rounded-xl bg-green-50 p-4 text-sm text-green-800">{notice}</p>}
