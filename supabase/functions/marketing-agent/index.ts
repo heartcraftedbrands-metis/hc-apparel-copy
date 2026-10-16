@@ -768,9 +768,13 @@ Deno.serve(async request => {
         const result = await bufferRequest(key, `mutation { deletePost(input: { id: ${JSON.stringify(post.buffer_post_id)} }) { ... on DeletePostSuccess { id } ... on MutationError { message } } }`);
         if (result?.deletePost?.message || result?.deletePost?.id !== post.buffer_post_id) fail('The queued post was not confirmed deleted; it remains scheduled.', 502);
       }
-      const { data, error } = await service.from('social_studio_posts').update({ workflow_status: 'Cancelled', cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+      const providerCancelledAt = new Date().toISOString();
+      const patch = post.workflow_status === 'Held'
+        ? { platform_cancelled_at: providerCancelledAt, updated_at: providerCancelledAt }
+        : { workflow_status: 'Cancelled', cancelled_at: providerCancelledAt, platform_cancelled_at: providerCancelledAt, updated_at: providerCancelledAt };
+      const { data, error } = await service.from('social_studio_posts').update(patch).eq('id', id).select().single();
       if (error) fail('The post could not be cancelled.', 503);
-      await audit(service, auth.user.id, 'post_cancelled', data.campaign_id, id, { platform_request_deleted: Boolean(post.buffer_post_id) });
+      await audit(service, auth.user.id, post.workflow_status === 'Held' ? 'held_post_removed_from_platform' : 'post_cancelled', data.campaign_id, id, { platform_request_deleted: Boolean(post.buffer_post_id), provider_id_preserved: true });
       return reply({ post: data }, 200, origin);
     }
 

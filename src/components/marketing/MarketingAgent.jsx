@@ -37,7 +37,7 @@ function Section({ title, description, children, action = null }) {
 }
 function StatePill({ state }) {
   const label = ({ pending: 'Awaiting approval', sending: 'Scheduling', scheduled: 'Scheduled', sent: 'Published', failed: 'Failed' })[state] || state || 'Draft';
-  const tone = label === 'Published' ? 'bg-green-100 text-green-800' : label === 'Failed' ? 'bg-red-100 text-red-800' : label === 'Cancelled' ? 'bg-muted text-muted-foreground' : label === 'Approved' ? 'bg-blue-100 text-blue-800' : label === 'Scheduled' || label === 'Scheduling' || label === 'Publishing' ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary';
+  const tone = label === 'Published' ? 'bg-green-100 text-green-800' : label === 'Failed' ? 'bg-red-100 text-red-800' : label === 'Held' ? 'bg-orange-100 text-orange-900' : label === 'Cancelled' ? 'bg-muted text-muted-foreground' : label === 'Approved' ? 'bg-blue-100 text-blue-800' : label === 'Scheduled' || label === 'Scheduling' || label === 'Publishing' ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary';
   return <span className={`rounded-full px-2.5 py-1 text-xs font-black ${tone}`}>{label}</span>;
 }
 
