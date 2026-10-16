@@ -7,8 +7,10 @@ begin
   from unnest(array['FTEX00','1302GD','13MLO','1301GD','RF494','RF498']) style
   where not exists (
     select 1 from public.products p
-    where upper(coalesce(p.style_number,'')) = style
-      and p.is_active = true
+    where upper(coalesce(p.style_number,'')) = style and p.is_active = true
+    union all
+    select 1 from public.storefront_products p
+    where upper(coalesce(p.style_number,'')) = style and p.is_active = true
   );
   if missing is not null then
     raise exception 'American Apparel campaign import stopped. Missing active catalog styles: %', missing;
