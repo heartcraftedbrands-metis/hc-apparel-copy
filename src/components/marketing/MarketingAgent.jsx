@@ -104,7 +104,7 @@ function ApprovalQueueCard({ item, scope, notification, post, onReview, onEdit, 
   const iso = easternToIso(time);
   const needsTime = item.request_type === 'post' && (!iso || new Date(iso).getTime() <= Date.now() + 60000);
   const destinationPage = item.context?.destination_page || scope?.matched_channel?.name || scope?.display_name || item.page_key;
-  const actionable = ['pending', 'failed'].includes(item.status);
+  const actionable = ['pending', 'approved', 'failed'].includes(item.status);
   return <article id={`approval-${item.id}`} className="rounded-xl border p-4">
     <div className="flex flex-wrap items-center justify-between gap-2"><b>{scope?.display_name || item.page_key} · {item.request_type === 'chat_reply' ? 'Chat reply' : 'Post'}</b><StatePill state={item.status} /></div>
     <p className="mt-1 text-xs text-muted-foreground">Version {item.content_version} · Email {notification?.status || 'not requested'}</p>

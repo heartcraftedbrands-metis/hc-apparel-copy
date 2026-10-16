@@ -492,7 +492,7 @@ Deno.serve(async request => {
         return reply({ approval: current, post: existing.post, buffer_status: existing.post.status, reconciled: true, duplicate: true }, 200, origin);
       }
       if (current.status === 'sending') fail('This post is already being scheduled. Refresh to see the confirmed result.', 409);
-      if (!['pending','failed'].includes(current.status)) fail('Only an awaiting-approval or failed current version can be scheduled.', 409);
+      if (!['pending','approved','failed'].includes(current.status)) fail('Only a current approved, awaiting-approval, or failed version can be scheduled.', 409);
       const due = new Date(String(input.scheduled_at || current.scheduled_at || current.context?.proposed_posting_time || ''));
       if (!Number.isFinite(due.getTime()) || due.getTime() <= Date.now() + 60000) fail('Choose a new publication time at least one minute in the future before approving.', 409);
       const [{ data: post }, { data: scope }] = await Promise.all([
@@ -513,7 +513,7 @@ Deno.serve(async request => {
         approved_at: new Date().toISOString(), scheduled_at: due.toISOString(), failure_reason: null,
         context: { ...(current.context || {}), proposed_posting_time: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id }, updated_at: new Date().toISOString(),
       };
-      const { data: locked, error: lockError } = await service.from('marketing_approval_requests').update(lock).eq('id', id).in('status', ['pending','failed']).select().maybeSingle();
+      const { data: locked, error: lockError } = await service.from('marketing_approval_requests').update(lock).eq('id', id).in('status', ['pending','approved','failed']).select().maybeSingle();
       if (lockError || !locked) fail('This approval is already being processed. Refresh before retrying.', 409);
       await service.from('social_studio_posts').update({ workflow_status: 'Approved', approved_at: lock.approved_at, approved_by: auth.user.id, scheduled_at: due.toISOString(), buffer_channel_id: channel.id, selected_channel_name: channel.name, failure_reason: null, updated_at: new Date().toISOString() }).eq('id', post.id).in('workflow_status', ['Draft','Approved','Failed']);
       await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'approved_for_scheduling', details: { scheduled_at: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id } });
