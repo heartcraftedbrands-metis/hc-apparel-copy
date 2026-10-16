@@ -2,6 +2,8 @@ begin;
 
 with campaign as (
   select id from public.marketing_campaigns where campaign_key = 'hc_apparel_organic_launch' limit 1
+), owner as (
+  select id from auth.users where lower(email) = 'heartfamilyco@gmail.com' and email_confirmed_at is not null limit 1
 ), drafts(id,idempotency_key,title,caption,alt_text,image_path,scheduled_at,styles) as (
   values
   ('31000000-0000-4000-8000-000000000001'::uuid,'41000000-0000-4000-8000-000000000001'::uuid,'Boxy fits. Bold possibilities.',
@@ -30,17 +32,17 @@ with campaign as (
    'make-it-yours.png','2026-11-05 19:00:00-05'::timestamptz,array['FTEX00','1302GD','13MLO','1301GD','RF494','RF498'])
 )
 insert into public.social_studio_posts(
-  id,idempotency_key,campaign_id,platform,content_type,brand,product_name,tone,audience,caption_length,cta,
+  id,idempotency_key,created_by,campaign_id,platform,content_type,brand,product_name,tone,audience,caption_length,cta,
   include_hashtags,notes,image_url,image_mode,caption,status,workflow_status,post_title,post_description,alt_text,keywords,
   destination_url,tracking_url,scheduled_at,schedule_timezone,verification_snapshot
 )
-select d.id,d.idempotency_key,c.id,'facebook','Product Promo','American Apparel',d.title,'confident and welcoming','customers planning custom printing','medium','Shop blank garments',
+select d.id,d.idempotency_key,o.id,c.id,'facebook','Product Promo','American Apparel',d.title,'confident and welcoming','customers planning custom printing','medium','Shop blank garments',
   true,'Owner-authorized six-image American Apparel campaign import. Exact finished artwork preserved.',
   'https://www.ilovehcapparel.net/marketing/campaigns/american-apparel/'||d.image_path,'artwork',d.caption,'draft','Draft',d.title,d.caption,d.alt_text,
   array['HC Apparel','American Apparel','blank apparel','DTF printing','DTG printing'],
   'https://www.ilovehcapparel.net/ShopGarments','https://www.ilovehcapparel.net/ShopGarments?utm_source=facebook&utm_medium=organic_social&utm_campaign=american_apparel_blanks&utm_content='||d.id,
   d.scheduled_at,'America/New_York',jsonb_build_object('verified_at',now(),'artwork_style_labels',d.styles,'active_exact_catalog_matches',array['RF494'],'unmatched_artwork_style_labels',array['FTEX00','1302GD','13MLO','1301GD','RF498'],'destination_fallback','/ShopGarments','printing_quoted_separately',true,'schedule_proposed_only',true)
-from drafts d cross join campaign c
+from drafts d cross join campaign c cross join owner o
 on conflict (idempotency_key) do nothing;
 
 with draft_requests(post_id,request_id) as (
@@ -53,11 +55,11 @@ with draft_requests(post_id,request_id) as (
   ('31000000-0000-4000-8000-000000000006','51000000-0000-4000-8000-000000000006')
 )
 insert into public.marketing_approval_requests(
-  id,page_key,request_type,source_kind,source_material,proposed_content,image_url,context,content_version,content_hash,status,scheduled_at,linked_post_id,idempotency_key
+  id,page_key,request_type,source_kind,source_material,proposed_content,image_url,context,content_version,content_hash,status,scheduled_at,linked_post_id,idempotency_key,created_by
 )
 select r.request_id,'hc_apparel','post','photo','Owner-supplied finished American Apparel campaign artwork.',p.post_description,p.image_url,
   jsonb_build_object('post_title',p.post_title,'destination_url',p.destination_url,'tracking_url',p.tracking_url,'proposed_posting_time',p.scheduled_at,'timezone','America/New_York','alt_text',p.alt_text,'hashtags',p.hashtags,'schedule_proposed_only',true),
-  1,md5(concat_ws('|','hc_apparel','post',p.post_description,p.image_url,p.scheduled_at::text)),'pending',p.scheduled_at,p.id,r.request_id
+  1,md5(concat_ws('|','hc_apparel','post',p.post_description,p.image_url,p.scheduled_at::text)),'pending',p.scheduled_at,p.id,r.request_id,p.created_by
 from draft_requests r join public.social_studio_posts p on p.id=r.post_id
 on conflict (idempotency_key) do nothing;
 
