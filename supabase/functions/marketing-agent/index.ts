@@ -370,7 +370,12 @@ async function reschedulePost(service: Db, actorId: string, input: Record<string
   const key = await bufferKey(service);
   const before = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(post.buffer_post_id)} }) { id status dueAt } }`);
   if (!before?.post?.id || before.post.status !== 'scheduled') fail('Buffer no longer shows this post as scheduled. Refresh its status before changing the time.', 409);
-  const mutation = `mutation { editPost(input: { id: ${JSON.stringify(post.buffer_post_id)}, schedulingType: automatic, mode: customScheduled, dueAt: ${JSON.stringify(due.toISOString())} }) { ... on PostActionSuccess { post { id status dueAt } } ... on MutationError { message } } }`;
+  const caption = [post.post_description || post.caption, post.hashtags, post.tracking_url || post.destination_url].filter(Boolean).join('\n\n');
+  const assets = `, assets: [{ image: { url: ${JSON.stringify(post.image_url)}, metadata: { altText: ${JSON.stringify(post.alt_text || '')} } } }]`;
+  const metadata = post.platform === 'pinterest'
+    ? `, metadata: { pinterest: { boardServiceId: ${JSON.stringify(post.pinterest_board_id)}, title: ${JSON.stringify(post.post_title || post.product_name || 'HC Apparel')}, url: ${JSON.stringify(post.tracking_url || post.destination_url)} } }`
+    : `, metadata: { facebook: { type: post } }`;
+  const mutation = `mutation { editPost(input: { id: ${JSON.stringify(post.buffer_post_id)}, text: ${JSON.stringify(caption)}, schedulingType: automatic, mode: customScheduled, dueAt: ${JSON.stringify(due.toISOString())}${assets}${metadata} }) { ... on PostActionSuccess { post { id status dueAt } } ... on MutationError { message } } }`;
   const result = await bufferRequest(key, mutation);
   if (result?.editPost?.message) fail(`Buffer: ${result.editPost.message}`, 502);
   const edited = result?.editPost?.post;
