@@ -321,7 +321,9 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
   if (publishingError) fail('The local publishing lock could not be recorded. Nothing was sent to Buffer.', 503);
   const caption = [post.post_description || post.caption, post.hashtags, destination].filter(Boolean).join('\n\n');
   const assets = `, assets: [{ image: { url: ${JSON.stringify(post.image_url)}, metadata: { altText: ${JSON.stringify(post.alt_text || '')} } } }]`;
-  const metadata = platform === 'pinterest' ? `, metadata: { pinterest: { boardServiceId: ${JSON.stringify(boardId)}, title: ${JSON.stringify(post.post_title || post.product_name || 'HC Apparel')}, url: ${JSON.stringify(destination)} } }` : '';
+  const metadata = platform === 'pinterest'
+    ? `, metadata: { pinterest: { boardServiceId: ${JSON.stringify(boardId)}, title: ${JSON.stringify(post.post_title || post.product_name || 'HC Apparel')}, url: ${JSON.stringify(destination)} } }`
+    : `, metadata: { facebook: { type: post } }`;
   const mutation = `mutation { createPost(input: { text: ${JSON.stringify(caption)}, channelId: ${JSON.stringify(channelId)}, schedulingType: automatic, mode: customScheduled, dueAt: ${JSON.stringify(due.toISOString())}${assets}${metadata} }) { ... on PostActionSuccess { post { id dueAt status } } ... on MutationError { message } } }`;
   try {
     let created: Record<string, unknown> | null = null;

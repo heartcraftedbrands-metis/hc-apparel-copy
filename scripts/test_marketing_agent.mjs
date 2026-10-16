@@ -45,6 +45,7 @@ assert.match(edge, /action === 'approve_and_schedule'/, 'one approval action bin
 assert.match(edge, /alreadyQueued[\s\S]*scheduled_reconciled/, 'the Buffer queue is checked before creating a scheduled post');
 assert.match(edge, /status: 'sending'[\s\S]*status: 'scheduled'/, 'the approval stays in Scheduling until Buffer confirms it');
 assert.match(edge, /destination_page_id[\s\S]*platform_request_id/, 'the destination Page and provider request ID are retained');
+assert.match(edge, /metadata: \{ facebook: \{ type: post \} \}/, 'Facebook scheduling declares the required standard post type');
 assert.match(edge, /scope\.posting_status === 'paused'/, 'the server blocks new approval requests for a paused Page');
 assert.match(edge, /Email provider response was interrupted; do not resend automatically/, 'uncertain email responses cannot trigger blind resends');
 assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
