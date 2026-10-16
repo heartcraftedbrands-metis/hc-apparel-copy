@@ -569,6 +569,11 @@ export default function AdminSSApiSettings() {
             <select value={exactBrand} onChange={event => setExactBrand(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm">
               <option>Shaka Wear</option>
               <option>Under Armour</option>
+              <option>American Apparel</option>
+              <option>Lane Seven</option>
+              <option>Next Level</option>
+              <option>Independent Trading Co</option>
+              <option>Comfort Colors</option>
             </select>
             <input
               value={exactStyleNumbers}
