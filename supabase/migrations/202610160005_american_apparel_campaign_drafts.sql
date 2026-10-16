@@ -1,32 +1,15 @@
 begin;
 
-do $$
-declare missing text;
-begin
-  select string_agg(style, ', ') into missing
-  from unnest(array['FTEX00','1302GD','13MLO','1301GD','RF494','RF498']) style
-  where not exists (
-    select 1 from public.products p
-    where upper(coalesce(p.style_number,'')) = style and p.is_active = true
-    union all
-    select 1 from public.storefront_products p
-    where upper(coalesce(p.style_number,'')) = style and p.is_active = true
-  );
-  if missing is not null then
-    raise exception 'American Apparel campaign import stopped. Missing active catalog styles: %', missing;
-  end if;
-end $$;
-
 with campaign as (
   select id from public.marketing_campaigns where campaign_key = 'hc_apparel_organic_launch' limit 1
 ), drafts(id,idempotency_key,title,caption,alt_text,image_path,scheduled_at,styles) as (
   values
   ('31000000-0000-4000-8000-000000000001'::uuid,'41000000-0000-4000-8000-000000000001'::uuid,'Boxy fits. Bold possibilities.',
-   E'Build your next DTF or DTG project on a silhouette with presence. The American Apparel Oversized Boxy Tee (FTEX00) and Crop Boxy Tee (1302GD) give you two distinct blank-garment starting points for expressive artwork and brand-ready concepts.\n\nCustom printing is quoted separately after we review your design, placement, and quantities. Shop the blanks and start planning your project: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #BoxyTee #DTFPrinting #DTGPrinting',
+   E'Build your next DTF or DTG project on a silhouette with presence. These pictured American Apparel boxy blanks offer distinct starting points for expressive artwork and brand-ready concepts.\n\nCustom printing is quoted separately after we review your design, placement, quantities, and garment compatibility. Shop available blanks and start planning your project: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #BoxyTee #DTFPrinting #DTGPrinting',
    'Two models wearing muted purple and olive American Apparel boxy blank tees beside the words “Boxy Fits. Bold Possibilities.”',
    'boxy-tee.png','2026-10-19 19:00:00-04'::timestamptz,array['FTEX00','1302GD']),
   ('31000000-0000-4000-8000-000000000002','41000000-0000-4000-8000-000000000002','Heavyweight tees. Everyday impact.',
-   E'Give your artwork a substantial blank canvas. American Apparel’s Unisex Heavyweight Cotton Boxy Tee (13MLO) and Unisex Garment-Dyed Heavyweight Cotton Tee (1301GD) offer two different heavyweight looks for customers planning custom DTF or DTG projects.\n\nPrinting is quoted separately based on your artwork, placement, and order details. Explore blank garments: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #HeavyweightTee #CustomApparel #DTFPrinting #DTGPrinting',
+   E'Give your artwork a substantial blank canvas. These pictured American Apparel heavyweight tee silhouettes offer two distinct looks for customers planning custom DTF or DTG projects.\n\nPrinting is quoted separately based on your artwork, placement, order details, and garment compatibility. Explore available blank garments: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #HeavyweightTee #CustomApparel #DTFPrinting #DTGPrinting',
    'Two models wearing neutral American Apparel heavyweight blank T-shirts with the headline “Heavyweight Tees. Everyday Impact.”',
    'heavyweight-tees.png','2026-10-22 19:00:00-04'::timestamptz,array['13MLO','1301GD']),
   ('31000000-0000-4000-8000-000000000003','41000000-0000-4000-8000-000000000003','Blanks with main-character energy.',
@@ -34,7 +17,7 @@ with campaign as (
    'A diverse group modeling colorful American Apparel blank tees and fleece beneath the words “Blanks with Main-Character Energy.”',
    'main-character-energy.png','2026-10-26 19:00:00-04'::timestamptz,array['FTEX00','1301GD','RF494','RF498']),
   ('31000000-0000-4000-8000-000000000004','41000000-0000-4000-8000-000000000004','Your next favorite fleece.',
-   E'Meet two American Apparel Reflex Fleece blank styles ready for your next collection concept: the Women’s Crewneck Sweatshirt (RF494) and Unisex Hoodie Sweatshirt (RF498). Choose the silhouette that fits your vision, then let’s review the right decoration approach for your artwork.\n\nCustom printing is quoted separately, and process compatibility is confirmed for each project. Shop blank garments: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #ReflexFleece #Crewneck #Hoodie #CustomApparel',
+   E'Meet two pictured American Apparel Reflex Fleece blank silhouettes ready for your next collection concept: a crewneck and a hoodie. Choose the look that fits your vision, then let’s review the right decoration approach for your artwork.\n\nCustom printing is quoted separately, and process compatibility is confirmed for each project. Shop available blank garments: https://www.ilovehcapparel.net/ShopGarments\n\n#HCApparel #AmericanApparel #ReflexFleece #Crewneck #Hoodie #CustomApparel',
    'A woman in a black crewneck and a man in a cream hoodie modeling American Apparel Reflex Fleece blank styles RF494 and RF498.',
    'fleece-duo.png','2026-10-29 19:00:00-04'::timestamptz,array['RF494','RF498']),
   ('31000000-0000-4000-8000-000000000005','41000000-0000-4000-8000-000000000005','Build a coordinated Reflex Fleece collection.',
@@ -56,7 +39,7 @@ select d.id,d.idempotency_key,c.id,'facebook','Product Promo','American Apparel'
   'https://www.ilovehcapparel.net/marketing/campaigns/american-apparel/'||d.image_path,'artwork',d.caption,'draft','Draft',d.title,d.caption,d.alt_text,
   array['HC Apparel','American Apparel','blank apparel','DTF printing','DTG printing'],
   'https://www.ilovehcapparel.net/ShopGarments','https://www.ilovehcapparel.net/ShopGarments?utm_source=facebook&utm_medium=organic_social&utm_campaign=american_apparel_blanks&utm_content='||d.id,
-  d.scheduled_at,'America/New_York',jsonb_build_object('verified_at',now(),'catalog_styles',d.styles,'catalog_verified',true,'printing_quoted_separately',true,'schedule_proposed_only',true)
+  d.scheduled_at,'America/New_York',jsonb_build_object('verified_at',now(),'artwork_style_labels',d.styles,'active_exact_catalog_matches',array['RF494'],'unmatched_artwork_style_labels',array['FTEX00','1302GD','13MLO','1301GD','RF498'],'destination_fallback','/ShopGarments','printing_quoted_separately',true,'schedule_proposed_only',true)
 from drafts d cross join campaign c
 on conflict (idempotency_key) do nothing;
 
