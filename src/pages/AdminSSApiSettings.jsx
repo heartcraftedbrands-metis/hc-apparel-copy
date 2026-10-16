@@ -570,6 +570,7 @@ export default function AdminSSApiSettings() {
               <option>Shaka Wear</option>
               <option>Under Armour</option>
               <option>American Apparel</option>
+              <option>Champion</option>
               <option>Lane Seven</option>
               <option>Next Level</option>
               <option>Independent Trading Co</option>
