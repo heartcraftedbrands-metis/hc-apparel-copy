@@ -357,6 +357,38 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
   }
 }
 
+async function reschedulePost(service: Db, actorId: string, input: Record<string, unknown>) {
+  const postId = text(input.post_id, 100);
+  const { data: post } = await service.from('social_studio_posts').select('*').eq('id', postId).maybeSingle();
+  if (!post?.buffer_post_id || post.workflow_status !== 'Scheduled') fail('Only a confirmed scheduled post can be moved.', 409);
+  const due = new Date(String(input.scheduled_at || ''));
+  if (!Number.isFinite(due.getTime()) || due.getTime() <= Date.now() + 60000) fail('Choose a publication time at least one minute in the future.', 409);
+  const { data: collision } = await service.from('social_studio_posts').select('id,post_title').eq('platform', post.platform)
+    .eq('buffer_channel_id', post.buffer_channel_id).eq('scheduled_at', due.toISOString()).neq('id', post.id)
+    .in('workflow_status', ['Approved','Publishing','Scheduled']).maybeSingle();
+  if (collision) fail(`That Page already has “${collision.post_title || 'another post'}” at this time. Choose another slot.`, 409);
+  const key = await bufferKey(service);
+  const before = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(post.buffer_post_id)} }) { id status dueAt } }`);
+  if (!before?.post?.id || before.post.status !== 'scheduled') fail('Buffer no longer shows this post as scheduled. Refresh its status before changing the time.', 409);
+  const mutation = `mutation { editPost(input: { id: ${JSON.stringify(post.buffer_post_id)}, schedulingType: automatic, mode: customScheduled, dueAt: ${JSON.stringify(due.toISOString())} }) { ... on PostActionSuccess { post { id status dueAt } } ... on MutationError { message } } }`;
+  const result = await bufferRequest(key, mutation);
+  if (result?.editPost?.message) fail(`Buffer: ${result.editPost.message}`, 502);
+  const edited = result?.editPost?.post;
+  if (!edited?.id || edited.id !== post.buffer_post_id || edited.status !== 'scheduled') fail('Buffer did not confirm the revised schedule. The local calendar was not changed.', 502);
+  const confirmedDue = new Date(String(edited.dueAt || '')).toISOString();
+  const { data: updated, error } = await service.from('social_studio_posts').update({ scheduled_at: confirmedDue, updated_at: new Date().toISOString(), failure_reason: null }).eq('id', post.id).eq('buffer_post_id', post.buffer_post_id).select().single();
+  if (error) fail(`Buffer moved request ${post.buffer_post_id}, but the local calendar could not be updated. Do not retry; reconcile this provider ID.`, 503);
+  const { data: approval } = await service.from('marketing_approval_requests').select('*').eq('linked_post_id', post.id).maybeSingle();
+  if (approval) await service.from('marketing_approval_requests').update({
+    scheduled_at: confirmedDue,
+    context: { ...(approval.context || {}), proposed_posting_time: confirmedDue },
+    delivery_status: edited.status,
+    updated_at: new Date().toISOString(),
+  }).eq('id', approval.id);
+  await audit(service, actorId, 'scheduled_time_changed', post.campaign_id, post.id, { provider_id: post.buffer_post_id, previous_due_at: before.post.dueAt, due_at: confirmedDue });
+  return { post: updated, buffer_status: edited.status, provider_id: edited.id };
+}
+
 Deno.serve(async request => {
   const origin = request.headers.get('origin') || '';
   if (request.method === 'OPTIONS') return reply({}, 200, origin);
@@ -425,6 +457,10 @@ Deno.serve(async request => {
       if (scope.posting_status === 'paused') fail(`${scope.display_name} is paused. Its saved setup is preserved for later.`, 409);
       if (requestType === 'chat_reply' && !text(input.conversation_id, 300)) fail('Conversation context is required for a reply draft.');
       const linkedPostId = text(input.linked_post_id, 100) || null;
+      const { data: linkedPost } = linkedPostId
+        ? await service.from('social_studio_posts').select('*').eq('id', linkedPostId).maybeSingle()
+        : { data: null };
+      if (linkedPostId && !linkedPost) fail('The linked marketing draft was not found.', 409);
       const imagePath = text(input.image_path, 500) || null;
       let imageUrl = text(input.image_url, 2000) || null;
       if (imagePath) {
@@ -436,12 +472,22 @@ Deno.serve(async request => {
         const { data: prior } = await service.from('marketing_approval_requests').select('*').eq('linked_post_id', linkedPostId).eq('content_hash', hash).maybeSingle();
         if (prior) return reply({ approval: prior, notification: await approvalEmail(service, { ...prior, page_display_name: scope.display_name }), duplicate: true }, 200, origin);
       }
+      const suppliedContext = input.context && typeof input.context === 'object' ? input.context as Record<string, unknown> : {};
       const row = {
         page_key: pageKey, request_type: requestType, source_kind: text(input.source_kind || 'draft', 30), source_material: text(input.source_material, 5000) || null,
-        proposed_content: proposed, image_path: imagePath, image_url: imageUrl, context: input.context && typeof input.context === 'object' ? input.context : {},
+        proposed_content: proposed, image_path: imagePath, image_url: imageUrl, context: {
+          ...suppliedContext,
+          ...(linkedPost ? {
+            post_title: linkedPost.post_title,
+            destination_url: linkedPost.destination_url,
+            proposed_posting_time: linkedPost.scheduled_at,
+            timezone: 'America/New_York',
+            alt_text: linkedPost.alt_text,
+          } : {}),
+        },
         conversation_id: text(input.conversation_id, 300) || null, incoming_message_id: text(input.incoming_message_id, 300) || null,
         incoming_message_at: input.incoming_message_at ? new Date(String(input.incoming_message_at)).toISOString() : null,
-        content_hash: hash, linked_post_id: linkedPostId, created_by: auth.user.id,
+        content_hash: hash, linked_post_id: linkedPostId, scheduled_at: linkedPost?.scheduled_at || null, created_by: auth.user.id,
       };
       const { data: created, error } = await service.from('marketing_approval_requests').insert(row).select().single();
       if (error) fail(`Approval request could not be saved: ${error.message}`, 503);
@@ -609,6 +655,15 @@ Deno.serve(async request => {
         const idempotencyKey = crypto.randomUUID();
         const tracked = trackingUrl(destination, String(platform), campaign.campaign_key || 'hc_apparel_marketing', idempotencyKey);
         const generated = await openaiDraft(String(platform), product, destination, text(input.cta || 'Shop HC Apparel', 120), text(input.notes, 1200), research);
+        let proposedSchedule: string | null = null;
+        let schedulePolicy: Record<string, unknown> | null = null;
+        if (platform === 'facebook') {
+          const { data: reservation, error: reservationError } = await service.rpc('reserve_next_hc_facebook_posting_slot');
+          if (reservationError) fail(`The Eastern posting slot could not be reserved: ${reservationError.message}`, 503);
+          const reserved = Array.isArray(reservation) ? reservation[0] : reservation;
+          proposedSchedule = reserved?.scheduled_at || null;
+          schedulePolicy = reserved || null;
+        }
         const post = {
           created_by: auth.user.id, campaign_id: campaignId, platform, content_type: product ? 'Product Promo' : 'Brand Promo',
           brand: String(product?.brand || 'HC Apparel'), product_id: product?.id || null, product_name: product?.name || null,
@@ -619,7 +674,7 @@ Deno.serve(async request => {
           workflow_status: 'Draft', post_title: generated.title, post_description: generated.description, alt_text: generated.alt_text,
           keywords: generated.keywords, destination_url: destination, tracking_url: tracked, source_asset_path: asset.sourcePath || null,
           derivative_asset_path: asset.derivativePath || null, idempotency_key: idempotencyKey,
-          schedule_timezone: 'America/New_York', verification_snapshot: { verified_at: new Date().toISOString(), product, destination, image_url: asset.imageUrl, offer_claim_allowed: Boolean(product?.offer_active) },
+          scheduled_at: proposedSchedule, schedule_timezone: 'America/New_York', verification_snapshot: { verified_at: new Date().toISOString(), product, destination, image_url: asset.imageUrl, offer_claim_allowed: Boolean(product?.offer_active), posting_schedule_policy: schedulePolicy },
         };
         const { data, error } = await service.from('social_studio_posts').insert(post).select().single();
         if (error) fail(`The ${platform} draft could not be saved: ${error.message}`, 503);
@@ -667,6 +722,8 @@ Deno.serve(async request => {
     }
 
     if (action === 'schedule_post') return reply(await schedulePost(service, auth.user.id, input, true), 200, origin);
+
+    if (action === 'reschedule_post') return reply(await reschedulePost(service, auth.user.id, input), 200, origin);
 
     if (action === 'schedule_campaign') {
       const campaignId = text(input.campaign_id, 100);

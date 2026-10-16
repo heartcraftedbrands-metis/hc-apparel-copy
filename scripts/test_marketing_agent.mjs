@@ -4,6 +4,7 @@ import fs from 'node:fs';
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610130002_facebook_pinterest_marketing_agent.sql', import.meta.url), 'utf8');
 const approvalMigration = fs.readFileSync(new URL('../supabase/migrations/202610160003_marketing_approval_workflow.sql', import.meta.url), 'utf8');
 const pauseMigration = fs.readFileSync(new URL('../supabase/migrations/202610160004_pause_chatha_marketing_scope.sql', import.meta.url), 'utf8');
+const postingSlotsMigration = fs.readFileSync(new URL('../supabase/migrations/202610160007_hc_facebook_posting_slots.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/marketing-agent/index.ts', import.meta.url), 'utf8');
 const component = fs.readFileSync(new URL('../src/components/marketing/MarketingAgent.jsx', import.meta.url), 'utf8');
 const calendar = fs.readFileSync(new URL('../src/components/marketing/MarketingContentCalendar.jsx', import.meta.url), 'utf8');
@@ -23,6 +24,10 @@ assert.match(approvalMigration, /unique\(approval_request_id,content_version,rec
 assert.match(approvalMigration, /page_key in \('hc_apparel','chatha_al_terik'\)/, 'the two Facebook Page scopes remain separate');
 assert.match(approvalMigration, /status in \('pending','approved','rejected','scheduled','sending','sent','failed','outdated'\)/, 'approval, delivery, failure, and outdated states are durable');
 assert.match(pauseMigration, /posting_status = 'paused'[\s\S]*page_key = 'chatha_al_terik'/, 'Chatha remains saved but intentionally paused');
+assert.match(postingSlotsMigration, /array\['15:00'::time, '09:00'::time, '18:00'::time\]/, 'six-post batches rotate through 3 PM, 9 AM, and 6 PM Eastern slots');
+assert.match(postingSlotsMigration, /facebook_next_slot_index = 2/, 'the next submitted six-post batch starts at 9 AM Eastern');
+assert.match(postingSlotsMigration, /at time zone 'America\/New_York'/, 'posting proposals use database timezone conversion for daylight-saving changes');
+assert.match(postingSlotsMigration, /workflow_status in \('Draft','Approved','Publishing','Scheduled'\)/, 'future proposal reservation avoids active Facebook time collisions');
 
 assert.match(edge, /rpc\('is_admin'\)/, 'every Marketing Agent action requires an authenticated admin');
 assert.match(edge, /marketing-agent\/originals\/\$\{auth\.user\.id\}\/\$\{crypto\.randomUUID\(\)\}/, 'original assets are stored in an owner-scoped private path');
@@ -46,6 +51,10 @@ assert.match(edge, /alreadyQueued[\s\S]*scheduled_reconciled/, 'the Buffer queue
 assert.match(edge, /status: 'sending'[\s\S]*status: 'scheduled'/, 'the approval stays in Scheduling until Buffer confirms it');
 assert.match(edge, /destination_page_id[\s\S]*platform_request_id/, 'the destination Page and provider request ID are retained');
 assert.match(edge, /metadata: \{ facebook: \{ type: post \} \}/, 'Facebook scheduling declares the required standard post type');
+assert.match(edge, /action === 'reschedule_post'[\s\S]*reschedulePost/, 'scheduled Buffer posts can be moved without recreating them');
+assert.match(edge, /editPost\(input:[\s\S]*mode: customScheduled[\s\S]*dueAt:/, 'rescheduling edits the existing Buffer provider record');
+assert.match(edge, /scheduled_time_changed[\s\S]*previous_due_at/, 'time-only changes retain an audit trail');
+assert.match(edge, /reserve_next_hc_facebook_posting_slot/, 'future Facebook drafts reserve the configured rotating batch slot');
 assert.match(edge, /scope\.posting_status === 'paused'/, 'the server blocks new approval requests for a paused Page');
 assert.match(edge, /Email provider response was interrupted; do not resend automatically/, 'uncertain email responses cannot trigger blind resends');
 assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
@@ -61,6 +70,7 @@ assert.match(component, /Approve/, 'human approval is discoverable');
 assert.doesNotMatch(component, /Approve exact version|Approve & add to calendar/, 'the approval queue exposes one Approve choice');
 assert.match(component, /Scheduled time · America\/New_York/, 'the exact Eastern publication time is displayed before approval');
 assert.match(component, /Destination Page/, 'the destination Facebook Page is displayed before approval');
+assert.match(component, /Update schedule/, 'confirmed scheduled posts expose an in-place time update action');
 assert.match(component, /Emergency stop this campaign/, 'campaign emergency stop is discoverable and confirmed');
 assert.match(component, /Messenger not connected/, 'interaction limitations are visible to admins');
 assert.match(component, /Approval-first Facebook workflow/, 'the authenticated approval queue is visible in Marketing Center');

@@ -120,7 +120,7 @@ function ApprovalQueueCard({ item, scope, notification, post, onReview, onEdit, 
   </article>;
 }
 const serviceName = channel => String(channel?.service || '').toLowerCase();
-const localDateTime = value => value ? new Date(value).toISOString().slice(0, 16) : '';
+const localDateTime = easternInput;
 const money = value => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : '—';
 
 function PostReview({ post, channels, onRun }) {
@@ -137,8 +137,11 @@ function PostReview({ post, channels, onRun }) {
   const availableChannels = channels.filter(channel => serviceName(channel) === post.platform && !channel.isDisconnected && !channel.isLocked);
   const selectedChannel = availableChannels.find(channel => channel.id === draft.channel_id);
   const patch = (key, value) => setDraft(current => ({ ...current, [key]: value }));
-  const save = () => onRun('update_post', { post_id: post.id, ...draft, keywords: draft.keywords.split(',').map(value => value.trim()).filter(Boolean), scheduled_at: draft.scheduled_at ? new Date(draft.scheduled_at).toISOString() : null }, 'Draft changes saved.');
-  const schedule = () => onRun('schedule_post', { post_id: post.id, channel_id: draft.channel_id, pinterest_board_id: draft.pinterest_board_id, scheduled_at: draft.scheduled_at ? new Date(draft.scheduled_at).toISOString() : null, confirmed: true }, 'Post scheduled and verified through the connected channel.');
+  const scheduledIso = easternToIso(draft.scheduled_at);
+  const scheduleChanged = Boolean(scheduledIso && post.scheduled_at && Math.abs(new Date(scheduledIso).getTime() - new Date(post.scheduled_at).getTime()) >= 60000);
+  const save = () => onRun('update_post', { post_id: post.id, ...draft, keywords: draft.keywords.split(',').map(value => value.trim()).filter(Boolean), scheduled_at: scheduledIso || null }, 'Draft changes saved.');
+  const schedule = () => onRun('schedule_post', { post_id: post.id, channel_id: draft.channel_id, pinterest_board_id: draft.pinterest_board_id, scheduled_at: scheduledIso || null, confirmed: true }, 'Post scheduled and verified through the connected channel.');
+  const reschedule = () => onRun('reschedule_post', { post_id: post.id, scheduled_at: scheduledIso }, 'Buffer confirmed the new Eastern posting time. The provider ID and calendar entry were preserved.');
   return <article className="min-w-0 rounded-xl border bg-white p-4 shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap items-center gap-2"><StatePill state={post.workflow_status} /><span className="text-xs font-black uppercase tracking-wide text-muted-foreground">{post.platform}</span>{post.product_name && <span className="text-xs text-muted-foreground">{post.product_name}</span>}</div>{post.image_url && <img className="h-14 w-14 rounded-lg border bg-muted object-contain" src={post.image_url} alt="Publishing preview" />}</div>
     <div className="mt-4 grid gap-3 lg:grid-cols-2"><Field label="Post title" value={draft.post_title} onChange={value => patch('post_title', value)} /><Field label="CTA" value={draft.cta} onChange={value => patch('cta', value)} /><TextArea label="Platform description" value={draft.post_description} onChange={value => patch('post_description', value)} rows={5} /><TextArea label="Image alt text" value={draft.alt_text} onChange={value => patch('alt_text', value)} rows={5} /><Field label="Keywords (comma separated)" value={draft.keywords} onChange={value => patch('keywords', value)} /><Field label="Publish time (Eastern Time)" type="datetime-local" value={draft.scheduled_at} onChange={value => patch('scheduled_at', value)} /></div>
@@ -152,6 +155,7 @@ function PostReview({ post, channels, onRun }) {
       {['Draft', 'Approved'].includes(post.workflow_status) && <Button size="sm" variant="outline" onClick={save}>Save edits</Button>}
       {post.workflow_status === 'Draft' && <Button size="sm" onClick={() => onRun('create_approval_request', { page_key: 'hc_apparel', request_type: 'post', source_kind: 'draft', proposed_content: draft.post_description, image_url: post.image_url, linked_post_id: post.id }, 'Approval request saved and the owner notification was processed. Nothing was published.')}><Check className="mr-1 h-4 w-4" />Request approval</Button>}
       {post.workflow_status === 'Approved' && <Button size="sm" disabled={!draft.channel_id || !draft.scheduled_at || (post.platform === 'pinterest' && !draft.pinterest_board_id)} onClick={schedule}><CalendarClock className="mr-1 h-4 w-4" />Schedule</Button>}
+      {post.workflow_status === 'Scheduled' && <Button size="sm" disabled={!scheduleChanged} onClick={reschedule}><CalendarClock className="mr-1 h-4 w-4" />Update schedule</Button>}
       {post.workflow_status === 'Failed' && <Button size="sm" onClick={() => onRun('retry_post', { post_id: post.id }, 'Post returned to Approved for a controlled retry.')}><RefreshCw className="mr-1 h-4 w-4" />Prepare retry</Button>}
       {['Scheduled', 'Publishing'].includes(post.workflow_status) && <Button size="sm" variant="outline" onClick={() => onRun('refresh_post', { post_id: post.id }, 'Platform status refreshed.')}><RefreshCw className="mr-1 h-4 w-4" />Refresh</Button>}
       {!['Published', 'Cancelled'].includes(post.workflow_status) && <Button size="sm" variant="destructive" onClick={() => window.confirm('Cancel this draft or remove its queued platform post?') && onRun('cancel_post', { post_id: post.id }, 'Post cancelled.')}><X className="mr-1 h-4 w-4" />Cancel</Button>}
