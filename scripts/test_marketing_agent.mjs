@@ -3,6 +3,7 @@ import fs from 'node:fs';
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610130002_facebook_pinterest_marketing_agent.sql', import.meta.url), 'utf8');
 const approvalMigration = fs.readFileSync(new URL('../supabase/migrations/202610160003_marketing_approval_workflow.sql', import.meta.url), 'utf8');
+const pauseMigration = fs.readFileSync(new URL('../supabase/migrations/202610160004_pause_chatha_marketing_scope.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/marketing-agent/index.ts', import.meta.url), 'utf8');
 const component = fs.readFileSync(new URL('../src/components/marketing/MarketingAgent.jsx', import.meta.url), 'utf8');
 const calendar = fs.readFileSync(new URL('../src/components/marketing/MarketingContentCalendar.jsx', import.meta.url), 'utf8');
@@ -21,6 +22,7 @@ assert.match(approvalMigration, /approved_version = content_version and approved
 assert.match(approvalMigration, /unique\(approval_request_id,content_version,recipient,notification_type\)/, 'approval email requests are deduplicated per version');
 assert.match(approvalMigration, /page_key in \('hc_apparel','chatha_al_terik'\)/, 'the two Facebook Page scopes remain separate');
 assert.match(approvalMigration, /status in \('pending','approved','rejected','scheduled','sending','sent','failed','outdated'\)/, 'approval, delivery, failure, and outdated states are durable');
+assert.match(pauseMigration, /posting_status = 'paused'[\s\S]*page_key = 'chatha_al_terik'/, 'Chatha remains saved but intentionally paused');
 
 assert.match(edge, /rpc\('is_admin'\)/, 'every Marketing Agent action requires an authenticated admin');
 assert.match(edge, /marketing-agent\/originals\/\$\{auth\.user\.id\}\/\$\{crypto\.randomUUID\(\)\}/, 'original assets are stored in an owner-scoped private path');
@@ -39,6 +41,7 @@ assert.match(edge, /campaign\.start_date[\s\S]*campaign\.end_date/, 'campaign st
 assert.match(edge, /interaction_policy:[\s\S]*incoming_comment_replies: false[\s\S]*direct_messages: false[\s\S]*other_accounts: false/, 'the capability response makes prohibited interactions explicit');
 assert.match(edge, /Opening this email or link does not approve or send anything/, 'email review links are explicitly non-approving');
 assert.match(edge, /content_version[\s\S]*content_hash[\s\S]*This request changed/, 'review rejects stale content versions');
+assert.match(edge, /scope\.posting_status === 'paused'/, 'the server blocks new approval requests for a paused Page');
 assert.match(edge, /Email provider response was interrupted; do not resend automatically/, 'uncertain email responses cannot trigger blind resends');
 assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
 assert.match(edge, /No estimated metrics/, 'the agent explicitly refuses estimated engagement metrics');

@@ -384,7 +384,8 @@ Deno.serve(async request => {
       const facebook = (channels as Array<Record<string, unknown>>).filter(channel => String(channel.service).toLowerCase() === 'facebook');
       const scopes = (pageScopes || []).map(scope => {
         const match = facebook.find(channel => String(channel.id) === String(scope.buffer_channel_id || '') || String(channel.name).trim().toLowerCase() === String(scope.expected_channel_name).trim().toLowerCase());
-        return { ...scope, posting_status: match && !match.isDisconnected && !match.isLocked ? 'connected' : 'needs_authorization', matched_channel: match || null };
+        const postingStatus = scope.posting_status === 'paused' ? 'paused' : match && !match.isDisconnected && !match.isLocked ? 'connected' : 'needs_authorization';
+        return { ...scope, posting_status: postingStatus, matched_channel: match || null };
       });
       return reply({ settings, campaigns: campaigns || [], posts: posts || [], research: research || [], channels, page_scopes: scopes, approvals: approvals || [], notifications: notifications || [], buffer_configured: Boolean(key), buffer_error,
         interaction_policy: { incoming_comment_replies: false, direct_messages: false, other_accounts: false, standalone_comment: 'Buffer authorizes publishing only. Incoming Page chats and replies require a separate Meta Messenger connection and are not sent by this implementation.' },
@@ -398,6 +399,7 @@ Deno.serve(async request => {
       if (!['hc_apparel', 'chatha_al_terik'].includes(pageKey) || !['post', 'chat_reply'].includes(requestType) || !proposed) fail('Page, request type, and proposed content are required.');
       const { data: scope } = await service.from('marketing_page_scopes').select('*').eq('page_key', pageKey).maybeSingle();
       if (!scope) fail('The selected Page scope is not configured.');
+      if (scope.posting_status === 'paused') fail(`${scope.display_name} is paused. Its saved setup is preserved for later.`, 409);
       if (requestType === 'chat_reply' && !text(input.conversation_id, 300)) fail('Conversation context is required for a reply draft.');
       const linkedPostId = text(input.linked_post_id, 100) || null;
       const imagePath = text(input.image_path, 500) || null;
