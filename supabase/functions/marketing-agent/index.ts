@@ -300,6 +300,23 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
     if (existing?.post?.id) return { post, reconciled: true, buffer_status: existing.post.status };
     fail('A platform request ID is already recorded but cannot be reconciled. Review Buffer before retrying.', 409);
   }
+  const alreadyQueued = (await nearbyBufferPosts(key, String(channel.organization_id || ''), channelId, due).catch(() => []))
+    .find((candidate: Record<string, unknown>) => {
+      const candidateTime = new Date(String(candidate.dueAt || '')).getTime();
+      return Number.isFinite(candidateTime) && Math.abs(candidateTime - due.getTime()) < 1000
+        && String(candidate.channelId || '') === channelId
+        && String(candidate.text || '').includes(destination);
+    });
+  if (alreadyQueued?.id) {
+    const { data: reconciled, error: reconcileError } = await service.from('social_studio_posts').update({
+      workflow_status: 'Scheduled', status: 'scheduled', buffer_post_id: alreadyQueued.id, platform_post_id: alreadyQueued.id,
+      buffer_channel_id: channelId, selected_channel_name: channel.name, tracking_url: destination,
+      scheduled_at: alreadyQueued.dueAt || due.toISOString(), sent_to_buffer_at: new Date().toISOString(), failure_reason: null, updated_at: new Date().toISOString(),
+    }).eq('id', postId).select().single();
+    if (reconcileError) fail(`Buffer already contains request ${alreadyQueued.id}, but local history could not be reconciled. Do not resend.`, 503);
+    await audit(service, actorId, 'scheduled_reconciled', post.campaign_id, postId, { platform, request_id: alreadyQueued.id, due_at: reconciled.scheduled_at });
+    return { post: reconciled, reconciled: true, buffer_status: alreadyQueued.status };
+  }
   const { error: publishingError } = await service.from('social_studio_posts').update({ workflow_status: 'Publishing', publishing_started_at: new Date().toISOString(), scheduled_at: due.toISOString(), last_revalidated_at: new Date().toISOString(), failure_reason: null }).eq('id', postId);
   if (publishingError) fail('The local publishing lock could not be recorded. Nothing was sent to Buffer.', 503);
   const caption = [post.post_description || post.caption, post.hashtags, destination].filter(Boolean).join('\n\n');
@@ -460,6 +477,56 @@ Deno.serve(async request => {
       if (current.linked_post_id && decision !== 'reject') await service.from('social_studio_posts').update({ workflow_status: 'Approved', approved_at: patch.approved_at, approved_by: auth.user.id, scheduled_at: patch.scheduled_at || null, updated_at: new Date().toISOString() }).eq('id', current.linked_post_id).eq('workflow_status', 'Draft');
       await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: decision, details: { scheduled_at: patch.scheduled_at || null } });
       return reply({ approval: updated }, 200, origin);
+    }
+
+    if (action === 'approve_and_schedule') {
+      const id = text(input.approval_id, 100);
+      const { data: current } = await service.from('marketing_approval_requests').select('*').eq('id', id).maybeSingle();
+      if (!current) fail('Approval request not found.');
+      if (Number(input.content_version) !== Number(current.content_version) || text(input.content_hash, 100) !== current.content_hash) fail('This request changed. Refresh and review the current version.', 409);
+      if (current.request_type !== 'post' || !current.linked_post_id) fail('Only a linked post can be approved for scheduled publishing.', 409);
+      if (current.status === 'scheduled' && current.platform_request_id) {
+        const key = await bufferKey(service);
+        const existing = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(current.platform_request_id)} }) { id status dueAt } }`);
+        if (!existing?.post?.id) fail('The recorded Buffer request could not be confirmed. Review Buffer before retrying.', 409);
+        return reply({ approval: current, post: existing.post, buffer_status: existing.post.status, reconciled: true, duplicate: true }, 200, origin);
+      }
+      if (current.status === 'sending') fail('This post is already being scheduled. Refresh to see the confirmed result.', 409);
+      if (!['pending','failed'].includes(current.status)) fail('Only an awaiting-approval or failed current version can be scheduled.', 409);
+      const due = new Date(String(input.scheduled_at || current.scheduled_at || current.context?.proposed_posting_time || ''));
+      if (!Number.isFinite(due.getTime()) || due.getTime() <= Date.now() + 60000) fail('Choose a new publication time at least one minute in the future before approving.', 409);
+      const [{ data: post }, { data: scope }] = await Promise.all([
+        service.from('social_studio_posts').select('*').eq('id', current.linked_post_id).maybeSingle(),
+        service.from('marketing_page_scopes').select('*').eq('page_key', current.page_key).maybeSingle(),
+      ]);
+      if (!post || !scope) fail('The linked post or destination Page configuration is missing.', 409);
+      if (post.post_description !== current.proposed_content || post.image_url !== current.image_url) fail('The caption or image changed. Refresh and request approval for the current version.', 409);
+      const approvedDestination = text(current.context?.destination_url || post.destination_url, 1200);
+      if (approvedDestination !== text(post.destination_url, 1200)) fail('The destination link changed. Refresh and request fresh approval.', 409);
+      const key = await bufferKey(service);
+      const channels = await connectedChannels(key) as Array<Record<string, unknown>>;
+      const channel = channels.find(item => String(item.service).toLowerCase() === 'facebook' && !item.isDisconnected && !item.isLocked
+        && (String(item.id) === String(scope.buffer_channel_id || '') || String(item.name).trim().toLowerCase() === String(scope.expected_channel_name).trim().toLowerCase()));
+      if (!channel) fail(`The ${scope.display_name} Facebook Page is not currently available through Buffer.`, 409);
+      const lock = {
+        status: 'sending', approved_version: current.content_version, approved_hash: current.content_hash, approved_by: auth.user.id,
+        approved_at: new Date().toISOString(), scheduled_at: due.toISOString(), failure_reason: null,
+        context: { ...(current.context || {}), proposed_posting_time: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id }, updated_at: new Date().toISOString(),
+      };
+      const { data: locked, error: lockError } = await service.from('marketing_approval_requests').update(lock).eq('id', id).in('status', ['pending','failed']).select().maybeSingle();
+      if (lockError || !locked) fail('This approval is already being processed. Refresh before retrying.', 409);
+      await service.from('social_studio_posts').update({ workflow_status: 'Approved', approved_at: lock.approved_at, approved_by: auth.user.id, scheduled_at: due.toISOString(), buffer_channel_id: channel.id, selected_channel_name: channel.name, failure_reason: null, updated_at: new Date().toISOString() }).eq('id', post.id).in('workflow_status', ['Draft','Approved','Failed']);
+      await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'approved_for_scheduling', details: { scheduled_at: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id } });
+      try {
+        const result = await schedulePost(service, auth.user.id, { post_id: post.id, scheduled_at: due.toISOString(), channel_id: channel.id, confirmed: true }, true);
+        const { data: completed, error: completeError } = await service.from('marketing_approval_requests').update({ status: 'scheduled', platform_request_id: result.post.buffer_post_id, delivery_status: text(result.buffer_status || 'confirmed', 100), scheduled_at: result.post.scheduled_at, failure_reason: null, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'sending').select().single();
+        if (completeError) fail(`Buffer confirmed request ${result.post.buffer_post_id}, but the approval record could not be finalized. Do not retry.`, 503);
+        await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'buffer_scheduled', details: { platform_request_id: result.post.buffer_post_id, scheduled_at: result.post.scheduled_at, buffer_status: result.buffer_status, reconciled: result.reconciled } });
+        return reply({ approval: completed, ...result, duplicate: false }, 200, origin);
+      } catch (issue) {
+        await service.from('marketing_approval_requests').update({ status: 'failed', failure_reason: (issue as Error).message, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'sending');
+        throw issue;
+      }
     }
 
     if (action === 'mark_reply_outdated') {

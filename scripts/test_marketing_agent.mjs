@@ -41,6 +41,10 @@ assert.match(edge, /campaign\.start_date[\s\S]*campaign\.end_date/, 'campaign st
 assert.match(edge, /interaction_policy:[\s\S]*incoming_comment_replies: false[\s\S]*direct_messages: false[\s\S]*other_accounts: false/, 'the capability response makes prohibited interactions explicit');
 assert.match(edge, /Opening this email or link does not approve or send anything/, 'email review links are explicitly non-approving');
 assert.match(edge, /content_version[\s\S]*content_hash[\s\S]*This request changed/, 'review rejects stale content versions');
+assert.match(edge, /action === 'approve_and_schedule'/, 'one approval action binds approval and scheduling');
+assert.match(edge, /alreadyQueued[\s\S]*scheduled_reconciled/, 'the Buffer queue is checked before creating a scheduled post');
+assert.match(edge, /status: 'sending'[\s\S]*status: 'scheduled'/, 'the approval stays in Scheduling until Buffer confirms it');
+assert.match(edge, /destination_page_id[\s\S]*platform_request_id/, 'the destination Page and provider request ID are retained');
 assert.match(edge, /scope\.posting_status === 'paused'/, 'the server blocks new approval requests for a paused Page');
 assert.match(edge, /Email provider response was interrupted; do not resend automatically/, 'uncertain email responses cannot trigger blind resends');
 assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
@@ -53,6 +57,9 @@ assert.match(component, /Facebook \+ Pinterest content operations/, 'Marketing C
 assert.match(component, /Original saved privately/, 'asset handling accurately explains private originals');
 assert.match(component, /Create Drafts/, 'draft generation remains the default action');
 assert.match(component, /Approve/, 'human approval is discoverable');
+assert.doesNotMatch(component, /Approve exact version|Approve & add to calendar/, 'the approval queue exposes one Approve choice');
+assert.match(component, /Scheduled time · America\/New_York/, 'the exact Eastern publication time is displayed before approval');
+assert.match(component, /Destination Page/, 'the destination Facebook Page is displayed before approval');
 assert.match(component, /Emergency stop this campaign/, 'campaign emergency stop is discoverable and confirmed');
 assert.match(component, /Messenger not connected/, 'interaction limitations are visible to admins');
 assert.match(component, /Approval-first Facebook workflow/, 'the authenticated approval queue is visible in Marketing Center');

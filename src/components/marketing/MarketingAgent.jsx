@@ -36,8 +36,9 @@ function Section({ title, description, children, action = null }) {
   return <Card className="overflow-hidden"><header className="flex flex-wrap items-start justify-between gap-3 border-b p-4"><div><h2 className="font-black text-primary">{title}</h2>{description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>}</div>{action}</header><div className="p-4">{children}</div></Card>;
 }
 function StatePill({ state }) {
-  const tone = state === 'Published' ? 'bg-green-100 text-green-800' : state === 'Failed' ? 'bg-red-100 text-red-800' : state === 'Cancelled' ? 'bg-muted text-muted-foreground' : state === 'Approved' ? 'bg-blue-100 text-blue-800' : state === 'Scheduled' || state === 'Publishing' ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary';
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-black ${tone}`}>{state || 'Draft'}</span>;
+  const label = ({ pending: 'Awaiting approval', sending: 'Scheduling', scheduled: 'Scheduled', sent: 'Published', failed: 'Failed' })[state] || state || 'Draft';
+  const tone = label === 'Published' ? 'bg-green-100 text-green-800' : label === 'Failed' ? 'bg-red-100 text-red-800' : label === 'Cancelled' ? 'bg-muted text-muted-foreground' : label === 'Approved' ? 'bg-blue-100 text-blue-800' : label === 'Scheduled' || label === 'Scheduling' || label === 'Publishing' ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary';
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-black ${tone}`}>{label}</span>;
 }
 
 function ApprovalCaptionEditor({ item, onSave, onCancel, saving }) {
@@ -71,6 +72,52 @@ function ApprovalCaptionEditor({ item, onSave, onCancel, saving }) {
       </footer>
     </div>
   </div>;
+}
+
+const easternDisplay = value => value && Number.isFinite(new Date(value).getTime())
+  ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(value))
+  : '';
+const easternInput = value => {
+  if (!value || !Number.isFinite(new Date(value).getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value));
+  const part = type => parts.find(item => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`;
+};
+const easternToIso = value => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return '';
+  const requested = Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]);
+  let candidate = requested;
+  for (let index = 0; index < 2; index += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(candidate));
+    const part = type => +(parts.find(item => item.type === type)?.value || 0);
+    const represented = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'));
+    candidate += requested - represented;
+  }
+  return new Date(candidate).toISOString();
+};
+
+function ApprovalQueueCard({ item, scope, notification, post, onReview, onEdit, busy }) {
+  const initial = item.scheduled_at || item.context?.proposed_posting_time || post?.scheduled_at || '';
+  const [time, setTime] = useState(easternInput(initial));
+  useEffect(() => setTime(easternInput(initial)), [initial]);
+  const iso = easternToIso(time);
+  const needsTime = item.request_type === 'post' && (!iso || new Date(iso).getTime() <= Date.now() + 60000);
+  const destinationPage = item.context?.destination_page || scope?.matched_channel?.name || scope?.display_name || item.page_key;
+  const actionable = ['pending', 'failed'].includes(item.status);
+  return <article id={`approval-${item.id}`} className="rounded-xl border p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2"><b>{scope?.display_name || item.page_key} · {item.request_type === 'chat_reply' ? 'Chat reply' : 'Post'}</b><StatePill state={item.status} /></div>
+    <p className="mt-1 text-xs text-muted-foreground">Version {item.content_version} · Email {notification?.status || 'not requested'}</p>
+    {item.request_type === 'post' && <div className="mt-3 grid gap-3 rounded-lg bg-muted/50 p-3 sm:grid-cols-2"><div><p className="text-xs font-bold text-muted-foreground">Destination Page</p><p className="font-black">{destinationPage}</p></div><label className="text-xs font-bold text-muted-foreground">Scheduled time · America/New_York<input className="mt-1 min-h-11 w-full rounded-md border bg-white px-3 text-base font-normal text-foreground" type="datetime-local" value={time} onChange={event => setTime(event.target.value)} disabled={!actionable} /></label></div>}
+    {iso && !needsTime && <p className="mt-2 text-xs text-muted-foreground">Publishes {easternDisplay(iso)} America/New_York after Buffer confirms scheduling.</p>}
+    {needsTime && actionable && <p role="alert" className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">Choose a future date and time before approving. This post will not publish immediately.</p>}
+    <p className="mt-3 whitespace-pre-wrap text-sm">{item.proposed_content}</p>
+    {item.image_url && <img src={item.image_url} alt={item.context?.alt_text || 'Proposed content preview'} className="mt-3 max-h-52 w-full rounded-lg border bg-muted object-contain" />}
+    {actionable && <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" disabled={busy || needsTime || item.request_type !== 'post'} onClick={() => onReview(item, iso)}>Approve</Button><Button size="sm" variant="outline" onClick={() => onEdit(item)} disabled={busy}>Edit</Button><Button size="sm" variant="destructive" onClick={() => onReview(item, null, 'reject')} disabled={busy}>Reject</Button></div>}
+    {item.platform_request_id && <p className="mt-3 break-all text-xs text-muted-foreground">Buffer provider ID: {item.platform_request_id} · {item.delivery_status || 'confirmed'}</p>}
+    {item.failure_reason && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-800">{item.failure_reason}</p>}
+    {item.request_type === 'chat_reply' && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs">Not sendable: incoming Page messaging is not connected. A newer incoming message must mark this draft outdated before review.</p>}
+  </article>;
 }
 const serviceName = channel => String(channel?.service || '').toLowerCase();
 const localDateTime = value => value ? new Date(value).toISOString().slice(0, 16) : '';
@@ -196,18 +243,13 @@ export default function MarketingAgent() {
     setResearch(emptyResearch);
   };
   const requestApproval = () => run('create_approval_request', { ...approvalDraft, image_path: asset?.source_asset_path || null }, 'Approval request saved. The owner email notification was processed; nothing was published or sent to Facebook.');
-  const reviewApproval = (item, decision) => {
+  const reviewApproval = (item, scheduledAt, decision = 'approve') => {
     const payload = { approval_id: item.id, decision, content_version: item.content_version, content_hash: item.content_hash };
-    if (decision === 'edit') {
-      setEditingApproval(item);
+    if (decision === 'reject') {
+      run('review_approval', payload, 'Request rejected. Nothing was published or scheduled.');
       return;
     }
-    if (decision === 'schedule') {
-      const scheduled_at = window.prompt('Schedule time in ISO format, including time zone offset. This records the approved calendar time; publishing remains a separate connected-channel action.', new Date(Date.now() + 86400000).toISOString());
-      if (!scheduled_at) return;
-      payload.scheduled_at = scheduled_at;
-    }
-    run('review_approval', payload, decision === 'edit' ? 'Edited version saved and fresh approval requested.' : `Request ${decision === 'reject' ? 'rejected' : 'approved'}. No post or reply was sent.`);
+    run('approve_and_schedule', { ...payload, scheduled_at: scheduledAt }, 'Buffer confirmed the scheduled post. The provider ID and time are recorded below.');
   };
   const saveApprovalEdit = async proposedContent => {
     const item = editingApproval;
@@ -238,7 +280,7 @@ export default function MarketingAgent() {
       <div className="grid gap-3 md:grid-cols-2">{(data.page_scopes || []).map(scope => <Card className="p-4" key={scope.page_key}><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">{scope.display_name}</h3><span className={`rounded-full px-2 py-1 text-xs font-bold ${scope.posting_status === 'connected' ? 'bg-green-100 text-green-800' : scope.posting_status === 'paused' ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-900'}`}>{scope.posting_status === 'connected' ? 'Posting connected' : scope.posting_status === 'paused' ? 'Paused — setup preserved' : 'Posting authorization needed'}</span></div><p className="mt-2 text-sm text-muted-foreground">Expected Facebook Page: {scope.expected_channel_name}</p><p className="mt-1 text-sm">{scope.posting_status === 'paused' ? 'No upgrade or paid trial is required while this Page is paused.' : scope.matched_channel ? `Authorized channel: ${scope.matched_channel.name}` : 'This Page was not found among the current Buffer Facebook channels.'}</p><p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs"><b>Messaging:</b> Separate Meta Messenger authorization required; no connection will be added without reviewing any cost first.</p></Card>)}</div>
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border p-4"><SelectField label="Page" value={approvalDraft.page_key} onChange={value => setApprovalDraft(current => ({ ...current, page_key: value }))}><option value="hc_apparel">HC Apparel</option><option value="chatha_al_terik" disabled>Chatha Al-Terik — paused</option></SelectField><SelectField label="Approval type" value={approvalDraft.request_type} onChange={value => setApprovalDraft(current => ({ ...current, request_type: value, source_kind: value === 'chat_reply' ? 'incoming_chat' : current.page_key === 'chatha_al_terik' ? 'quote' : 'photo' }))}><option value="post">Facebook post</option><option value="chat_reply">Page chat reply draft</option></SelectField><TextArea label={approvalDraft.page_key === 'chatha_al_terik' ? 'Submitted quote / source material' : 'Verified facts or source material'} value={approvalDraft.source_material} onChange={value => setApprovalDraft(current => ({ ...current, source_material: value }))} /><TextArea label="Proposed content" value={approvalDraft.proposed_content} onChange={value => setApprovalDraft(current => ({ ...current, proposed_content: value }))} rows={6} />{approvalDraft.request_type === 'chat_reply' && <><Field label="Conversation reference" value={approvalDraft.conversation_id} onChange={value => setApprovalDraft(current => ({ ...current, conversation_id: value }))} /><Field label="Latest incoming message reference" value={approvalDraft.incoming_message_id} onChange={value => setApprovalDraft(current => ({ ...current, incoming_message_id: value }))} /></>}<p className="text-xs text-muted-foreground">Use the private image uploader below for an optional picture. Chat drafts can be reviewed now, but cannot be sent until Messenger permissions are connected.</p><Button disabled={!approvalDraft.proposed_content || Boolean(busy)} onClick={requestApproval}>Request authenticated approval</Button></div>
-        <div><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">Approval queue</h3>{(data.approvals || []).some(item => item.page_key === 'hc_apparel' && item.status === 'pending' && !(data.notifications || []).some(note => note.approval_request_id === item.id && note.content_version === item.content_version)) && <Button size="sm" variant="outline" onClick={notifyPending}>Send missing approval emails</Button>}</div><div className="mt-3 space-y-3">{(data.approvals || []).length ? data.approvals.map(item => { const scope = data.page_scopes?.find(page => page.page_key === item.page_key); const notification = data.notifications?.find(row => row.approval_request_id === item.id && row.content_version === item.content_version); return <article id={`approval-${item.id}`} key={item.id} className="rounded-xl border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b>{scope?.display_name || item.page_key} · {item.request_type === 'chat_reply' ? 'Chat reply' : 'Post'}</b><StatePill state={item.status} /></div><p className="mt-1 text-xs text-muted-foreground">Version {item.content_version} · Email {notification?.status || 'not requested'}</p>{item.context?.proposed_posting_time && <p className="mt-1 text-xs text-muted-foreground">Proposed: {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(item.context.proposed_posting_time))} Eastern · not activated</p>}<p className="mt-3 whitespace-pre-wrap text-sm">{item.proposed_content}</p>{item.image_url && <img src={item.image_url} alt={item.context?.alt_text || 'Proposed content preview'} className="mt-3 max-h-52 w-full rounded-lg border bg-muted object-contain" />}{item.status === 'pending' && <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => reviewApproval(item, 'approve')}>Approve exact version</Button><Button size="sm" variant="outline" onClick={() => reviewApproval(item, 'edit')}>Edit</Button><Button size="sm" variant="outline" onClick={() => reviewApproval(item, 'schedule')} disabled={item.request_type !== 'post'}>Approve & add to calendar</Button><Button size="sm" variant="destructive" onClick={() => reviewApproval(item, 'reject')}>Reject</Button></div>}{item.request_type === 'chat_reply' && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs">Not sendable: incoming Page messaging is not connected. A newer incoming message must mark this draft outdated before review.</p>}</article>; }) : <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">No approval requests yet.</p>}</div></div>
+        <div><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">Approval queue</h3>{(data.approvals || []).some(item => item.page_key === 'hc_apparel' && item.status === 'pending' && !(data.notifications || []).some(note => note.approval_request_id === item.id && note.content_version === item.content_version)) && <Button size="sm" variant="outline" onClick={notifyPending}>Send missing approval emails</Button>}</div><div className="mt-3 space-y-3">{(data.approvals || []).length ? data.approvals.map(item => <ApprovalQueueCard key={item.id} item={item} scope={data.page_scopes?.find(page => page.page_key === item.page_key)} notification={data.notifications?.find(row => row.approval_request_id === item.id && row.content_version === item.content_version)} post={data.posts?.find(row => row.id === item.linked_post_id)} onReview={reviewApproval} onEdit={setEditingApproval} busy={Boolean(busy)} />) : <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">No approval requests yet.</p>}</div></div>
       </div>
     </Section>
 
