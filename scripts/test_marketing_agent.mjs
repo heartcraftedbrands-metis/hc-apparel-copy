@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/202610130002_facebook_pinterest_marketing_agent.sql', import.meta.url), 'utf8');
+const approvalMigration = fs.readFileSync(new URL('../supabase/migrations/202610160003_marketing_approval_workflow.sql', import.meta.url), 'utf8');
 const edge = fs.readFileSync(new URL('../supabase/functions/marketing-agent/index.ts', import.meta.url), 'utf8');
 const component = fs.readFileSync(new URL('../src/components/marketing/MarketingAgent.jsx', import.meta.url), 'utf8');
 const calendar = fs.readFileSync(new URL('../src/components/marketing/MarketingContentCalendar.jsx', import.meta.url), 'utf8');
@@ -16,6 +17,10 @@ assert.match(migration, /direct_messages_enabled boolean not null default false 
 assert.match(migration, /insert into storage\.buckets\(id,name,public[\s\S]*'marketing-private-assets','marketing-private-assets',false/, 'uploaded marketing originals use a private bucket');
 assert.match(migration, /schedule_timezone = 'America\/New_York'/, 'post scheduling is constrained to Eastern Time');
 assert.match(migration, /metrics jsonb not null default '\{\}'::jsonb/, 'metrics start empty rather than fabricated');
+assert.match(approvalMigration, /approved_version = content_version and approved_hash = content_hash/, 'approval is bound to the exact content version');
+assert.match(approvalMigration, /unique\(approval_request_id,content_version,recipient,notification_type\)/, 'approval email requests are deduplicated per version');
+assert.match(approvalMigration, /page_key in \('hc_apparel','chatha_al_terik'\)/, 'the two Facebook Page scopes remain separate');
+assert.match(approvalMigration, /status in \('pending','approved','rejected','scheduled','sending','sent','failed','outdated'\)/, 'approval, delivery, failure, and outdated states are durable');
 
 assert.match(edge, /rpc\('is_admin'\)/, 'every Marketing Agent action requires an authenticated admin');
 assert.match(edge, /marketing-agent\/originals\/\$\{auth\.user\.id\}\/\$\{crypto\.randomUUID\(\)\}/, 'original assets are stored in an owner-scoped private path');
@@ -32,6 +37,9 @@ assert.match(edge, /automatic_publishing_enabled[\s\S]*authorization_scope/, 'au
 assert.match(edge, /campaign\.platforms\?\.includes\(post\.platform\)/, 'a post outside the authorized platform scope cannot publish');
 assert.match(edge, /campaign\.start_date[\s\S]*campaign\.end_date/, 'campaign start and end dates are enforced before handoff');
 assert.match(edge, /interaction_policy:[\s\S]*incoming_comment_replies: false[\s\S]*direct_messages: false[\s\S]*other_accounts: false/, 'the capability response makes prohibited interactions explicit');
+assert.match(edge, /Opening this email or link does not approve or send anything/, 'email review links are explicitly non-approving');
+assert.match(edge, /content_version[\s\S]*content_hash[\s\S]*This request changed/, 'review rejects stale content versions');
+assert.match(edge, /Email provider response was interrupted; do not resend automatically/, 'uncertain email responses cannot trigger blind resends');
 assert.doesNotMatch(edge, /action === ['"](?:reply|comment_reply|send_direct_message|direct_message)['"]|createComment|sendMessage/i, 'no incoming reply or DM execution path exists');
 assert.match(edge, /No estimated metrics/, 'the agent explicitly refuses estimated engagement metrics');
 assert.match(edge, /utm_source[\s\S]*utm_medium[\s\S]*utm_campaign[\s\S]*utm_content/, 'published destinations receive platform-specific tracking');
@@ -43,7 +51,8 @@ assert.match(component, /Original saved privately/, 'asset handling accurately e
 assert.match(component, /Create Drafts/, 'draft generation remains the default action');
 assert.match(component, /Approve/, 'human approval is discoverable');
 assert.match(component, /Emergency stop this campaign/, 'campaign emergency stop is discoverable and confirmed');
-assert.match(component, /Replies and DMs off/, 'interaction limitations are visible to admins');
+assert.match(component, /Messenger not connected/, 'interaction limitations are visible to admins');
+assert.match(component, /Approval-first Facebook workflow/, 'the authenticated approval queue is visible in Marketing Center');
 assert.match(component, /No official metrics retrieved/, 'the UI never substitutes fake performance numbers');
 assert.match(component, /America\/New_York/, 'calendar and queue use Eastern Time');
 assert.match(calendar, /MarketingAgentCalendarQueue/, 'the approval queue is integrated into the existing Content Calendar');

@@ -9,6 +9,7 @@ const origins = new Set([
 const platforms = ['facebook', 'pinterest'] as const;
 const safeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const maxAssetBytes = 10 * 1024 * 1024;
+const ownerEmail = 'heartfamilyco@gmail.com';
 type AgentError = Error & { status?: number };
 type Db = ReturnType<typeof createClient>;
 
@@ -215,6 +216,47 @@ async function audit(service: Db, actorId: string, eventType: string, campaignId
   await service.from('marketing_agent_events').insert({ actor_id: actorId, campaign_id: campaignId, post_id: postId, event_type: eventType, details });
 }
 
+async function contentHash(value: Record<string, unknown>) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function reviewUrl(id: string) {
+  return `https://www.ilovehcapparel.net/AdminMarketingCenter?tab=marketing-agent&approval=${encodeURIComponent(id)}`;
+}
+
+async function approvalEmail(service: Db, request: Record<string, unknown>) {
+  const version = Number(request.content_version);
+  const { data: existing } = await service.from('marketing_approval_notifications').select('*')
+    .eq('approval_request_id', request.id).eq('content_version', version).eq('recipient', ownerEmail).maybeSingle();
+  if (existing) return existing;
+  const { data: notification, error: reserveError } = await service.from('marketing_approval_notifications').insert({
+    approval_request_id: request.id, content_version: version, recipient: ownerEmail, status: 'pending',
+  }).select().single();
+  if (reserveError) fail('The approval request was saved, but its email notification could not be reserved.', 503);
+  const key = env('BREVO_API_KEY');
+  if (!key) {
+    await service.from('marketing_approval_notifications').update({ status: 'failed', failure_reason: 'BREVO_API_KEY is not configured.' }).eq('id', notification.id);
+    return { ...notification, status: 'failed', failure_reason: 'BREVO_API_KEY is not configured.' };
+  }
+  const page = text(request.page_display_name || request.page_key, 120);
+  const kind = request.request_type === 'chat_reply' ? 'chat reply' : 'post';
+  const url = reviewUrl(String(request.id));
+  const html = `<div style="font-family:Arial,sans-serif;color:#292b22;max-width:640px;margin:auto"><div style="background:#41462f;color:#fff;padding:24px"><h1 style="margin:0;font-size:24px">HC Marketing approval</h1></div><div style="background:#f7f2e8;padding:24px"><p><strong>Page:</strong> ${page}</p><p><strong>Request:</strong> ${kind}</p><p><strong>Version:</strong> ${version}</p><div style="white-space:pre-wrap;background:#fff;border:1px solid #d7c6a1;padding:16px">${text(request.proposed_content, 3000).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] || c))}</div>${request.image_url ? `<p><img src="${text(request.image_url, 2000)}" alt="Proposed marketing image preview" style="max-width:100%;height:auto"></p>` : ''}<p style="margin-top:24px"><a href="${url}" style="display:inline-block;background:#a47d35;color:#fff;padding:13px 20px;text-decoration:none;border-radius:6px;font-weight:bold">Review securely</a></p><p style="font-size:13px">Opening this email or link does not approve or send anything. Sign in to Approve, Edit, Reject, or Schedule the exact version shown.</p></div></div>`;
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ sender: { name: 'HC Apparel', email: env('INVOICE_SENDER_EMAIL') || 'support@ilovehcapparel.net' }, to: [{ email: ownerEmail, name: 'King Terik' }], subject: `Approval required: ${page} ${kind}`, htmlContent: html, textContent: `HC Marketing approval\nPage: ${page}\nRequest: ${kind}\nVersion: ${version}\n\n${text(request.proposed_content, 3000)}\n\nReview securely: ${url}\nOpening this link does not approve or send anything.` }), signal: AbortSignal.timeout(20000) });
+    const body = await response.json().catch(() => ({}));
+    const patch = response.ok ? { status: 'accepted', provider_message_id: body.messageId || null, sent_at: new Date().toISOString(), failure_reason: null } : { status: 'failed', failure_reason: `Brevo rejected the request (${response.status}).` };
+    await service.from('marketing_approval_notifications').update(patch).eq('id', notification.id);
+    return { ...notification, ...patch };
+  } catch {
+    const patch = { status: 'uncertain', failure_reason: 'Email provider response was interrupted; do not resend automatically.' };
+    await service.from('marketing_approval_notifications').update(patch).eq('id', notification.id);
+    return { ...notification, ...patch };
+  }
+}
+
 async function schedulePost(service: Db, actorId: string, input: Record<string, unknown>, requireConfirmation = true) {
   const postId = text(input.post_id, 100);
   const { data: post, error } = await service.from('social_studio_posts').select('*').eq('id', postId).maybeSingle();
@@ -327,18 +369,98 @@ Deno.serve(async request => {
     }
 
     if (action === 'status') {
-      const [{ data: settings }, { data: campaigns }, { data: posts }, { data: research }] = await Promise.all([
+      const [{ data: settings }, { data: campaigns }, { data: posts }, { data: research }, { data: pageScopes }, { data: approvals }, { data: notifications }] = await Promise.all([
         service.from('marketing_agent_settings').select('*').eq('id', true).single(),
         service.from('marketing_campaigns').select('*').order('created_at', { ascending: false }),
         service.from('social_studio_posts').select('*').not('campaign_id', 'is', null).order('created_at', { ascending: false }).limit(100),
         service.from('marketing_trend_research').select('*').order('observed_at', { ascending: false }).limit(50),
+        service.from('marketing_page_scopes').select('*').order('display_name'),
+        service.from('marketing_approval_requests').select('*').order('created_at', { ascending: false }).limit(100),
+        service.from('marketing_approval_notifications').select('*').order('created_at', { ascending: false }).limit(100),
       ]);
       const key = await bufferKey(service).catch(() => '');
       let channels: unknown[] = [], buffer_error = '';
       if (key) try { channels = await connectedChannels(key); } catch (error) { buffer_error = (error as Error).message; }
-      return reply({ settings, campaigns: campaigns || [], posts: posts || [], research: research || [], channels, buffer_configured: Boolean(key), buffer_error,
-        interaction_policy: { incoming_comment_replies: false, direct_messages: false, other_accounts: false, standalone_comment: 'Not available through the connected Buffer publishing API; no reply trigger or generator is installed.' },
+      const facebook = (channels as Array<Record<string, unknown>>).filter(channel => String(channel.service).toLowerCase() === 'facebook');
+      const scopes = (pageScopes || []).map(scope => {
+        const match = facebook.find(channel => String(channel.id) === String(scope.buffer_channel_id || '') || String(channel.name).trim().toLowerCase() === String(scope.expected_channel_name).trim().toLowerCase());
+        return { ...scope, posting_status: match && !match.isDisconnected && !match.isLocked ? 'connected' : 'needs_authorization', matched_channel: match || null };
+      });
+      return reply({ settings, campaigns: campaigns || [], posts: posts || [], research: research || [], channels, page_scopes: scopes, approvals: approvals || [], notifications: notifications || [], buffer_configured: Boolean(key), buffer_error,
+        interaction_policy: { incoming_comment_replies: false, direct_messages: false, other_accounts: false, standalone_comment: 'Buffer authorizes publishing only. Incoming Page chats and replies require a separate Meta Messenger connection and are not sent by this implementation.' },
         metrics_policy: 'No estimated metrics. Platform metrics remain empty until an official reporting connection is added.' }, 200, origin);
+    }
+
+    if (action === 'create_approval_request') {
+      const pageKey = text(input.page_key, 40);
+      const requestType = text(input.request_type || 'post', 30);
+      const proposed = text(input.proposed_content, 5000);
+      if (!['hc_apparel', 'chatha_al_terik'].includes(pageKey) || !['post', 'chat_reply'].includes(requestType) || !proposed) fail('Page, request type, and proposed content are required.');
+      const { data: scope } = await service.from('marketing_page_scopes').select('*').eq('page_key', pageKey).maybeSingle();
+      if (!scope) fail('The selected Page scope is not configured.');
+      if (requestType === 'chat_reply' && !text(input.conversation_id, 300)) fail('Conversation context is required for a reply draft.');
+      const linkedPostId = text(input.linked_post_id, 100) || null;
+      const imagePath = text(input.image_path, 500) || null;
+      let imageUrl = text(input.image_url, 2000) || null;
+      if (imagePath) {
+        const derivative = await privateDerivative(service, imagePath, auth.user.id);
+        imageUrl = derivative.imageUrl;
+      }
+      const hash = await contentHash({ page_key: pageKey, request_type: requestType, proposed_content: proposed, image_url: imageUrl, conversation_id: text(input.conversation_id, 300), incoming_message_id: text(input.incoming_message_id, 300) });
+      if (linkedPostId) {
+        const { data: prior } = await service.from('marketing_approval_requests').select('*').eq('linked_post_id', linkedPostId).eq('content_hash', hash).maybeSingle();
+        if (prior) return reply({ approval: prior, notification: await approvalEmail(service, { ...prior, page_display_name: scope.display_name }), duplicate: true }, 200, origin);
+      }
+      const row = {
+        page_key: pageKey, request_type: requestType, source_kind: text(input.source_kind || 'draft', 30), source_material: text(input.source_material, 5000) || null,
+        proposed_content: proposed, image_path: imagePath, image_url: imageUrl, context: input.context && typeof input.context === 'object' ? input.context : {},
+        conversation_id: text(input.conversation_id, 300) || null, incoming_message_id: text(input.incoming_message_id, 300) || null,
+        incoming_message_at: input.incoming_message_at ? new Date(String(input.incoming_message_at)).toISOString() : null,
+        content_hash: hash, linked_post_id: linkedPostId, created_by: auth.user.id,
+      };
+      const { data: created, error } = await service.from('marketing_approval_requests').insert(row).select().single();
+      if (error) fail(`Approval request could not be saved: ${error.message}`, 503);
+      if (linkedPostId) await service.from('social_studio_posts').update({ workflow_status: 'Draft', approved_at: null, approved_by: null, updated_at: new Date().toISOString() }).eq('id', linkedPostId).in('workflow_status', ['Draft','Approved']);
+      await service.from('marketing_approval_events').insert({ approval_request_id: created.id, content_version: 1, actor_id: auth.user.id, event_type: 'requested', details: { page_key: pageKey, request_type: requestType } });
+      const notification = await approvalEmail(service, { ...created, page_display_name: scope.display_name });
+      return reply({ approval: created, notification, duplicate: false }, 200, origin);
+    }
+
+    if (action === 'review_approval') {
+      const id = text(input.approval_id, 100);
+      const decision = text(input.decision, 30);
+      const { data: current } = await service.from('marketing_approval_requests').select('*').eq('id', id).maybeSingle();
+      if (!current) fail('Approval request not found.');
+      if (Number(input.content_version) !== Number(current.content_version) || text(input.content_hash, 100) !== current.content_hash) fail('This request changed. Refresh and review the current version.', 409);
+      if (decision === 'edit') {
+        const proposed = text(input.proposed_content, 5000);
+        if (!proposed) fail('Proposed content is required.');
+        const nextVersion = Number(current.content_version) + 1;
+        const hash = await contentHash({ page_key: current.page_key, request_type: current.request_type, proposed_content: proposed, image_url: current.image_url, conversation_id: current.conversation_id, incoming_message_id: current.incoming_message_id });
+        const { data: updated, error } = await service.from('marketing_approval_requests').update({ proposed_content: proposed, content_version: nextVersion, content_hash: hash, status: 'pending', approved_version: null, approved_hash: null, approved_by: null, approved_at: null, scheduled_at: null, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) fail('The edited version could not be saved.', 503);
+        if (current.linked_post_id) await service.from('social_studio_posts').update({ post_description: proposed, caption: proposed, workflow_status: 'Draft', approved_at: null, approved_by: null, updated_at: new Date().toISOString() }).eq('id', current.linked_post_id);
+        await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: nextVersion, actor_id: auth.user.id, event_type: 'edited_requires_reapproval' });
+        return reply({ approval: updated, notification: await approvalEmail(service, updated) }, 200, origin);
+      }
+      if (!['approve','reject','schedule'].includes(decision)) fail('Choose Approve, Edit, Reject, or Schedule.');
+      if (!['pending','approved'].includes(current.status)) fail('Only a pending or approved current version can be reviewed.', 409);
+      if (decision === 'schedule' && current.request_type !== 'post') fail('Chat replies cannot be scheduled.');
+      const nextStatus = decision === 'reject' ? 'rejected' : decision === 'schedule' ? 'approved' : 'approved';
+      const patch: Record<string, unknown> = { status: nextStatus, updated_at: new Date().toISOString() };
+      if (decision !== 'reject') Object.assign(patch, { approved_version: current.content_version, approved_hash: current.content_hash, approved_by: auth.user.id, approved_at: new Date().toISOString(), scheduled_at: decision === 'schedule' && input.scheduled_at ? new Date(String(input.scheduled_at)).toISOString() : current.scheduled_at });
+      const { data: updated, error } = await service.from('marketing_approval_requests').update(patch).eq('id', id).select().single();
+      if (error) fail('The approval decision could not be saved.', 503);
+      if (current.linked_post_id && decision !== 'reject') await service.from('social_studio_posts').update({ workflow_status: 'Approved', approved_at: patch.approved_at, approved_by: auth.user.id, scheduled_at: patch.scheduled_at || null, updated_at: new Date().toISOString() }).eq('id', current.linked_post_id).eq('workflow_status', 'Draft');
+      await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: decision, details: { scheduled_at: patch.scheduled_at || null } });
+      return reply({ approval: updated }, 200, origin);
+    }
+
+    if (action === 'mark_reply_outdated') {
+      const id = text(input.approval_id, 100);
+      const { data, error } = await service.from('marketing_approval_requests').update({ status: 'outdated', failure_reason: 'A newer incoming message changed the conversation context.', updated_at: new Date().toISOString() }).eq('id', id).eq('request_type', 'chat_reply').in('status', ['pending','approved']).select().maybeSingle();
+      if (error || !data) fail('The reply draft was not eligible to mark outdated.');
+      return reply({ approval: data }, 200, origin);
     }
 
     if (action === 'search_products') {
