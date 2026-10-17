@@ -38,6 +38,9 @@ export default function AdminSSApiSettings() {
   const [exactStaging, setExactStaging] = useState(false);
   const [exactStageResult, setExactStageResult] = useState(null);
   const [exactStageError, setExactStageError] = useState('');
+  const [autoPublishing, setAutoPublishing] = useState(false);
+  const [autoPublishResult, setAutoPublishResult] = useState(null);
+  const [autoPublishError, setAutoPublishError] = useState('');
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const [contentRefreshResult, setContentRefreshResult] = useState(null);
   const [contentRefreshError, setContentRefreshError] = useState('');
@@ -260,6 +263,19 @@ export default function AdminSSApiSettings() {
     setExactStaging(false);
   };
 
+  const handleSyncPublishAdvertised = async () => {
+    setAutoPublishing(true);
+    setAutoPublishResult(null);
+    setAutoPublishError('');
+    const { data, error: invokeError } = await supabase.functions.invoke('ss-activewear', {
+      body: { action: 'sync_publish_advertised_products' },
+    });
+    if (invokeError) setAutoPublishError(await invokeMessage(invokeError, 'S&S synchronization and publication failed.'));
+    else if (!data?.completed) setAutoPublishError(data?.error || 'S&S did not complete the catalog workflow.');
+    else setAutoPublishResult(data);
+    setAutoPublishing(false);
+  };
+
   const handleContentRefresh = async () => {
     if (!window.confirm(
       'Refresh descriptions and manufacturer specifications for existing S&S products? '
@@ -322,6 +338,16 @@ export default function AdminSSApiSettings() {
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <LiveSSSubmissionPanel />
+
+        <div className="mt-6 rounded-2xl border border-primary/20 bg-white p-6 shadow-sm">
+          <div className="flex items-start gap-3"><Database className="mt-0.5 h-5 w-5 text-accent" /><div><h2 className="font-bold text-lg">Advertised S&amp;S catalog</h2><p className="mt-1 text-sm text-muted-foreground">One authenticated action synchronizes exact supplier SKUs, applies active HC Apparel pricing rules, runs publication safeguards, and publishes eligible products. Genuine exceptions are reported without stopping other products.</p></div></div>
+          <Button type="button" className="mt-4 min-h-12 w-full" onClick={handleSyncPublishAdvertised} disabled={autoPublishing}>
+            {autoPublishing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
+            {autoPublishing ? 'Syncing, pricing, checking, and publishing…' : 'Sync & Publish S&S Products'}
+          </Button>
+          {autoPublishError && <Alert variant="destructive" className="mt-4"><AlertDescription>{autoPublishError}</AlertDescription></Alert>}
+          {autoPublishResult && <div className="mt-4 space-y-2" aria-live="polite"><p className="text-sm font-semibold">{autoPublishResult.published_or_updated} published or refreshed · {autoPublishResult.blocked} exception(s)</p>{(autoPublishResult.products || []).map(item => <div key={`${item.brand}-${item.style}`} className={`rounded-lg border p-3 text-sm ${item.status === 'blocked' ? 'border-amber-300 bg-amber-50' : 'border-green-200 bg-green-50'}`}><p className="font-bold">{item.brand} {item.style}</p><p>{item.status === 'blocked' ? item.message : `${item.status === 'updated' ? 'Updated' : 'Published'} · ${Number(item.price).toFixed(2)} · ${item.variants} variants`}</p>{item.product_id && <Link className="font-semibold text-primary underline" to={`/ProductDetail?id=${encodeURIComponent(item.product_id)}`}>Open public product</Link>}</div>)}</div>}
+        </div>
 
         <div className="mt-6 bg-white rounded-2xl border shadow-sm p-6 space-y-5">
           <div>

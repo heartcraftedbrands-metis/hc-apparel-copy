@@ -638,6 +638,7 @@ Deno.serve(async (request) => {
     'stage_styles',
     'stage_brand_styles',
     'stage_exact_styles',
+    'sync_publish_advertised_products',
     'stage_cold_weather_styles',
     'sync_brand_products',
     'get_brand_draft_report',
@@ -676,6 +677,55 @@ Deno.serve(async (request) => {
 
   const accountNumber = Deno.env.get('SS_ACCOUNT_NUMBER');
   const apiKey = Deno.env.get('SS_API_KEY');
+
+  if (payload.action === 'sync_publish_advertised_products') {
+    const batches = [
+      { brand: 'American Apparel', styles: ['FTEX00', '1302GD', '13ML0', '1301GD'] },
+      { brand: 'Lane Seven', styles: ['LS19001'] },
+      { brand: 'Next Level', styles: ['9303'] },
+      { brand: 'Independent Trading Co', styles: ['SS4001Y', 'PRM1500Y', 'IND330BLV', 'IND420XD'] },
+      { brand: 'Comfort Colors', styles: ['00408', '70108'] },
+    ];
+    const endpoint = `${supabaseUrl}/functions/v1/ss-activewear`;
+    const invoke = async (body: Record<string, unknown>) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Authorization: authorization, apikey: publishableKey!, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.error) throw new Error(result?.error || `Backend step failed (${response.status})`);
+      return result;
+    };
+    const results: Array<Record<string, unknown>> = [];
+    for (const batch of batches) {
+      try {
+        const staged = await invoke({ action: 'stage_exact_styles', brand: batch.brand, style_numbers: batch.styles });
+        const synced = await invoke({ action: 'sync_brand_products', brand: batch.brand, style_session_id: staged.import_session_id });
+        const { data: published, error: publishError } = await userClient.rpc('auto_publish_advertised_ss_session', {
+          p_style_session_id: staged.import_session_id,
+        });
+        if (publishError) throw publishError;
+        results.push(...((published || []) as Array<Record<string, unknown>>).map((item) => ({
+          ...item, session_id: staged.import_session_id, synced_skus: synced.skus,
+        })));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown catalog exception';
+        for (const style of batch.styles) results.push({ brand: batch.brand, style, status: 'blocked', message });
+      }
+    }
+    const unique = [...new Map(results.map((item) => [`${item.brand}:${item.style}`, item])).values()];
+    return json(request, {
+      completed: true,
+      products: unique,
+      published_or_updated: unique.filter((item) => ['published', 'updated'].includes(String(item.status))).length,
+      blocked: unique.filter((item) => item.status === 'blocked').length,
+      tri_dri: { status: 'blocked', reason: 'No approved S&S sourcing match or approved sourcing connection.' },
+      ss_order_submitted: false,
+      zerotouch_submitted: false,
+    });
+  }
 
   if (payload.action === 'get_map_reference_price_report') {
     const { data, error } = await userClient.rpc('admin_map_reference_price_audit');
@@ -2860,7 +2910,7 @@ Deno.serve(async (request) => {
       .select('import_session_id')
       .eq('row_status', 'pending')
       .eq('brand', brand)
-        .like('import_session_id', payload.style_session_id && /^ss-(?:brand|exact)-(driduck|comfortcolors|champion|americanapparel|nextlevel|adidas|berne|shakawear|underarmour)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
+        .like('import_session_id', payload.style_session_id && /^ss-(?:brand|exact)-(driduck|comfortcolors|champion|americanapparel|nextlevel|laneseven|independenttradingco|adidas|berne|shakawear|underarmour)-[a-zA-Z0-9T-]+$/.test(String(payload.style_session_id)) ? String(payload.style_session_id) : '%')
       .order('created_date', { ascending: false })
       .limit(1)
       .maybeSingle();

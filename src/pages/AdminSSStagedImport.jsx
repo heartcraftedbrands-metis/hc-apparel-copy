@@ -93,10 +93,6 @@ export default function AdminSSStagedImport() {
   };
 
   const handleSyncBrand = async (brand) => {
-    if (!window.confirm(
-      `Retrieve live S&S SKU details for ${brand}? Data stays in private staging and will not change the storefront.`,
-    )) return;
-
     setSyncingBrand(brand);
     setSyncError('');
     setLastSync(null);
