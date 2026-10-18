@@ -25,6 +25,17 @@ Deno.serve(async request => {
     const brevoKey = Deno.env.get('BREVO_API_KEY')?.trim() || '';
     const listText = Deno.env.get('BREVO_LIST_ID')?.trim() || '';
     const listId = /^\d+$/.test(listText) && Number(listText) > 0 ? Number(listText) : 0;
+    const brevo = async (path: string, init: RequestInit = {}) => {
+      if (!brevoKey) throw new Error('Brevo API key is not configured.');
+      const response = await fetch(`https://api.brevo.com/v3${path}`, {
+        ...init,
+        headers: { 'api-key': brevoKey, accept: 'application/json', ...(init.body ? { 'content-type': 'application/json' } : {}), ...(init.headers || {}) },
+        signal: AbortSignal.timeout(15000),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`Brevo request failed (${response.status}).`);
+      return body;
+    };
 
     async function syncSubscriber(row: Record<string, unknown>) {
       if (!brevoKey || !listId) {
@@ -78,6 +89,46 @@ Deno.serve(async request => {
     if (action === 'status') {
       const { data: last } = await db.from('newsletter_subscribers').select('brevo_sync_status,brevo_last_error,brevo_synced_at,updated_date').eq('is_sample', false).eq('is_active', true).in('brevo_sync_status', ['synced', 'error', 'skipped_unconfigured']).order('updated_date', { ascending: false }).limit(1).maybeSingle();
       return output({ provider: 'Brevo', api_key_configured: Boolean(brevoKey), list_id_configured: Boolean(listId), double_opt_in: settings.double_opt_in, last_sync: last || null }, 200, origin);
+    }
+    if (action === 'provider_capabilities') {
+      const [account, lists, campaigns, configuredList] = await Promise.all([
+        brevo('/account'), brevo('/contacts/lists?limit=50&offset=0&sort=desc'),
+        brevo('/emailCampaigns?type=classic&status=draft&limit=1&offset=0'),
+        listId ? brevo(`/contacts/lists/${listId}`) : Promise.resolve(null),
+      ]);
+      return output({
+        provider: 'Brevo', account_access: Boolean(account?.email), contacts_access: true,
+        lists_access: Array.isArray(lists?.lists), campaigns_access: Array.isArray(campaigns?.campaigns),
+        configured_list: configuredList ? { id: configuredList.id, name: configuredList.name, total_subscribers: configuredList.totalSubscribers || 0 } : null,
+        paid_upgrade_required: false,
+      }, 200, origin);
+    }
+    if (action === 'sync_owner_contacts') {
+      const { data: rows, error } = await db.from('newsletter_subscribers').select('*').eq('is_sample', false).not('owner_provided_at', 'is', null).order('email');
+      if (error) throw new Error('Could not load owner-provided contacts.');
+      const result = { saved: 0, pending: 0, suppressed: 0, eligible: 0, errors: 0 };
+      for (const row of rows || []) {
+        try {
+          let existing: Record<string, unknown> | null = null;
+          const lookup = await fetch(`https://api.brevo.com/v3/contacts/${encodeURIComponent(String(row.email))}`, { headers: { 'api-key': brevoKey, accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+          if (lookup.ok) existing = await lookup.json();
+          const suppressed = existing?.emailBlacklisted === true || row.consent_status === 'unsubscribed' || row.is_active === false && row.consent_status !== 'pending_owner_provided';
+          const consented = row.is_active === true && row.consent_status === 'consented' && !suppressed;
+          const payload: Record<string, unknown> = { email: row.email, updateEnabled: true };
+          if (row.first_name) payload.attributes = { FIRSTNAME: row.first_name };
+          if (consented && listId) payload.listIds = [listId];
+          await brevo('/contacts', { method: 'POST', body: JSON.stringify(payload) });
+          const saved = await brevo(`/contacts/${encodeURIComponent(String(row.email))}`);
+          const syncStatus = suppressed ? 'suppressed' : consented ? 'synced' : 'pending_consent_provider_saved';
+          await db.from('newsletter_subscribers').update({ brevo_sync_status: syncStatus, brevo_contact_id: saved?.id ? String(saved.id) : row.brevo_contact_id, brevo_synced_at: new Date().toISOString(), brevo_last_error: null }).eq('id', row.id);
+          await db.from('ops_marketing_contacts').update({ provider_sync_status: syncStatus, consent_status: row.consent_status, updated_at: new Date().toISOString() }).eq('subscriber_id', row.id);
+          result.saved += 1; if (suppressed) result.suppressed += 1; else if (consented) result.eligible += 1; else result.pending += 1;
+        } catch (issue) {
+          result.errors += 1;
+          await db.from('newsletter_subscribers').update({ brevo_sync_status: 'error', brevo_last_error: message(issue).slice(0, 300) }).eq('id', row.id);
+        }
+      }
+      return output(result, 200, origin);
     }
     if (action === 'subscribers') {
       const { data, error } = await db.from('newsletter_subscribers').select('id,email,first_name,interests,source,consent_status,consent_at,is_active,brevo_sync_status,brevo_contact_id,brevo_synced_at,brevo_last_error,created_date').eq('is_sample', false).order('created_date', { ascending: false }).limit(1000);
