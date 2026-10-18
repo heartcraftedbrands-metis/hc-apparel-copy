@@ -569,6 +569,12 @@ Deno.serve(async request => {
       if (!['pending','approved','failed'].includes(current.status)) fail('Only a current approved, awaiting-approval, or failed version can be scheduled.', 409);
       const due = new Date(String(input.scheduled_at || current.scheduled_at || current.context?.proposed_posting_time || ''));
       if (!Number.isFinite(due.getTime()) || due.getTime() <= Date.now() + 60000) fail('Choose a new publication time at least one minute in the future before approving.', 409);
+      if (approvalSource === 'codex_conversation') {
+        const displayedDue = new Date(String(current.scheduled_at || current.context?.proposed_posting_time || '')).getTime();
+        if (!Number.isFinite(displayedDue) || Math.abs(displayedDue - due.getTime()) >= 1000) {
+          fail('The proposed time changed after it was displayed in Codex. Save a new version and request fresh approval.', 409);
+        }
+      }
       const [{ data: post }, { data: scope }] = await Promise.all([
         service.from('social_studio_posts').select('*').eq('id', current.linked_post_id).maybeSingle(),
         service.from('marketing_page_scopes').select('*').eq('page_key', current.page_key).maybeSingle(),
