@@ -265,7 +265,7 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
   const postId = text(input.post_id, 100);
   const { data: post, error } = await service.from('social_studio_posts').select('*').eq('id', postId).maybeSingle();
   if (error || !post) fail('The marketing post was not found.');
-  if (post.workflow_status !== 'Approved' && post.workflow_status !== 'Failed') fail('Only an approved or failed post can be scheduled.');
+  if (!['Approved', 'Failed', 'Held'].includes(post.workflow_status)) fail('Only an approved, failed, or held post can be scheduled.');
   const { data: campaign } = await service.from('marketing_campaigns').select('*').eq('id', post.campaign_id).maybeSingle();
   const { data: settings } = await service.from('marketing_agent_settings').select('*').eq('id', true).single();
   if (settings?.emergency_stop || campaign?.emergency_stopped_at) fail('Marketing publishing is paused by the emergency stop.', 409);
@@ -295,9 +295,25 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
   const boards = Array.isArray(channel.boards) ? channel.boards as Array<Record<string, unknown>> : [];
   const board = platform === 'pinterest' ? boards.find(item => item.serviceId === boardId) : null;
   if (platform === 'pinterest' && !board) fail('Choose an available Pinterest board.', 409);
+  const caption = [post.post_description || post.caption, post.hashtags, destination].filter(Boolean).join('\n\n');
   if (post.buffer_post_id) {
-    const existing = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(post.buffer_post_id)} }) { id status dueAt } }`);
-    if (existing?.post?.id) return { post, reconciled: true, buffer_status: existing.post.status };
+    const existing = await bufferRequest(key, `query { post(input: { id: ${JSON.stringify(post.buffer_post_id)} }) { id status dueAt text channelId } }`);
+    if (existing?.post?.id) {
+      const providerDue = new Date(String(existing.post.dueAt || '')).getTime();
+      const exact = existing.post.status === 'scheduled'
+        && Number.isFinite(providerDue) && Math.abs(providerDue - due.getTime()) < 1000
+        && String(existing.post.channelId || '') === channelId
+        && String(existing.post.text || '').trim() === caption.trim();
+      if (!exact) fail(`Buffer request ${post.buffer_post_id} exists but does not match the exact approved caption, Page, and time. It was not changed or duplicated.`, 409);
+      const { data: reconciled, error: reconcileError } = await service.from('social_studio_posts').update({
+        workflow_status: 'Scheduled', status: 'scheduled', scheduled_at: existing.post.dueAt,
+        buffer_channel_id: channelId, selected_channel_name: channel.name, tracking_url: destination,
+        failure_reason: null, updated_at: new Date().toISOString(),
+      }).eq('id', postId).eq('buffer_post_id', post.buffer_post_id).select().single();
+      if (reconcileError) fail(`Buffer confirmed request ${post.buffer_post_id}, but local history could not be reconciled. Do not retry.`, 503);
+      await audit(service, actorId, 'scheduled_reconciled', post.campaign_id, postId, { platform, request_id: post.buffer_post_id, due_at: existing.post.dueAt, exact_version: true });
+      return { post: reconciled, reconciled: true, buffer_status: existing.post.status };
+    }
     fail('A platform request ID is already recorded but cannot be reconciled. Review Buffer before retrying.', 409);
   }
   const alreadyQueued = (await nearbyBufferPosts(key, String(channel.organization_id || ''), channelId, due).catch(() => []))
@@ -319,7 +335,6 @@ async function schedulePost(service: Db, actorId: string, input: Record<string, 
   }
   const { error: publishingError } = await service.from('social_studio_posts').update({ workflow_status: 'Publishing', publishing_started_at: new Date().toISOString(), scheduled_at: due.toISOString(), last_revalidated_at: new Date().toISOString(), failure_reason: null }).eq('id', postId);
   if (publishingError) fail('The local publishing lock could not be recorded. Nothing was sent to Buffer.', 503);
-  const caption = [post.post_description || post.caption, post.hashtags, destination].filter(Boolean).join('\n\n');
   const assets = `, assets: [{ image: { url: ${JSON.stringify(post.image_url)}, metadata: { altText: ${JSON.stringify(post.alt_text || '')} } } }]`;
   const metadata = platform === 'pinterest'
     ? `, metadata: { pinterest: { boardServiceId: ${JSON.stringify(boardId)}, title: ${JSON.stringify(post.post_title || post.product_name || 'HC Apparel')}, url: ${JSON.stringify(destination)} } }`
@@ -532,8 +547,14 @@ Deno.serve(async request => {
       return reply({ approval: updated }, 200, origin);
     }
 
-    if (action === 'approve_and_schedule') {
+    if (action === 'approve_and_schedule' || action === 'approve_codex_and_schedule') {
       const id = text(input.approval_id, 100);
+      const approvalSource = action === 'approve_codex_and_schedule' ? 'codex_conversation' : 'marketing_center';
+      const approvalEvidence = text(input.approval_evidence, 1000);
+      const approvalSourceReference = text(input.approval_source_reference, 500);
+      if (approvalSource === 'codex_conversation' && (!approvalEvidence || !approvalSourceReference)) {
+        fail('Codex approval requires the explicit approval reply and conversation reference.', 400);
+      }
       const { data: current } = await service.from('marketing_approval_requests').select('*').eq('id', id).maybeSingle();
       if (!current) fail('Approval request not found.');
       if (Number(input.content_version) !== Number(current.content_version) || text(input.content_hash, 100) !== current.content_hash) fail('This request changed. Refresh and review the current version.', 409);
@@ -564,17 +585,19 @@ Deno.serve(async request => {
       const lock = {
         status: 'sending', approved_version: current.content_version, approved_hash: current.content_hash, approved_by: auth.user.id,
         approved_at: new Date().toISOString(), scheduled_at: due.toISOString(), failure_reason: null,
+        approval_source: approvalSource, approval_source_reference: approvalSourceReference || null,
+        approval_evidence: approvalEvidence || null,
         context: { ...(current.context || {}), proposed_posting_time: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id }, updated_at: new Date().toISOString(),
       };
       const { data: locked, error: lockError } = await service.from('marketing_approval_requests').update(lock).eq('id', id).in('status', ['pending','approved','failed']).select().maybeSingle();
       if (lockError || !locked) fail('This approval is already being processed. Refresh before retrying.', 409);
       await service.from('social_studio_posts').update({ workflow_status: 'Approved', approved_at: lock.approved_at, approved_by: auth.user.id, scheduled_at: due.toISOString(), buffer_channel_id: channel.id, selected_channel_name: channel.name, failure_reason: null, updated_at: new Date().toISOString() }).eq('id', post.id).in('workflow_status', ['Draft','Approved','Failed']);
-      await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'approved_for_scheduling', details: { scheduled_at: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id } });
+      await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'approved_for_scheduling', details: { scheduled_at: due.toISOString(), destination_page: scope.display_name, destination_page_id: channel.id, approval_source: approvalSource, approval_source_reference: approvalSourceReference || null, approval_evidence: approvalEvidence || null } });
       try {
         const result = await schedulePost(service, auth.user.id, { post_id: post.id, scheduled_at: due.toISOString(), channel_id: channel.id, confirmed: true }, true);
         const { data: completed, error: completeError } = await service.from('marketing_approval_requests').update({ status: 'scheduled', platform_request_id: result.post.buffer_post_id, delivery_status: text(result.buffer_status || 'confirmed', 100), scheduled_at: result.post.scheduled_at, failure_reason: null, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'sending').select().single();
         if (completeError) fail(`Buffer confirmed request ${result.post.buffer_post_id}, but the approval record could not be finalized. Do not retry.`, 503);
-        await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'buffer_scheduled', details: { platform_request_id: result.post.buffer_post_id, scheduled_at: result.post.scheduled_at, buffer_status: result.buffer_status, reconciled: result.reconciled } });
+        await service.from('marketing_approval_events').insert({ approval_request_id: id, content_version: current.content_version, actor_id: auth.user.id, event_type: 'buffer_scheduled', details: { platform_request_id: result.post.buffer_post_id, scheduled_at: result.post.scheduled_at, buffer_status: result.buffer_status, reconciled: result.reconciled, approval_source: approvalSource, approval_source_reference: approvalSourceReference || null } });
         return reply({ approval: completed, ...result, duplicate: false }, 200, origin);
       } catch (issue) {
         await service.from('marketing_approval_requests').update({ status: 'failed', failure_reason: (issue as Error).message, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'sending');
