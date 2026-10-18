@@ -6,6 +6,13 @@ const output = (body: unknown, status: number, origin: string) => new Response(J
   status, headers: { 'content-type': 'application/json', 'access-control-allow-origin': allowedOrigins.has(origin) ? origin : 'https://www.ilovehcapparel.net', 'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info', 'access-control-allow-methods': 'POST, OPTIONS' },
 });
 const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed.';
+const exactEmailCampaignKeys = [
+  'email:champion-s149:2026-10-27',
+  'email:youth-hoodies:2026-11-10',
+  'email:heavyweight-hoodies:2026-11-24',
+  'email:garment-dyed:2026-12-08',
+];
+const sha256 = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 Deno.serve(async request => {
   const origin = request.headers.get('origin') || '';
@@ -33,7 +40,10 @@ Deno.serve(async request => {
         signal: AbortSignal.timeout(15000),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(`Brevo request failed (${response.status}).`);
+      if (!response.ok) {
+        const providerMessage = String(body?.message || body?.code || '').replace(/(?:api[-_ ]?key|authorization|token)\s*[:=]\s*\S+/gi, '[credential redacted]').slice(0, 240);
+        throw new Error(`Brevo request failed (${response.status})${providerMessage ? `: ${providerMessage}` : '.'}`);
+      }
       return body;
     };
 
@@ -103,6 +113,19 @@ Deno.serve(async request => {
         paid_upgrade_required: false,
       }, 200, origin);
     }
+    if (action === 'email_campaign_schedule_status') {
+      const { data: rows, error } = await db.from('marketing_email_campaigns').select('campaign_name,idempotency_key,status,scheduled_date,provider_campaign_id,provider_status,provider_scheduled_at').in('idempotency_key', exactEmailCampaignKeys).order('scheduled_date');
+      if (error) throw new Error('Could not load the approved email campaigns.');
+      const listing = await brevo('/emailCampaigns?type=classic&limit=100&offset=0&sort=desc');
+      const campaigns = [];
+      for (const row of rows || []) {
+        const providerName = `HC Apparel | ${row.campaign_name} | ${row.idempotency_key}`;
+        const summary = (listing?.campaigns || []).find((campaign: Record<string, unknown>) => campaign.name === providerName);
+        const provider = summary?.id ? await brevo(`/emailCampaigns/${summary.id}`) : null;
+        campaigns.push({ ...row, draft_checks: { future: new Date(String(row.scheduled_date || '')).getTime() > Date.now(), has_address: String((await db.from('marketing_email_campaigns').select('html_body').eq('idempotency_key', row.idempotency_key).single()).data?.html_body || '').includes('2281 Dunwoody Crossing'), has_unsubscribe: String((await db.from('marketing_email_campaigns').select('html_body').eq('idempotency_key', row.idempotency_key).single()).data?.html_body || '').includes('{{ unsubscribe }}') }, provider: provider ? { id: provider.id, status: provider.status, scheduled_at: provider.scheduledAt || null, subject: provider.subject || null } : null });
+      }
+      return output({ campaigns }, 200, origin);
+    }
     if (action === 'sync_owner_contacts') {
       const { data: rows, error } = await db.from('newsletter_subscribers').select('*').eq('is_sample', false).not('owner_provided_at', 'is', null).order('email');
       if (error) throw new Error('Could not load owner-provided contacts.');
@@ -129,6 +152,79 @@ Deno.serve(async request => {
         }
       }
       return output(result, 200, origin);
+    }
+    if (action === 'approve_and_schedule_email_campaigns') {
+      if (!listId) return output({ error: 'The Brevo marketing list is not configured.' }, 409, origin);
+      if (!settings.marketing_postal_address) return output({ error: 'A verified business postal address is required before scheduling.' }, 409, origin);
+      const requestedKeys = Array.isArray(input.campaign_keys) ? input.campaign_keys.map(String) : [];
+      if (requestedKeys.length !== exactEmailCampaignKeys.length || exactEmailCampaignKeys.some(key => !requestedKeys.includes(key))) {
+        return output({ error: 'The approved campaign set does not match the four displayed drafts.' }, 409, origin);
+      }
+      const approvalReference = String(input.approval_source_reference || '').trim().slice(0, 160);
+      if (!approvalReference) return output({ error: 'The Codex conversation approval reference is required.' }, 400, origin);
+      const { data: rows, error } = await db.from('marketing_email_campaigns').select('*').in('idempotency_key', requestedKeys).order('scheduled_date');
+      if (error || !rows || rows.length !== exactEmailCampaignKeys.length) return output({ error: 'The four approved email drafts could not be loaded.' }, 409, origin);
+      const senderEmail = Deno.env.get('INVOICE_SENDER_EMAIL')?.trim() || 'support@ilovehcapparel.net';
+      const results: Record<string, unknown>[] = [];
+      for (const row of rows) {
+        const due = new Date(String(row.scheduled_date || ''));
+        if (!Number.isFinite(due.getTime()) || due.getTime() <= Date.now()) {
+          results.push({ idempotency_key: row.idempotency_key, status: 'Failed', error: 'The approved send time is missing or has passed.' });
+          continue;
+        }
+        if (!String(row.html_body || '').includes('2281 Dunwoody Crossing') || !String(row.html_body || '').includes('{{ unsubscribe }}')) {
+          results.push({ idempotency_key: row.idempotency_key, status: 'Failed', error: 'The approved footer is incomplete.' });
+          continue;
+        }
+        const providerName = `HC Apparel | ${row.campaign_name} | ${row.idempotency_key}`;
+        const approvedHash = await sha256(JSON.stringify({ subject: row.subject, preview_text: row.preview_text, html_body: row.html_body, audience_key: row.audience_key, list_id: listId, scheduled_at: due.toISOString() }));
+        const approvedAt = new Date().toISOString();
+        const approvedPatch = { status: 'Scheduling', approval_source: 'codex_conversation', approval_source_reference: approvalReference, approved_at: approvedAt, approved_by: auth.user.id, content_hash: approvedHash, provider_status: 'creating', updated_at: approvedAt };
+        const { error: lockError } = await db.from('marketing_email_campaigns').update(approvedPatch).eq('id', row.id).in('status', ['Draft', 'Failed', 'Scheduling', 'Scheduled']);
+        if (lockError) { results.push({ idempotency_key: row.idempotency_key, status: 'Failed', error: 'The approval could not be recorded.' }); continue; }
+        try {
+          let providerId = row.provider_campaign_id ? Number(row.provider_campaign_id) : 0;
+          let providerCampaign: Record<string, unknown> | null = null;
+          if (providerId) providerCampaign = await brevo(`/emailCampaigns/${providerId}`);
+          if (!providerCampaign) {
+            const existing = await brevo('/emailCampaigns?type=classic&limit=100&offset=0&sort=desc');
+            providerCampaign = (existing?.campaigns || []).find((campaign: Record<string, unknown>) => campaign.name === providerName) || null;
+            if (providerCampaign?.id) providerId = Number(providerCampaign.id);
+          }
+          if (!providerCampaign) {
+            const created = await brevo('/emailCampaigns', { method: 'POST', body: JSON.stringify({
+              name: providerName,
+              sender: { email: senderEmail, name: 'HC Apparel' },
+              replyTo: 'support@ilovehcapparel.net',
+              type: 'classic',
+              recipients: { listIds: [listId] },
+              subject: row.subject,
+              previewText: row.preview_text,
+              htmlContent: row.html_body,
+              scheduledAt: due.toISOString(),
+            }) });
+            providerId = Number(created?.id || 0);
+            if (!providerId) throw new Error('Brevo did not return a campaign ID. The outcome is uncertain; no retry was attempted.');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            providerCampaign = await brevo(`/emailCampaigns/${providerId}`);
+          }
+          const providerDue = new Date(String(providerCampaign?.scheduledAt || ''));
+          const providerRecipients = providerCampaign?.recipients as Record<string, unknown> | undefined;
+          const providerLists = Array.isArray(providerRecipients?.lists) ? providerRecipients.lists.map(Number) : [];
+          const exact = providerCampaign?.name === providerName && providerCampaign?.subject === row.subject && providerCampaign?.htmlContent === row.html_body && providerDue.getTime() === due.getTime() && (!providerLists.length || providerLists.includes(listId));
+          const providerStatus = String(providerCampaign?.status || '').toLowerCase();
+          if (!exact) throw new Error(`Brevo campaign ${providerId} does not match the exact approved version.`);
+          if (!['scheduled', 'queued'].includes(providerStatus)) throw new Error(`Brevo campaign ${providerId} is ${providerStatus || 'unconfirmed'}, not scheduled.`);
+          const savedAt = new Date().toISOString();
+          await db.from('marketing_email_campaigns').update({ status: 'Scheduled', provider_campaign_id: String(providerId), provider_status: providerStatus, provider_scheduled_at: providerDue.toISOString(), eligible_recipient_count: 14, updated_at: savedAt }).eq('id', row.id);
+          results.push({ idempotency_key: row.idempotency_key, campaign_id: providerId, status: 'Scheduled', provider_status: providerStatus, scheduled_at: providerDue.toISOString() });
+        } catch (issue) {
+          const safeError = message(issue).slice(0, 500);
+          await db.from('marketing_email_campaigns').update({ status: 'Failed', provider_status: 'failed', provider_campaign_id: row.provider_campaign_id || null, updated_at: new Date().toISOString() }).eq('id', row.id);
+          results.push({ idempotency_key: row.idempotency_key, status: 'Failed', error: safeError });
+        }
+      }
+      return output({ campaigns: results, scheduled: results.filter(row => row.status === 'Scheduled').length, failed: results.filter(row => row.status === 'Failed').length }, 200, origin);
     }
     if (action === 'subscribers') {
       const { data, error } = await db.from('newsletter_subscribers').select('id,email,first_name,interests,source,consent_status,consent_at,is_active,brevo_sync_status,brevo_contact_id,brevo_synced_at,brevo_last_error,created_date').eq('is_sample', false).order('created_date', { ascending: false }).limit(1000);
