@@ -549,14 +549,14 @@ Deno.serve(async request => {
 
     if (action === 'approve_and_schedule' || action === 'approve_codex_and_schedule') {
       const id = text(input.approval_id, 100);
-      const approvalSource = action === 'approve_codex_and_schedule' ? 'codex_conversation' : 'marketing_center';
-      const approvalEvidence = text(input.approval_evidence, 1000);
-      const approvalSourceReference = text(input.approval_source_reference, 500);
+      const { data: current } = await service.from('marketing_approval_requests').select('*').eq('id', id).maybeSingle();
+      if (!current) fail('Approval request not found.');
+      const approvalSource = action === 'approve_codex_and_schedule' ? 'codex_conversation' : text(current.approval_source, 50) || 'marketing_center';
+      const approvalEvidence = text(input.approval_evidence || current.approval_evidence, 1000);
+      const approvalSourceReference = text(input.approval_source_reference || current.approval_source_reference, 500);
       if (approvalSource === 'codex_conversation' && (!approvalEvidence || !approvalSourceReference)) {
         fail('Codex approval requires the explicit approval reply and conversation reference.', 400);
       }
-      const { data: current } = await service.from('marketing_approval_requests').select('*').eq('id', id).maybeSingle();
-      if (!current) fail('Approval request not found.');
       if (Number(input.content_version) !== Number(current.content_version) || text(input.content_hash, 100) !== current.content_hash) fail('This request changed. Refresh and review the current version.', 409);
       if (current.request_type !== 'post' || !current.linked_post_id) fail('Only a linked post can be approved for scheduled publishing.', 409);
       if (current.status === 'scheduled' && current.platform_request_id) {
