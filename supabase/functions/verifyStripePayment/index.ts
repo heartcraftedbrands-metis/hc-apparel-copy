@@ -36,7 +36,7 @@ async function ensureDtfSandboxOwnerNotification(
   const { data: dtfRows, error: dtfError } = await admin.from('dtf_transfer_orders')
     .select('id,order_reference,width_inches,height_inches,quantity,production_options,artwork_storage_path,artwork_original_name,shipping_address,customer_total,is_sample,payment_status')
     .eq('linked_customer_order_id', order.id);
-  if (dtfError || !dtfRows || dtfRows.length !== 1) throw new Error('DTF notification requires exactly one linked transfer record');
+  if (dtfError || !dtfRows || dtfRows.length !== 1) throw new Error(`DTF notification requires exactly one linked transfer record: ${dtfError?.message || `${dtfRows?.length || 0} rows`}`);
   const dtf = dtfRows[0];
   if (!dtf.is_sample || dtf.payment_status !== 'paid') throw new Error('DTF notification is restricted to paid sandbox test orders');
 
