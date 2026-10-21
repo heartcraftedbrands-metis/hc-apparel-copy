@@ -11,6 +11,7 @@ const customerFiles = [
   'src/components/home/SpecialsSection.jsx',
   'src/components/marketing/WeeklyOrganicReview.jsx',
   'src/pages/Checkout.jsx',
+  'src/pages/DTFTransfers.jsx',
   'src/pages/PrivacyPolicy.jsx',
 ];
 
@@ -36,5 +37,27 @@ assert.ok(refresh.includes('Available at a special price while supplies last.'),
 const migration = read('supabase/migrations/202610100002_remove_supplier_branding_from_storefront_copy.sql');
 assert.match(migration, /update public\.homepage_specials/i, 'existing homepage promotion rows are corrected');
 assert.doesNotMatch(migration.match(/set subtitle = ([^;]+)/i)?.[1] || '', supplierPattern, 'the persisted customer subtitle is supplier-neutral');
+
+const customerShipping = await import('../src/lib/customerShipping.js');
+assert.equal(customerShipping.getCustomerDtfDeliveryMethod({}), 'DTF transfer shipping');
+assert.equal(
+  customerShipping.getCustomerDtfDeliveryMethod({ isTestOrder: true, verifiedService: 'private fixture' }),
+  'DTF transfer shipping — test order only',
+);
+assert.equal(
+  customerShipping.getCustomerDtfDeliveryMethod({ verifiedService: 'USPS Ground Advantage' }),
+  'DTF transfer shipping — USPS Ground Advantage',
+);
+assert.equal(
+  customerShipping.getCustomerDtfDeliveryMethod({ verifiedService: 'Authenticated S&S transfer-cart freight quote' }),
+  'DTF transfer shipping',
+);
+
+for (const file of [
+  'supabase/functions/stripeWebhook/index.ts',
+  'supabase/functions/dtf-test-order-notification/index.ts',
+]) {
+  assert.ok(read(file).includes('DTF transfer shipping — test order only'), `${file} uses customer-safe test delivery wording`);
+}
 
 console.log('Customer-facing supplier-branding safeguards passed.');

@@ -14,6 +14,7 @@ import {
   markCheckoutCompleted,
 } from '@/lib/checkoutCompletion';
 import { attributeMarketingPurchase } from '@/lib/marketingAnalytics';
+import { getCustomerDtfDeliveryMethod, orderHasDtfTransfers } from '@/lib/customerShipping';
 
 
 export default function OrderConfirmation() {
@@ -115,6 +116,7 @@ export default function OrderConfirmation() {
   const physicalItems = order?.order_items?.filter(item => item.product_type === 'physical') || [];
   const isBlankOrder = isBlankOnlyOrder(order);
   const hasArtwork = orderHasArtwork(order);
+  const hasDtfTransfers = orderHasDtfTransfers(order);
   
   // Check if this is a test/manual order
   const isTestOrder = order?.notes?.includes('Payment Method:') && !order?.notes?.includes('Stripe');
@@ -272,6 +274,15 @@ export default function OrderConfirmation() {
                   {order?.shipping_address?.city}, {order?.shipping_address?.state} {order?.shipping_address?.zip}<br />
                   {order?.shipping_address?.country || 'USA'}
                 </p>
+                {hasDtfTransfers && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    <span className="font-medium text-gray-700">Delivery method:</span>{' '}
+                    {getCustomerDtfDeliveryMethod({
+                      isTestOrder: order?.is_sample === true,
+                      verifiedService: order?.shipping_service,
+                    })}
+                  </p>
+                )}
               </div>
             )}
 

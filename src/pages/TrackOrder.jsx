@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Truck, Package, Clock, Mail, ShoppingBag, ExternalLink, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { trackMarketingEvent } from '@/lib/marketingAnalytics';
+import { getCustomerDtfDeliveryMethod, orderHasDtfTransfers } from '@/lib/customerShipping';
 
 // ── Status mapping ──────────────────────────────────────────────────────────
 
@@ -299,6 +300,14 @@ export default function TrackOrder() {
                         <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
                         {[order.shipping_address.city, order.shipping_address.state].filter(Boolean).join(', ')}
                       </p>
+                      {orderHasDtfTransfers(order) && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {getCustomerDtfDeliveryMethod({
+                            isTestOrder: order?.is_sample === true,
+                            verifiedService: order?.shipping_service,
+                          })}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
