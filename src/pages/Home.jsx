@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { base44 } from '@/api/base44Client';
 import HomeHero from '../components/home/HomeHero';
+import HomeDtfAds from '../components/home/HomeDtfAds';
 import HomeFeaturedCategories from '../components/home/HomeFeaturedCategories';
 import HomeFeaturedBrands from '../components/home/HomeFeaturedBrands';
 import SpecialsSection from '../components/home/SpecialsSection';
@@ -23,6 +24,7 @@ export default function Home() {
   return (
     <div className="max-w-full overflow-x-clip bg-background">
       <HomeHero products={publicProducts} />
+      <HomeDtfAds />
       <SpecialsSection />
       <HomeFeaturedCategories products={publicProducts} />
       <HomeFeaturedBrands products={publicProducts} />
