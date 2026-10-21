@@ -34,11 +34,11 @@ async function ensureDtfSandboxOwnerNotification(
   const recipient = 'heartfamilyco@gmail.com';
   const subject = '[TEST ORDER — NO FULFILLMENT] DTF Prints order details';
   const { data: dtfRows, error: dtfError } = await admin.from('dtf_transfer_orders')
-    .select('id,order_reference,width_inches,height_inches,quantity,production_options,artwork_storage_path,artwork_original_name,shipping_address,customer_total,customer_shipping_charge,is_sample,stripe_mode,payment_status')
+    .select('id,order_reference,width_inches,height_inches,quantity,production_options,artwork_storage_path,artwork_original_name,shipping_address,customer_total,is_sample,payment_status')
     .eq('linked_customer_order_id', order.id);
   if (dtfError || !dtfRows || dtfRows.length !== 1) throw new Error('DTF notification requires exactly one linked transfer record');
   const dtf = dtfRows[0];
-  if (!dtf.is_sample || dtf.stripe_mode !== 'test' || dtf.payment_status !== 'paid') throw new Error('DTF notification is restricted to paid sandbox test orders');
+  if (!dtf.is_sample || dtf.payment_status !== 'paid') throw new Error('DTF notification is restricted to paid sandbox test orders');
 
   const { data: existing } = await admin.from('dtf_test_order_email_ledger')
     .select('delivery_status,provider_message_id').eq('customer_order_id', order.id).maybeSingle();
@@ -69,7 +69,7 @@ async function ensureDtfSandboxOwnerNotification(
   const shipping = dtf.shipping_address || {};
   const transferSubtotal = Number(dtf.customer_total || 0);
   const merchandiseSubtotal = Number(order.product_subtotal || transferSubtotal);
-  const freight = Number(order.shipping_amount ?? order.shipping_charged_to_customer ?? dtf.customer_shipping_charge ?? 0);
+  const freight = Number(order.shipping_amount ?? order.shipping_charged_to_customer ?? 0);
   const tax = Number(order.sales_tax_amount || 0);
   const total = Number(order.total_amount || 0);
   const orderNumber = String(order.id).slice(-8).toUpperCase();
