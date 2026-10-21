@@ -8,6 +8,7 @@ import { STOREFRONT_FEATURES } from '@/config/storefrontFeatures';
 const TABS = [
   { label: 'Home',    icon: Home,        path: '/' },
   { label: 'Shop',    icon: ShoppingBag, path: '/ShopGarments' },
+  { label: 'DTF Prints', icon: Printer,  path: '/DTFTransfers' },
   ...(STOREFRONT_FEATURES.customPrinting ? [{ label: 'Print', icon: Printer, path: '/CustomPrinting' }] : []),
   { label: 'Profile', icon: User,        path: '/Profile' },
 ];
