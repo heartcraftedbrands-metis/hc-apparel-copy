@@ -63,8 +63,8 @@ Deno.serve(async (request) => {
     let body;
     try { body = await request.json(); }
     catch { return respond({ error: 'Invalid checkout request', code: 'INVALID_REQUEST' }, 400); }
-    const { orderId, successUrl, cancelUrl, adminRetry, adminHealthCheck, adminPaymentMethodCheck } = body || {};
-    const adminOnlyAction = Boolean(adminRetry || adminHealthCheck || adminPaymentMethodCheck);
+    const { orderId, successUrl, cancelUrl, adminRetry, adminHealthCheck, adminPaymentMethodCheck, adminDtfTestMode } = body || {};
+    const adminOnlyAction = Boolean(adminRetry || adminHealthCheck || adminPaymentMethodCheck || adminDtfTestMode);
     if (!adminHealthCheck && !adminPaymentMethodCheck && (typeof orderId !== 'string' || !orderId.trim())) {
       return respond({ error: 'A valid order ID is required', code: 'INVALID_REQUEST' }, 400);
     }
@@ -82,7 +82,9 @@ Deno.serve(async (request) => {
     }
     if (adminOnlyAction) {
       const { data: isAdmin, error: adminError } = await userClient.rpc('is_admin');
-      if (adminError || !isAdmin) return respond({ error: 'Administrator access required', code: 'ADMIN_REQUIRED' }, 403);
+      const { data: hasDtfTestAccess, error: dtfTestAccessError } = adminDtfTestMode
+        ? await userClient.rpc('has_dtf_sandbox_test_access') : { data: false, error: null };
+      if (adminError || dtfTestAccessError || (!isAdmin && !hasDtfTestAccess)) return respond({ error: 'Administrator access required', code: 'ADMIN_REQUIRED' }, 403);
     }
 
     stage = 'payment_settings';
@@ -117,7 +119,7 @@ Deno.serve(async (request) => {
       return respond({ error: 'Stripe checkout is not enabled', code: 'STRIPE_NOT_SELECTED' }, 409);
     }
 
-    const stripeMode = adminPaymentMethodCheck ? 'test' : normalizeStripeMode(paymentSettings?.stripe_mode);
+    const stripeMode = (adminPaymentMethodCheck || adminDtfTestMode) ? 'test' : normalizeStripeMode(paymentSettings?.stripe_mode);
     const stripeCredentials = getStripeCredentials(stripeMode);
     console.info('Stripe checkout credential configuration', {
       mode: stripeMode,
@@ -159,7 +161,7 @@ Deno.serve(async (request) => {
     stage = 'order_lookup';
     const { data: order, error: orderError } = await admin
       .from('orders')
-      .select('id,owner_user_id,customer_email,order_items,total_amount,product_subtotal,shipping_amount,sales_tax_amount,payment_status,checkout_source')
+      .select('id,owner_user_id,customer_email,order_items,total_amount,product_subtotal,shipping_amount,sales_tax_amount,payment_status,checkout_source,is_sample')
       .eq('id', orderId.trim())
       .maybeSingle();
     if (orderError) {
@@ -175,8 +177,11 @@ Deno.serve(async (request) => {
     if (adminRetry && !['checkout_pending', 'checkout_failed'].includes(order.payment_status)) {
       return respond({ error: 'This order is not a checkout issue', code: 'NOT_CHECKOUT_ISSUE' }, 409);
     }
-    if (!['customized_small_order', 'mixed_storefront_order'].includes(order.checkout_source)) {
+    if (!['customized_small_order', 'mixed_storefront_order', 'dtf_transfer_order'].includes(order.checkout_source)) {
       return respond({ error: 'Unsupported checkout order', code: 'UNSUPPORTED_ORDER' }, 400);
+    }
+    if (adminDtfTestMode && (order.checkout_source !== 'dtf_transfer_order' || order.is_sample !== true)) {
+      return respond({ error: 'DTF sandbox checkout requires a test-marked DTF order', code: 'DTF_TEST_ORDER_REQUIRED' }, 409);
     }
     if (order.payment_status === 'paid') return respond({ error: 'Order is already paid', code: 'ORDER_ALREADY_PAID' }, 409);
 
@@ -187,12 +192,14 @@ Deno.serve(async (request) => {
 
     const stripe = new Stripe(stripeCredentials.secretKey);
     const isMixedOrder = order.checkout_source === 'mixed_storefront_order';
+    const isDtfOrder = order.checkout_source === 'dtf_transfer_order';
     const stripeOrderMetadata = {
       app_name: 'HC Apparel',
-      source: isMixedOrder ? 'hc_apparel_mixed_storefront' : 'hc_apparel_customized_small_order',
+      source: isDtfOrder ? 'hc_apparel_dtf_transfer' : (isMixedOrder ? 'hc_apparel_mixed_storefront' : 'hc_apparel_customized_small_order'),
       internal_order_id: order.id,
       owner_user_id: order.owner_user_id,
       stripe_mode: stripeMode,
+      test_data: order.is_sample === true ? 'true' : 'false',
     };
     stage = 'stripe_session';
     let session;

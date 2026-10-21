@@ -4,6 +4,7 @@ const ENTITY_CONFIG = {
   Cart: { table: 'carts' },
   ContactMessage: { table: 'contact_messages' },
   CustomerNotification: { table: 'customer_notifications', customerView: 'customer_visible_notifications' },
+  DTFTransferOrder: { table: 'dtf_transfer_orders', customerView: 'customer_dtf_transfer_orders' },
   GarmentCatalog: { table: 'garment_catalog_items' },
   ImportBatch: { table: 'import_batches' },
   NewsletterSubscriber: { table: 'newsletter_subscribers' },

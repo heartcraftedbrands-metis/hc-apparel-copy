@@ -32,6 +32,7 @@ import DigitalMockupsPage from './pages/DigitalMockups';
 import DigitalMockupDetailPage from './pages/DigitalMockupDetail';
 import DigitalOrderConfirmationPage from './pages/DigitalOrderConfirmation';
 import MyDownloadsPage from './pages/MyDownloads';
+import DTFTransfersPage from './pages/DTFTransfers';
 import { STOREFRONT_FEATURES } from './config/storefrontFeatures';
 
 // Admin pages
@@ -98,6 +99,7 @@ import AdminQuarterlyTaxCenter from './pages/AdminQuarterlyTaxCenter';
 import PublicCatalogAudit from './pages/PublicCatalogAudit';
 import AdminDesignStudio from './pages/AdminDesignStudio';
 import AdminDigitalMockups from './pages/AdminDigitalMockups';
+import AdminDTFTransfers from './pages/AdminDTFTransfers';
 
 const { Layout } = pagesConfig;
 
@@ -161,6 +163,7 @@ const AuthenticatedApp = () => {
       <Route path="/DigitalMockups/:slug" element={<LayoutWrapper currentPageName="DigitalMockups"><DigitalMockupDetailPage /></LayoutWrapper>} />
       <Route path="/DigitalOrderConfirmation" element={<LayoutWrapper currentPageName="DigitalOrderConfirmation"><DigitalOrderConfirmationPage /></LayoutWrapper>} />
       <Route path="/MyDownloads" element={<LayoutWrapper currentPageName="MyDownloads"><MyDownloadsPage /></LayoutWrapper>} />
+      <Route path="/DTFTransfers" element={<LayoutWrapper currentPageName="DTFTransfers"><DTFTransfersPage /></LayoutWrapper>} />
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}
@@ -168,6 +171,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminDesignStudio" element={<LayoutWrapper currentPageName="AdminDesignStudio"><AdminDesignStudio customerMode privatePreview /></LayoutWrapper>} />
       <Route path="/AdminDesignStudioAdmin" element={<LayoutWrapper currentPageName="AdminDesignStudioAdmin"><AdminDesignStudio /></LayoutWrapper>} />
       <Route path="/AdminDigitalMockups" element={<LayoutWrapper currentPageName="AdminDigitalMockups"><AdminDigitalMockups /></LayoutWrapper>} />
+      <Route path="/AdminDTFTransfers" element={<LayoutWrapper currentPageName="AdminDTFTransfers"><AdminDTFTransfers /></LayoutWrapper>} />
       <Route path="/AdminBrandPages" element={<LayoutWrapper currentPageName="AdminBrandPages"><AdminBrandPages /></LayoutWrapper>} />
       <Route path="/AdminSocialMediaStudio" element={<LayoutWrapper currentPageName="AdminSocialMediaStudio"><AdminSocialMediaStudio /></LayoutWrapper>} />
       <Route path="/AdminEmailMarketingSettings" element={<LayoutWrapper currentPageName="AdminEmailMarketingSettings"><AdminEmailMarketingSettings /></LayoutWrapper>} />

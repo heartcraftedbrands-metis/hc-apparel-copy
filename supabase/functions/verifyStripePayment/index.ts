@@ -112,6 +112,20 @@ Deno.serve(async (request) => {
       // The database trigger now creates the private vendor draft and notification drafts.
     }
 
+    if (order.checkout_source === 'dtf_transfer_order') {
+      if (stripeMode === 'test' && session.metadata?.test_data !== 'true') {
+        return json({ error: 'The Stripe test payment is not marked as isolated test data' }, 409);
+      }
+      const { data: dtfReconciliation, error: dtfUpdateError } = await admin.rpc('reconcile_paid_dtf_order', {
+        p_customer_order_id: order.id,
+        p_test_mode: stripeMode === 'test',
+      });
+      if (dtfUpdateError) throw dtfUpdateError;
+      if (Number(dtfReconciliation?.linked_count || 0) !== 1) {
+        return json({ error: 'The paid customer order must link to exactly one DTF record' }, 409);
+      }
+    }
+
     let digitalDelivery = null;
     if (order.checkout_source === 'mixed_storefront_order' && session.metadata?.source === 'hc_apparel_mixed_storefront') {
       const finalized = await fetch(`${supabaseUrl}/functions/v1/digital-mockups`, {
@@ -134,6 +148,10 @@ Deno.serve(async (request) => {
       digital_delivery: digitalDelivery,
     });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Unable to verify payment' }, 500);
+    const message = error instanceof Error
+      ? error.message
+      : (typeof error === 'object' && error && 'message' in error ? String(error.message) : 'Unable to verify payment');
+    console.error('Stripe payment verification failed', { message });
+    return json({ error: 'Unable to verify payment' }, 500);
   }
 });

@@ -61,7 +61,7 @@ Deno.serve(async (request) => {
   const ownerUserId = session.metadata?.owner_user_id;
   const checkoutSource = session.metadata?.source;
   if (
-    !['hc_apparel_customized_small_order', 'hc_apparel_digital_mockups', 'hc_apparel_mixed_storefront'].includes(String(checkoutSource || ''))
+    !['hc_apparel_customized_small_order', 'hc_apparel_digital_mockups', 'hc_apparel_mixed_storefront', 'hc_apparel_dtf_transfer'].includes(String(checkoutSource || ''))
     || session.metadata?.stripe_mode !== stripeMode
     || !orderId
     || (checkoutSource === 'hc_apparel_customized_small_order' && !ownerUserId)
@@ -155,7 +155,7 @@ Deno.serve(async (request) => {
   if (!order) { await failEvent('Customer order not found'); return json({ error: 'Customer order not found' }, 404); }
   if (
     order.owner_user_id !== ownerUserId
-    || order.checkout_source !== 'customized_small_order'
+    || !['customized_small_order','mixed_storefront_order','dtf_transfer_order'].includes(order.checkout_source)
     || (order.stripe_mode || 'test') !== stripeMode
   ) {
     await failEvent('Checkout session does not match the order');
@@ -192,6 +192,14 @@ Deno.serve(async (request) => {
       stripe_mode: stripeMode,
     }).eq('id', order.id).neq('payment_status', 'paid');
     if (updateError) { await failEvent('Order payment update failed'); return json({ error: 'Unable to confirm payment' }, 500); }
+    if (order.checkout_source === 'dtf_transfer_order') {
+      const { data: dtfReconciliation, error: dtfUpdateError } = await admin.rpc('reconcile_paid_dtf_order', {
+        p_customer_order_id: order.id,
+        p_test_mode: stripeMode === 'test',
+      });
+      if (dtfUpdateError) { await failEvent('DTF payment state update failed'); return json({ error: 'Unable to confirm transfer payment' }, 500); }
+      if (Number(dtfReconciliation?.linked_count || 0) !== 1) { await failEvent('DTF payment link count invalid'); return json({ error: 'Unable to confirm transfer payment' }, 409); }
+    }
     // The existing database trigger prepares protected vendor and notification drafts.
   }
 

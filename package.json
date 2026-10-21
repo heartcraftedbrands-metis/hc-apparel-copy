@@ -32,6 +32,7 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "test:ss-shipping": "node scripts/test_ss_shipping_fallbacks.mjs",
+    "test:dtf-shipping": "node scripts/test_dtf_shipping.mjs",
     "test:marketing-center": "node scripts/test_marketing_center.mjs",
     "test:privacy-policy": "node scripts/test_privacy_policy.mjs",
     "test:custom-printing-visibility": "node scripts/test_custom_printing_visibility.mjs",
