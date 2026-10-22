@@ -15,17 +15,21 @@ export const DTF_TIERS = [
   { min: 250, max: Infinity, factor: .62 },
 ];
 export const referenceCosts = [
-  { size: '2 × 2', area: 4, costs: [.35,.30,.26,.22,.19] },
-  { size: '3 × 3', area: 9, costs: [.54,.49,.44,.40,.36] },
-  { size: '4 × 4', area: 16, costs: [.95,.87,.77,.66,.56] },
-  { size: '5.12 × 3.41', area: 17.46, costs: [.99,.90,.80,.70,.62] },
-  { size: '6 × 6', area: 36, costs: [2.12,1.84,1.62,1.39,1.15] },
-  { size: '8 × 8', area: 64, costs: [3.76,3.45,3.03,2.60,2.16] },
-  { size: '10 × 10', area: 100, costs: [5.87,5.32,4.66,4.00,3.34] },
-  { size: '11 × 14', area: 154, costs: [9.04,8.29,7.25,6.22,5.18] },
-  { size: '12 × 8', area: 96, costs: [5.69,5.09,4.49,3.84,3.18] },
-  { size: '12 × 17', area: 204, costs: [11.98,9.92,8.68,7.45,6.20] },
+  { size: '2 × 2', width: 2, height: 2, area: 4, costs: [.35,.30,.26,.22,.19] },
+  { size: '3 × 3', width: 3, height: 3, area: 9, costs: [.54,.49,.44,.40,.36] },
+  { size: '4 × 4', width: 4, height: 4, area: 16, costs: [.95,.87,.77,.66,.56] },
+  { size: '5.12 × 3.41', width: 5.12, height: 3.41, area: 17.46, costs: [.99,.90,.80,.70,.62] },
+  { size: '6 × 6', width: 6, height: 6, area: 36, costs: [2.12,1.84,1.62,1.39,1.15] },
+  { size: '8 × 8', width: 8, height: 8, area: 64, costs: [3.76,3.45,3.03,2.60,2.16] },
+  { size: '10 × 10', width: 10, height: 10, area: 100, costs: [5.87,5.32,4.66,4.00,3.34] },
+  { size: '11 × 14', width: 11, height: 14, area: 154, costs: [9.04,8.29,7.25,6.22,5.18] },
+  { size: '12 × 8', width: 12, height: 8, area: 96, costs: [5.69,5.09,4.49,3.84,3.18] },
+  { size: '12 × 17', width: 12, height: 17, area: 204, costs: [11.98,9.92,8.68,7.45,6.20] },
 ];
+export const DTF_PRICING_ORDER_TYPES = Object.freeze([
+  { id: 'standard', label: 'Standard transfers', precut: false },
+  { id: 'precut', label: 'Pre-cut transfers', precut: true },
+]);
 export const stripeFee = amount => amount * .029 + .30;
 export const proposedRetail = cost => Math.ceil(((cost * 1.18 + .30) / .971) * 100) / 100;
 export function tierIndex(qty) { return DTF_TIERS.findIndex(t => qty >= t.min && qty <= t.max); }
@@ -33,6 +37,17 @@ export function interpolateSupplierCost(width, height, qty, precut=false) {
   const area = width * height; const row = [...referenceCosts].sort((a,b)=>Math.abs(a.area-area)-Math.abs(b.area-area))[0];
   const base = row.costs[Math.max(0,tierIndex(qty))] * area / row.area;
   return Math.round((base + (precut ? .30 : 0)) * 100) / 100;
+}
+export function formatDtfQuantityTier({ min, max }) {
+  return Number.isFinite(max) ? `${min}–${max}` : `${min}+`;
+}
+export function getDtfRetailPricingChart(precut=false) {
+  return referenceCosts.map(({ size, width, height }) => ({
+    size,
+    width,
+    height,
+    prices: DTF_TIERS.map(({ min }) => proposedRetail(interpolateSupplierCost(width, height, min, precut))),
+  }));
 }
 export function validateArtwork(file, width, height) {
   const issues=[]; const ext=(file?.name?.split('.').pop()||'').toLowerCase();

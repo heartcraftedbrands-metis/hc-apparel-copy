@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { quoteDtfShipping, DTF_LIVE_PURCHASES, interpolateSupplierCost, proposedRetail, tierIndex } from '../src/lib/dtfTransfers.js';
+import {
+  quoteDtfShipping,
+  DTF_LIVE_PURCHASES,
+  DTF_PRICING_ORDER_TYPES,
+  DTF_TIERS,
+  getDtfRetailPricingChart,
+  interpolateSupplierCost,
+  proposedRetail,
+  referenceCosts,
+  tierIndex,
+} from '../src/lib/dtfTransfers.js';
 
 assert.equal(DTF_LIVE_PURCHASES, true, 'approved live DTF checkout must be enabled');
 assert.deepEqual(
@@ -20,6 +30,20 @@ assert.equal(proposedRetail(interpolateSupplierCost(10,10,15,false)),6.78);
 assert.equal(proposedRetail(interpolateSupplierCost(10,10,15,true)),7.14);
 assert.equal(proposedRetail(interpolateSupplierCost(4,4,250,false)),0.99);
 assert.equal(proposedRetail(interpolateSupplierCost(12,17,1,false)),14.87);
+
+assert.deepEqual(DTF_PRICING_ORDER_TYPES.map(type => type.id), ['standard', 'precut']);
+for (const type of DTF_PRICING_ORDER_TYPES) {
+  const chart = getDtfRetailPricingChart(type.precut);
+  assert.equal(chart.length, referenceCosts.length, `${type.label} includes every approved size`);
+  for (const [rowIndex, row] of chart.entries()) {
+    assert.equal(row.prices.length, DTF_TIERS.length, `${row.size} includes every quantity tier`);
+    for (const [tierPosition, tier] of DTF_TIERS.entries()) {
+      const calculatorPrice = proposedRetail(interpolateSupplierCost(row.width, row.height, tier.min, type.precut));
+      assert.equal(row.prices[tierPosition], calculatorPrice, `${type.label} ${row.size} ${tier.min}+ matches the calculator`);
+    }
+    assert.equal(row.size, referenceCosts[rowIndex].size, 'chart preserves the approved size order');
+  }
+}
 
 const migration=await readFile(new URL('../supabase/migrations/202610200002_dtf_transfer_shipping_policy.sql',import.meta.url),'utf8');
 const stripeSession=await readFile(new URL('../supabase/functions/createStripeCheckoutSession/index.ts',import.meta.url),'utf8');

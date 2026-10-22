@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'; import { Input } from '@/compon
 import {base44} from '@/api/base44Client'; import {supabase} from '@/api/supabaseClient';
 import {useAuth} from '@/lib/AuthContext'; import {useCart} from '@/components/shop/CartContext';
 import { DTF_LIVE_PURCHASES,DTF_PRICING_APPROVED,interpolateSupplierCost,proposedRetail,tierIndex,validateArtwork } from '@/lib/dtfTransfers';
+import DtfPriceChart from '@/components/dtf/DtfPriceChart';
 
 export default function DTFTransfers(){
  const reviewState=import.meta.env.DEV?new URLSearchParams(window.location.search).get('review'):null;
@@ -46,6 +47,7 @@ export default function DTFTransfers(){
    <div className="mt-4 rounded-xl border bg-muted/40 p-4"><strong>Shipping calculated after address and freight verification</strong><p className="mt-1 text-sm text-muted-foreground">The transfer subtotal is not your final total. Shipping appears separately after the exact address and cart are verified.</p></div>
    </div>
   </details>
+  <DtfPriceChart />
   {mode!=='size'&&<div className="my-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm"><strong>Preview workflow:</strong> this route is prepared but remains unavailable for purchase until supplier pricing and submission steps are approved.</div>}
   <div className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_.75fr]">
    <section className="rounded-2xl border bg-card p-4 sm:p-6"><h2 className="text-2xl font-bold">Upload and preview artwork</h2><label className="mt-5 flex min-h-64 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-primary/30 bg-muted/40 p-6 text-center">{preview?<img src={preview} alt="Customer artwork preview" className="max-h-80 max-w-full object-contain"/>:<><Upload className="h-12 w-12 text-primary"/><strong className="mt-3">Choose artwork from your device</strong><span className="mt-2 text-sm text-muted-foreground">PNG, JPG, JPEG, AI, PDF, EPS, TIF or TIFF · minimum 300 × 300 px</span></>}<input ref={artworkInputRef} className="sr-only" type="file" accept=".png,.jpg,.jpeg,.ai,.pdf,.eps,.tif,.tiff" onChange={choose}/></label>
