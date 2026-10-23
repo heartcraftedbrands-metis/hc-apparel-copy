@@ -43,7 +43,8 @@
     "test:customer-copy": "node scripts/test_customer_supplier_branding.mjs",
     "test:size-guides": "node scripts/test_product_size_guides.mjs",
     "test:business-operations": "node scripts/test_business_operations.mjs",
-    "test:owner-order-links": "node scripts/test_owner_order_links.mjs"
+    "test:owner-order-links": "node scripts/test_owner_order_links.mjs",
+    "test:auth-recovery": "node scripts/test_auth_recovery.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.39",

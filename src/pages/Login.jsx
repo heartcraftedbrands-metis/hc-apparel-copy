@@ -1,9 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, LogIn, Mail } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
-import { authRedirect, destinationAfterAuth, friendlyAuthError } from '@/lib/customerAuth';
+import {
+  authRedirect,
+  destinationAfterAuth,
+  friendlyAuthError,
+  rememberAuthDestination,
+  rememberRecoveryEmail,
+} from '@/lib/customerAuth';
 import { trackMarketingEvent } from '@/lib/marketingAnalytics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -21,8 +27,15 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoverySent, setRecoverySent] = useState(false);
+  const requestedDestination = searchParams.get('returnTo');
 
-  if (!isLoadingAuth && isAuthenticated) return <Navigate to="/Profile" replace />;
+  useEffect(() => {
+    if (requestedDestination) rememberAuthDestination(requestedDestination);
+  }, [requestedDestination]);
+
+  if (!isLoadingAuth && isAuthenticated) {
+    return <Navigate to={destinationAfterAuth(requestedDestination)} replace />;
+  }
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -35,7 +48,7 @@ export default function Login() {
       return;
     }
     void trackMarketingEvent('login', null, 'customer_login', { internalOnly: true });
-    navigate(destinationAfterAuth(), { replace: true });
+    navigate(destinationAfterAuth(requestedDestination), { replace: true });
   };
 
   const handlePasswordRecovery = async () => {
@@ -47,7 +60,10 @@ export default function Login() {
     setRecoveryLoading(true);
     setError('');
     setRecoverySent(false);
-    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    const normalizedEmail = email.trim().toLowerCase();
+    rememberRecoveryEmail(normalizedEmail);
+    if (requestedDestination) rememberAuthDestination(requestedDestination);
+    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: authRedirect('/ResetPassword'),
     });
     setRecoveryLoading(false);
@@ -99,7 +115,7 @@ export default function Login() {
               onClick={handlePasswordRecovery}
             >
               {recoveryLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
-              Reset password
+              Forgot password?
             </Button>
             <p className="text-sm text-center">New to HC Apparel? <Link className="underline" to="/Signup">Create an account</Link></p>
           </form>

@@ -406,6 +406,9 @@ verify_jwt = false # Google callback is public; every POST action verifies the a
 [functions.operations-intelligence]
 verify_jwt = false # Database cron uses a private rotating token stored server-side; browser access is not accepted.
 
+[functions.operations-onboarding]
+verify_jwt = false # Validates either the caller JWT or the private database operations token inside the function.
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

@@ -16,7 +16,7 @@ assert.match(orderDetail, /navigate\(`\/AdminOrderDetail\?order_id=/, 'Legacy li
 assert.match(orderDetail, /Order unavailable/, 'Missing, inaccessible, and deleted orders need a useful state');
 assert.match(orderDetail, /Return to orders/, 'Order error states need a working return action');
 assert.match(app, /<Route element=\{<ProtectedRoute requiredRole="admin" \/>\}>[\s\S]*AdminOrderDetail/, 'Owner controls must remain admin-only');
-assert.match(auth, /sessionStorage\.setItem\('hc_login_return_to', returnTo\)/, 'Sign-in redirects must preserve the full selected-order URL');
+assert.match(auth, /rememberAuthDestination\(returnTo\)/, 'Sign-in redirects must preserve the full selected-order URL across Safari tabs');
 assert.match(login, /url\.pathname\}\$\{url\.search\}\$\{url\.hash\}/, 'Post-login navigation must restore query parameters and hash');
 
 console.log('Owner order link, direct-link, refresh, and access safeguards verified.');

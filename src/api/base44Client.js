@@ -1,4 +1,5 @@
 import { supabase } from '@/api/supabaseClient';
+import { rememberAuthDestination } from '@/lib/customerAuth';
 
 const ENTITY_CONFIG = {
   Cart: { table: 'carts' },
@@ -198,8 +199,8 @@ const auth = {
     window.location.assign('/');
   },
   redirectToLogin: (returnTo = window.location.href) => {
-    sessionStorage.setItem('hc_login_return_to', returnTo);
-    window.location.assign('/Login');
+    const destination = rememberAuthDestination(returnTo);
+    window.location.assign(`/Login?returnTo=${encodeURIComponent(destination)}`);
   },
 };
 
