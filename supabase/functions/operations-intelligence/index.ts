@@ -107,6 +107,21 @@ Deno.serve(async request=>{
   const {data:config}=await db.from('operations_runtime_config').select('*').eq('id',true).maybeSingle();
   if(!config||request.headers.get('x-operations-token')!==config.monitor_token)return json({error:'Not authorized'},401);
   const body=await request.json().catch(()=>({}));
+  if(['send_recovery','run_controlled_test'].includes(body.action)){
+    const response=await fetch(`${url}/functions/v1/operations-onboarding`,{
+      method:'POST',
+      headers:{
+        authorization:`Bearer ${serviceKey}`,
+        apikey:serviceKey,
+        'content-type':'application/json',
+        'x-operations-token':config.monitor_token
+      },
+      body:JSON.stringify({action:body.action,requested_at:body.requested_at||new Date().toISOString()}),
+      signal:AbortSignal.timeout(30000)
+    });
+    const payload=await response.text();
+    return new Response(payload,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
+  }
   if(body.action!=='tick')return json({error:'Unsupported action'},400);
 
   // Reconcile provider acceptance with delivery events before any send decision.
