@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -122,9 +122,9 @@ function Field({ label, value, mono }) {
 
 export default function AdminOrderDetail() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const qc = useQueryClient();
-  const params = new URLSearchParams(window.location.search);
-  const orderId = params.get('order_id');
+  const orderId = searchParams.get('order_id') || searchParams.get('id');
 
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -208,7 +208,7 @@ export default function AdminOrderDetail() {
     }
   };
 
-  const { data: order, isLoading, refetch: refetchOrder } = useQuery({
+  const { data: order, isLoading, isFetched, isError, error: orderError, refetch: refetchOrder } = useQuery({
     queryKey: ['order', orderId],
     queryFn: () => base44.entities.Order.filter({ id: orderId }).then(r => r[0]),
     enabled: !!orderId,
@@ -252,6 +252,13 @@ export default function AdminOrderDetail() {
   useEffect(() => {
     if (order && !form) setForm({ ...order });
   }, [order]);
+
+  useEffect(() => {
+    const legacyId = searchParams.get('id');
+    if (legacyId && !searchParams.get('order_id')) {
+      navigate(`/AdminOrderDetail?order_id=${encodeURIComponent(legacyId)}`, { replace: true });
+    }
+  }, [navigate, searchParams]);
 
   const set = (k) => (e) => setForm(p => ({ ...p, [k]: e?.target ? e.target.value : e }));
 
@@ -384,12 +391,39 @@ export default function AdminOrderDetail() {
   };
 
   if (!orderId) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <p className="text-muted-foreground">No order selected.</p>
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-lg rounded-2xl border bg-card p-6 text-center shadow-sm">
+        <AlertCircle className="mx-auto h-10 w-10 text-amber-600" />
+        <h1 className="mt-3 text-xl font-extrabold">Choose an order to continue</h1>
+        <p className="mt-2 text-sm text-muted-foreground">This link does not include an order reference. Return to the order list and choose the order you want to review.</p>
+        <Button className="mt-5 min-h-12" onClick={() => navigate('/AdminBusinessIntelligence#orders')}>
+          <ArrowLeft className="mr-2 h-4 w-4" />Return to orders
+        </Button>
+      </div>
     </div>
   );
 
-  if (isLoading || !form) return (
+  if (isLoading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+
+  if (isError || (isFetched && !order)) return (
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-lg rounded-2xl border bg-card p-6 text-center shadow-sm">
+        <AlertCircle className="mx-auto h-10 w-10 text-amber-600" />
+        <h1 className="mt-3 text-xl font-extrabold">Order unavailable</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Order #{String(orderId).slice(-8).toUpperCase()} could not be loaded. It may have been deleted, archived outside your access, or you may not have permission to view it.</p>
+        {orderError?.message&&<p className="mt-2 text-xs text-muted-foreground">{orderError.message}</p>}
+        <Button className="mt-5 min-h-12" onClick={() => navigate('/AdminBusinessIntelligence#orders')}>
+          <ArrowLeft className="mr-2 h-4 w-4" />Return to orders
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (!form) return (
     <div className="min-h-screen flex items-center justify-center">
       <Loader2 className="w-8 h-8 animate-spin text-primary" />
     </div>
