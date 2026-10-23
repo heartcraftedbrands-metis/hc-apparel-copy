@@ -124,6 +124,14 @@ Deno.serve(async request=>{
   checks.push({check_key:'stripe-webhooks',severity:'critical',status:webhookFailures?.length?'failed':'healthy',evidence:{failed_last_hour:webhookFailures?.length||0}});
   checks.push({check_key:'artwork-uploads',severity:'warning',status:(uploadFailures?.length||0)>=3?'degraded':'healthy',evidence:{failures_last_hour:uploadFailures?.length||0,threshold:3}});
   checks.push({check_key:'dtf-freight',severity:'warning',status:expiredQuotes?.length?'degraded':'healthy',evidence:{expired_quotes:expiredQuotes?.length||0}});
+  const {data:industrySources=[]}=await db.from('industry_sources').select('*');
+  for(const source of industrySources||[]){
+    if(source.last_checked_at&&Date.now()-new Date(source.last_checked_at).getTime()<6*3600000)continue;
+    try{
+      const response=await fetch(source.source_url,{headers:{'user-agent':'HC-Apparel-Operations-Monitor/1.0'},signal:AbortSignal.timeout(15000)});
+      await db.from('industry_sources').update({access_status:response.ok?'operational':'unavailable',last_checked_at:new Date().toISOString(),last_success_at:response.ok?new Date().toISOString():source.last_success_at,last_error:response.ok?null:`HTTP ${response.status}`,updated_at:new Date().toISOString()}).eq('id',source.id);
+    }catch(error){await db.from('industry_sources').update({access_status:'unavailable',last_checked_at:new Date().toISOString(),last_error:String(error).slice(0,200),updated_at:new Date().toISOString()}).eq('id',source.id);}
+  }
   const {data:controlledTests=[]}=await db.from('operations_controlled_monitor_tests').select('*').eq('enabled',true);
   for(const test of controlledTests||[])checks.push({check_key:test.check_key,severity:test.severity,status:test.status,evidence:{controlled_test:true,note:test.note},is_test:true});
   await db.from('operations_monitor_checks').insert(checks.map(c=>({...c,is_test:c.is_test===true,checked_at:new Date().toISOString()})));

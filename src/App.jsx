@@ -101,6 +101,7 @@ import AdminDesignStudio from './pages/AdminDesignStudio';
 import AdminDigitalMockups from './pages/AdminDigitalMockups';
 import AdminDTFTransfers from './pages/AdminDTFTransfers';
 import AdminBusinessIntelligence from './pages/AdminBusinessIntelligence';
+import AdminOperationsInbox from './pages/AdminOperationsInbox';
 
 const { Layout } = pagesConfig;
 
@@ -168,6 +169,7 @@ const AuthenticatedApp = () => {
 
       <Route element={<ProtectedRoute requiredRoles={['admin','operations_manager']} />}>
         <Route path="/AdminBusinessIntelligence" element={<LayoutWrapper currentPageName="AdminBusinessIntelligence"><AdminBusinessIntelligence /></LayoutWrapper>} />
+        <Route path="/AdminOperationsInbox" element={<LayoutWrapper currentPageName="AdminOperationsInbox"><AdminOperationsInbox /></LayoutWrapper>} />
       </Route>
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>

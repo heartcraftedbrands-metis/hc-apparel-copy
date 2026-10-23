@@ -5,6 +5,7 @@ const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const migration=read('supabase/migrations/202610230001_business_operations_intelligence.sql');
 const monitor=read('supabase/functions/operations-intelligence/index.ts');
 const page=read('src/pages/AdminBusinessIntelligence.jsx');
+const operationsInbox=read('src/pages/AdminOperationsInbox.jsx');
 const dtf=read('src/pages/DTFTransfers.jsx');
 const app=read('src/App.jsx');
 
@@ -23,6 +24,8 @@ assert.match(monitor,/ops_email_delivery_ledger/,'Alert provider delivery must b
 assert.match(page,/min-h-12/,'Mobile controls must have touch-sized targets');
 assert.match(page,/Heart Command Center remains a separate system/,'System separation must be visible');
 assert.match(page,/Supplier submission remains a separate owner approval/,'Supplier purchasing gate must remain explicit');
+assert.match(operationsInbox,/Save internal draft/,'Operations manager must have a safe response-draft flow');
+assert.match(operationsInbox,/Nothing was sent|never sends an email/,'Response drafting must never imply a send');
 for(const event of ['dtf_calculator_engaged','artwork_upload_success','artwork_upload_failure','freight_review_requested'])assert.ok(dtf.includes(event),`Missing DTF event ${event}`);
 assert.match(app,/requiredRoles=\{\['admin','operations_manager'\]\}/,'Dashboard route must allow only owner/admin and operations manager');
 
