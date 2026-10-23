@@ -100,6 +100,7 @@ import PublicCatalogAudit from './pages/PublicCatalogAudit';
 import AdminDesignStudio from './pages/AdminDesignStudio';
 import AdminDigitalMockups from './pages/AdminDigitalMockups';
 import AdminDTFTransfers from './pages/AdminDTFTransfers';
+import AdminBusinessIntelligence from './pages/AdminBusinessIntelligence';
 
 const { Layout } = pagesConfig;
 
@@ -164,6 +165,10 @@ const AuthenticatedApp = () => {
       <Route path="/DigitalOrderConfirmation" element={<LayoutWrapper currentPageName="DigitalOrderConfirmation"><DigitalOrderConfirmationPage /></LayoutWrapper>} />
       <Route path="/MyDownloads" element={<LayoutWrapper currentPageName="MyDownloads"><MyDownloadsPage /></LayoutWrapper>} />
       <Route path="/DTFTransfers" element={<LayoutWrapper currentPageName="DTFTransfers"><DTFTransfersPage /></LayoutWrapper>} />
+
+      <Route element={<ProtectedRoute requiredRoles={['admin','operations_manager']} />}>
+        <Route path="/AdminBusinessIntelligence" element={<LayoutWrapper currentPageName="AdminBusinessIntelligence"><AdminBusinessIntelligence /></LayoutWrapper>} />
+      </Route>
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>
       {/* Admin */}

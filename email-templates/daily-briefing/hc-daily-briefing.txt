@@ -1,0 +1,22 @@
+{{ subject }}
+{{ briefing_window }}
+
+Good morning, King Terik.
+
+{{ inspiration }}
+
+Here is today's HC Apparel and Heart Command Center briefing.
+
+{{ urgent_actions_text }}
+{{ operations_text }}
+{{ security_text }}
+{{ commerce_text }}
+{{ traffic_text }}
+{{ marketing_text }}
+{{ supplier_text }}
+{{ limitations_text }}
+
+Generated {{ generated_at }}. Missing or unavailable data is labeled and is never treated as zero activity.
+
+ilovehcapparel.net
+support@ilovehcapparel.net

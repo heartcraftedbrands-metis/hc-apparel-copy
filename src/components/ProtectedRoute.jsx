@@ -13,6 +13,7 @@ export default function ProtectedRoute({
   fallback = <DefaultFallback />,
   unauthenticatedElement,
   requiredRole,
+  requiredRoles,
 }) {
   const {
     user,
@@ -47,7 +48,8 @@ export default function ProtectedRoute({
     return unauthenticatedElement || fallback;
   }
 
-  if (requiredRole && user?.role !== requiredRole) {
+  const allowedRoles = requiredRoles || (requiredRole ? [requiredRole] : null);
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
     return <Navigate to="/" replace />;
   }
 

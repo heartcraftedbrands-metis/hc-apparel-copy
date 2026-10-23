@@ -1,0 +1,10 @@
+Good morning, King Terik. {{ inspiration_short }}
+
+URGENT: {{ urgent_summary }}
+
+HC Apparel: {{ operations_summary }}
+Sales & money: {{ commerce_summary }}
+Marketing: {{ marketing_summary }}
+Next 48 hours: {{ action_summary }}
+
+Full briefing sent by email. Data as of {{ generated_at_short }}.

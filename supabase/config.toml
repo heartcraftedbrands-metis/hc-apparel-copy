@@ -403,6 +403,9 @@ verify_jwt = false # Public catalog and guest checkout; privileged actions self-
 [functions.productivity-calendar]
 verify_jwt = false # Google callback is public; every POST action verifies the admin JWT itself.
 
+[functions.operations-intelligence]
+verify_jwt = false # Database cron uses a private rotating token stored server-side; browser access is not accepted.
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

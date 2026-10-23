@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays, Megaphone, Image as ImageIcon } from "lucide-react";
+import { ShoppingCart, Settings, LogOut, User, Package, BarChart3, Search, Archive, Truck, Mail, Inbox, Sparkles, CalendarDays, Megaphone, Image as ImageIcon, HeartPulse } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { base44 } from "@/api/base44Client";
 import {
@@ -158,6 +158,13 @@ function LayoutInner({ children }) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="max-h-[80vh] w-64 overflow-y-auto">
                     <DropdownMenuItem disabled className="text-xs">{user.email}</DropdownMenuItem>
+                    {['admin','operations_manager'].includes(user.role) && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">Mobile operations</DropdownMenuLabel>
+                        <Link to="/AdminBusinessIntelligence"><DropdownMenuItem className="min-h-11"><HeartPulse className="w-4 h-4 mr-2" />Business Action Center</DropdownMenuItem></Link>
+                      </>
+                    )}
                     {user.role === 'admin' && (
                       <>
                         <DropdownMenuSeparator />

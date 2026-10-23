@@ -41,7 +41,8 @@
     "test:marketing-agent": "node scripts/test_marketing_agent.mjs",
     "test:digital-mockups": "node scripts/test_digital_mockups.mjs",
     "test:customer-copy": "node scripts/test_customer_supplier_branding.mjs",
-    "test:size-guides": "node scripts/test_product_size_guides.mjs"
+    "test:size-guides": "node scripts/test_product_size_guides.mjs",
+    "test:business-operations": "node scripts/test_business_operations.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.39",
