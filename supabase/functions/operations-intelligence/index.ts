@@ -101,6 +101,14 @@ Deno.serve(async request=>{
     const status=delivered===count&&count>0?'delivered':failed>0?'partial':'accepted';
     await db.from('operations_report_runs').update({status,delivery_events:eventsByRecipient,delivered_at:status==='delivered'?new Date().toISOString():null,updated_at:new Date().toISOString()}).eq('id',run.id);
   }
+  const {data:acceptedLedger=[]}=await db.from('ops_email_delivery_ledger').select('*').eq('delivery_status','accepted').gte('created_at',new Date(Date.now()-7*86400000).toISOString());
+  for(const item of acceptedLedger||[]){
+    const lookup=await brevoGet(brevoKey,`/smtp/statistics/events?email=${encodeURIComponent(item.recipient)}&days=30&sort=desc&limit=100&offset=0`);
+    const events=(Array.isArray(lookup.body?.events)?lookup.body.events:[]).filter((event:Row)=>sameId(event.messageId,item.provider_message_id));
+    const keys=events.map((event:Row)=>eventKey(event.event));
+    if(keys.includes('delivered'))await db.from('ops_email_delivery_ledger').update({delivery_status:'delivered',delivered_at:events.find((event:Row)=>eventKey(event.event)==='delivered')?.date||new Date().toISOString(),updated_at:new Date().toISOString()}).eq('operation_key',item.operation_key);
+    else if(keys.some((key:string)=>key.includes('bounce')||key==='blocked'||key==='invalid'))await db.from('ops_email_delivery_ledger').update({delivery_status:'failed',last_error:events[0]?.reason||events[0]?.event||'Provider delivery failed',updated_at:new Date().toISOString()}).eq('operation_key',item.operation_key);
+  }
 
   // Read-only monitors. A failed check opens one deduplicated alert; recovery closes it once.
   const checks:Row[]=[];
@@ -116,12 +124,39 @@ Deno.serve(async request=>{
   checks.push({check_key:'stripe-webhooks',severity:'critical',status:webhookFailures?.length?'failed':'healthy',evidence:{failed_last_hour:webhookFailures?.length||0}});
   checks.push({check_key:'artwork-uploads',severity:'warning',status:(uploadFailures?.length||0)>=3?'degraded':'healthy',evidence:{failures_last_hour:uploadFailures?.length||0,threshold:3}});
   checks.push({check_key:'dtf-freight',severity:'warning',status:expiredQuotes?.length?'degraded':'healthy',evidence:{expired_quotes:expiredQuotes?.length||0}});
-  await db.from('operations_monitor_checks').insert(checks.map(c=>({...c,checked_at:new Date().toISOString()})));
+  const {data:controlledTests=[]}=await db.from('operations_controlled_monitor_tests').select('*').eq('enabled',true);
+  for(const test of controlledTests||[])checks.push({check_key:test.check_key,severity:test.severity,status:test.status,evidence:{controlled_test:true,note:test.note},is_test:true});
+  await db.from('operations_monitor_checks').insert(checks.map(c=>({...c,is_test:c.is_test===true,checked_at:new Date().toISOString()})));
   for(const check of checks){
     const dedupe=`${check.check_key}:active`;
     if(check.status==='healthy')await db.from('operations_alerts').update({status:'recovered',recovered_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('dedupe_key',dedupe).neq('status','recovered');
-    else await db.from('operations_alerts').upsert({dedupe_key:dedupe,workflow:check.check_key,severity:check.severity,status:'open',customer_impact:check.severity==='critical'?'Customers may be unable to complete the affected workflow.':'Some orders may require manual attention.',evidence:JSON.stringify(check.evidence),owner_label:'YHo',next_action:`Open the secure action center and inspect ${check.check_key}.`,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:'dedupe_key'});
+    else await db.from('operations_alerts').upsert({dedupe_key:dedupe,workflow:check.check_key,severity:check.severity,status:'open',is_test:check.is_test===true,customer_impact:check.is_test===true?'Controlled alert-delivery test; no customer impact.':check.severity==='critical'?'Customers may be unable to complete the affected workflow.':'Some orders may require manual attention.',evidence:JSON.stringify(check.evidence),owner_label:'YHo',next_action:check.is_test===true?'No operational action. Confirm the test alert and recovery notice arrive.':`Open the secure action center and inspect ${check.check_key}.`,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:'dedupe_key'});
   }
+
+  const {data:alertRecipients=[]}=await db.from('operations_report_recipients').select('*').order('recipient_role');
+  const notifyAlerts=async(status:'open'|'recovered')=>{
+    const column=status==='open'?'notified_at':'recovery_notified_at';
+    const {data:items=[]}=await db.from('operations_alerts').select('*').eq('severity','critical').eq('status',status).is(column,null);
+    for(const alert of items||[]){
+      const messageIds:Row={};
+      for(const recipient of alertRecipients||[]){
+        const operationKey=`ops-alert:${alert.id}:${status}:${recipient.email}`;
+        const {data:existing}=await db.from('ops_email_delivery_ledger').select('*').eq('operation_key',operationKey).maybeSingle();
+        if(existing?.provider_message_id){messageIds[recipient.email]=existing.provider_message_id;continue;}
+        await db.from('ops_email_delivery_ledger').upsert({operation_key:operationKey,recipient:recipient.email,subject:`${alert.is_test?'[TEST] ':''}${status==='open'?'Critical alert':'Recovery notice'} — ${alert.workflow}`,provider:'brevo',delivery_status:'sending',updated_at:new Date().toISOString()},{onConflict:'operation_key'});
+        const subject=`${alert.is_test?'[TEST — NO CUSTOMER IMPACT] ':''}${status==='open'?'Critical HC Apparel alert':'HC Apparel recovery notice'} — ${alert.workflow}`;
+        const action=status==='open'?alert.next_action:`The ${alert.workflow} monitor has returned to healthy. No further action is required unless symptoms continue.`;
+        const html=`<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f7f3ea;color:#23271f;padding:20px;"><div style="max-width:640px;margin:auto;background:#fff;border:1px solid #ddd3bf;border-radius:16px;padding:24px;"><h1 style="color:#2d441f;">${esc(subject)}</h1><p><strong>Affected workflow:</strong> ${esc(alert.workflow)}<br><strong>Detection:</strong> ${esc(alert.detected_at)}<br><strong>Customer impact:</strong> ${esc(alert.customer_impact)}<br><strong>Owner:</strong> ${esc(alert.owner_label)}</p><p><strong>Next action:</strong> ${esc(action)}</p><p><a href="${SITE}/AdminBusinessIntelligence" style="color:#435d2b;font-weight:700;">Open the secure mobile action center</a></p><p style="font-size:13px;color:#68715f;">This message never authorizes a purchase, refund, credential change, supplier submission, or deployment.</p></div></body></html>`;
+        const text=`${subject}\n\nAffected workflow: ${alert.workflow}\nDetection: ${alert.detected_at}\nCustomer impact: ${alert.customer_impact}\nOwner: ${alert.owner_label}\nNext action: ${action}\n\n${SITE}/AdminBusinessIntelligence\n\nThis email does not authorize sensitive actions.`;
+        const sent=await sendBrevo(brevoKey,recipient,subject,html,text,operationKey);
+        if(sent.ok){messageIds[recipient.email]=sent.messageId;await db.from('ops_email_delivery_ledger').update({provider_message_id:sent.messageId,delivery_status:'accepted',accepted_at:new Date().toISOString(),last_error:null,updated_at:new Date().toISOString()}).eq('operation_key',operationKey);}
+        else await db.from('ops_email_delivery_ledger').update({delivery_status:'failed',last_error:`Brevo ${sent.status}`,updated_at:new Date().toISOString()}).eq('operation_key',operationKey);
+      }
+      await db.from('operations_alerts').update({[column]:new Date().toISOString(),notification_message_ids:messageIds,updated_at:new Date().toISOString()}).eq('id',alert.id);
+    }
+  };
+  await notifyAlerts('open');
+  await notifyAlerts('recovered');
 
   const {data:snapshot,error:snapshotError}=await db.rpc('operations_business_snapshot',{p_days:30});
   if(snapshotError)return json({error:'Snapshot generation failed',detail:snapshotError.message},500);

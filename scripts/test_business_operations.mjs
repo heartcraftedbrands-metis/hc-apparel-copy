@@ -17,6 +17,9 @@ assert.match(migration,/cron\.schedule\('hc-business-operations-monitor','\*\/15
 assert.match(monitor,/status=delivered===count/,'Provider delivery events must be reconciled separately from acceptance');
 assert.match(monitor,/ordinary email replies|Replies do not authorize sensitive actions/i,'Email must preserve authentication boundaries');
 assert.match(monitor,/sample_pending/,'Authorized sample must be idempotent');
+assert.match(monitor,/notifyAlerts\('open'\)/,'Critical alerts must send once');
+assert.match(monitor,/notifyAlerts\('recovered'\)/,'Critical recovery notices must send once');
+assert.match(monitor,/ops_email_delivery_ledger/,'Alert provider delivery must be reconciled');
 assert.match(page,/min-h-12/,'Mobile controls must have touch-sized targets');
 assert.match(page,/Heart Command Center remains a separate system/,'System separation must be visible');
 assert.match(page,/Supplier submission remains a separate owner approval/,'Supplier purchasing gate must remain explicit');
