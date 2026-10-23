@@ -6,8 +6,10 @@ import {
   authRedirect,
   destinationAfterAuth,
   friendlyAuthError,
+  rememberAuthDestination,
   rememberedRecoveryEmail,
   rememberRecoveryEmail,
+  safeInternalDestination,
 } from '@/lib/customerAuth';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -27,6 +29,9 @@ const recoveryErrorMessage = (description = '') => {
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const requestedDestination = new URLSearchParams(window.location.search).get('returnTo');
+  const preservedDestination = requestedDestination ? safeInternalDestination(requestedDestination, '/Profile') : null;
+  const signInUrl = preservedDestination ? `/Login?returnTo=${encodeURIComponent(preservedDestination)}` : '/Login';
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [email, setEmail] = useState(() => rememberedRecoveryEmail());
@@ -39,6 +44,7 @@ export default function ResetPassword() {
   useEffect(() => {
     let active = true;
     const query = new URLSearchParams(window.location.search);
+    if (requestedDestination) rememberAuthDestination(requestedDestination);
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const code = query.get('code');
     const linkError = query.get('error_description') || hash.get('error_description') || query.get('error_code') || hash.get('error_code');
@@ -110,7 +116,7 @@ export default function ResetPassword() {
       active = false;
       listener.data.subscription.unsubscribe();
     };
-  }, []);
+  }, [requestedDestination]);
 
   const requestAnotherLink = async (event) => {
     event.preventDefault();
@@ -123,8 +129,11 @@ export default function ResetPassword() {
     setError('');
     setNotice('');
     rememberRecoveryEmail(normalizedEmail);
+    const resetPath = preservedDestination
+      ? `/ResetPassword?returnTo=${encodeURIComponent(preservedDestination)}`
+      : '/ResetPassword';
     const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: authRedirect('/ResetPassword'),
+      redirectTo: authRedirect(resetPath),
     });
     setRecoveryLoading(false);
     if (recoveryError) {
@@ -210,7 +219,7 @@ export default function ResetPassword() {
               </Button>
             </form>
           )}
-          <p className="text-center text-sm"><Link className="underline" to="/Login">Return to sign in</Link></p>
+          <p className="text-center text-sm"><Link className="underline" to={signInUrl}>Return to sign in</Link></p>
         </CardContent>
       </Card>
     </div>

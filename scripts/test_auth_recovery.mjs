@@ -41,6 +41,9 @@ assert.match(reset, /exchangeCodeForSession\(code\)/, 'PKCE recovery codes must 
 assert.match(reset, /event === 'PASSWORD_RECOVERY' \|\| event === 'SIGNED_IN'/, 'Both recovery event variants must unlock the form');
 assert.match(reset, /expired or was already used/i, 'Expired or consumed links must explain the failure');
 assert.match(reset, /Request another password link/, 'Expired-link recovery must be available on the same page');
+assert.match(reset, /rememberAuthDestination\(requestedDestination\)/, 'Direct recovery links must preserve an approved destination across Safari tabs');
+assert.match(reset, /ResetPassword\?returnTo=/, 'A replacement recovery link must carry the approved destination');
+assert.match(reset, /Login\?returnTo=/, 'The sign-in fallback must retain the approved destination');
 assert.match(reset, /AdminBusinessIntelligence/, 'Operations managers must return to the Business Action Center');
 assert.doesNotMatch(reset, /temporary password/i, 'The UI must never assign or display a temporary password');
 assert.match(edge, /generateLink\(\{\s*type: 'recovery'/s, 'The approved email must contain a supported recovery link');
