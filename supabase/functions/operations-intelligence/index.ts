@@ -135,18 +135,37 @@ Deno.serve(async request=>{
 
   // Read-only monitors. A failed check opens one deduplicated alert; recovery closes it once.
   const checks:Row[]=[];
-  for(const [key,path] of [['homepage','/'],['dtf-page','/DTFTransfers']]){
-    try{const started=Date.now(),response=await fetch(`${SITE}${path}`,{signal:AbortSignal.timeout(12000)});checks.push({check_key:key,severity:'critical',status:response.ok?'healthy':'failed',evidence:{http_status:response.status,duration_ms:Date.now()-started,path}});}catch(error){checks.push({check_key:key,severity:'critical',status:'failed',evidence:{error:String(error).slice(0,200),path}});}
+  for(const {key,path} of [{key:'homepage',path:'/'},{key:'dtf-page',path:'/DTFTransfers'},{key:'checkout-page',path:'/Checkout'}]){
+    try{
+      const started=Date.now(),response=await fetch(`${SITE}${path}`,{signal:AbortSignal.timeout(12000)}),duration=Date.now()-started;
+      checks.push({check_key:key,severity:response.ok&&duration>4000?'warning':'critical',status:response.ok?(duration>4000?'degraded':'healthy'):'failed',evidence:{http_status:response.status,duration_ms:duration,performance_threshold_ms:4000,path}});
+    }catch(error){checks.push({check_key:key,severity:'critical',status:'failed',evidence:{error:String(error).slice(0,200),path}});}
   }
   const hourAgo=new Date(Date.now()-3600000).toISOString();
-  const [{data:webhookFailures=[]},{data:uploadFailures=[]},{data:expiredQuotes=[]}]=await Promise.all([
+  const dayAgo=new Date(Date.now()-86400000).toISOString();
+  const monitorClock=easternParts();
+  const [{data:webhookFailures=[]},{data:uploadFailures=[]},{data:expiredQuotes=[]},{data:checkoutFailures=[]},{data:supplierFailures=[]},{data:emailFailures=[]},{data:financialFailures=[]},{data:priorMonitor=[]},{data:todayReports=[]}]=await Promise.all([
     db.from('stripe_webhook_events').select('event_id,last_error,created_at').eq('processing_status','failed').gte('created_at',hourAgo).limit(10),
     db.from('marketing_events').select('id,metadata,created_at').eq('event_name','artwork_upload_failure').eq('is_test',false).gte('created_at',hourAgo).limit(10),
-    db.from('dtf_transfer_orders').select('id,order_reference,shipping_quote_status').eq('is_sample',false).eq('shipping_quote_status','expired').limit(10)
+    db.from('dtf_transfer_orders').select('id,order_reference,shipping_quote_status').eq('is_sample',false).eq('shipping_quote_status','expired').limit(10),
+    db.from('orders').select('id,checkout_failure_at').eq('is_sample',false).eq('status','checkout_failed').gte('checkout_failure_at',hourAgo).limit(10),
+    db.from('ss_sku_sync_runs').select('id,started_at,error_message').eq('status','failed').gte('started_at',dayAgo).limit(10),
+    db.from('ops_email_delivery_ledger').select('operation_key,updated_at').eq('delivery_status','failed').gte('updated_at',hourAgo).limit(10),
+    db.from('ops_financial_sync_state').select('source,last_attempt_at,last_error').eq('status','failed').limit(10),
+    db.from('operations_monitor_checks').select('checked_at').order('checked_at',{ascending:false}).limit(1),
+    db.from('operations_report_runs').select('operation_key,status').in('operation_key',[`hc-operations-${monitorClock.date}:daily`,`hc-operations-${monitorClock.date}:combined`,config.sample_operation_key]).in('status',['accepted','delivered','partial']).limit(1)
   ]);
   checks.push({check_key:'stripe-webhooks',severity:'critical',status:webhookFailures?.length?'failed':'healthy',evidence:{failed_last_hour:webhookFailures?.length||0}});
+  checks.push({check_key:'checkout-processing',severity:'critical',status:checkoutFailures?.length?'failed':'healthy',evidence:{non_test_checkout_failures_last_hour:checkoutFailures?.length||0}});
   checks.push({check_key:'artwork-uploads',severity:'warning',status:(uploadFailures?.length||0)>=3?'degraded':'healthy',evidence:{failures_last_hour:uploadFailures?.length||0,threshold:3}});
   checks.push({check_key:'dtf-freight',severity:'warning',status:expiredQuotes?.length?'degraded':'healthy',evidence:{expired_quotes:expiredQuotes?.length||0}});
+  checks.push({check_key:'supplier-connection',severity:'warning',status:supplierFailures?.length?'degraded':'healthy',evidence:{failed_syncs_last_24_hours:supplierFailures?.length||0}});
+  checks.push({check_key:'transactional-email',severity:'critical',status:emailFailures?.length?'failed':'healthy',evidence:{provider_confirmed_failures_last_hour:emailFailures?.length||0}});
+  checks.push({check_key:'financial-sync',severity:'warning',status:financialFailures?.length?'degraded':'healthy',evidence:{failed_sources:financialFailures?.map((item:Row)=>item.source)||[]}});
+  const previousCheckAt=priorMonitor?.[0]?.checked_at,previousAge=previousCheckAt?Date.now()-new Date(previousCheckAt).getTime():null;
+  checks.push({check_key:'operations-monitor-freshness',severity:'critical',status:previousAge==null||previousAge>35*60000?'failed':'healthy',evidence:{previous_check_at:previousCheckAt||null,age_minutes:previousAge==null?null:Math.round(previousAge/60000),threshold_minutes:35}});
+  const reportMissing=monitorClock.hour>=10&&!todayReports?.length;
+  checks.push({check_key:'daily-report-freshness',severity:'critical',status:reportMissing?'failed':'healthy',evidence:{eastern_date:monitorClock.date,checked_after_10am:monitorClock.hour>=10,matching_runs:todayReports?.length||0}});
   const {data:industrySources=[]}=await db.from('industry_sources').select('*');
   for(const source of industrySources||[]){
     if(source.last_checked_at&&Date.now()-new Date(source.last_checked_at).getTime()<6*3600000)continue;
