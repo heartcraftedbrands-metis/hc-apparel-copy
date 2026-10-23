@@ -69,8 +69,31 @@ function renderReport(snapshot:Row,recipient:Row,label:string,isSample:boolean){
   const trendHtml=trends.length?trends.slice(0,2).map((t:Row)=>`<p><a href="${esc(t.source_url)}" style="color:#435d2b;font-weight:700;">${esc(t.headline)}</a> <small>(${esc(t.observed_or_published_on)})</small><br><strong>Verified fact:</strong> ${esc(t.verified_fact)}<br><strong>Interpretation:</strong> ${esc(t.interpretation||'Not available')}<br><strong>Next step:</strong> ${esc(t.recommended_next_step)}</p>`).join(''):'<p>Not available.</p>';
   const limitItems=Object.entries(availability).map(([a,b])=>`${a.replaceAll('_',' ')}: ${b}`);
   const why=`<p>${k.orders||0} paid non-test order(s) and ${money(k.net_sales)} in net sales are recorded for the period. Missing data is labeled “Not available,” never treated as zero.</p>`;
+  const context=snapshot.schedule_context||{};
+  const compare=(name:string,current:unknown,previous:unknown,format:(value:unknown)=>string=fmt)=>{
+    if(current==null||previous==null)return `${name}: Not available`;
+    const change=Number(current)-Number(previous),direction=change>0?'up':change<0?'down':'unchanged';
+    return `${name}: ${format(current)} (${direction}${change===0?'':` ${format(Math.abs(change))}`} versus prior period)`;
+  };
+  const scheduleSections=[
+    context.weekly?section('Weekly change and likely causes',list([
+      compare('Paid orders',context.weekly.current.orders,context.weekly.previous.orders),
+      compare('Net sales',context.weekly.current.net_sales,context.weekly.previous.net_sales,money),
+      compare('Website visits',context.weekly.current.website_visits,context.weekly.previous.website_visits),
+      `Completed commitments: ${fmt(context.weekly.completed_commitments)}. Causation is not asserted where tracking cannot prove it.`
+    ])):'',
+    context.monthly?section('Monthly strategy review',list([
+      compare('Paid orders',context.monthly.current.orders,context.monthly.previous.orders),
+      compare('Net sales',context.monthly.current.net_sales,context.monthly.previous.net_sales,money),
+      compare('Website visits',context.monthly.current.website_visits,context.monthly.previous.website_visits),
+      'Continue: customer care, approved organic campaign tracking, and freight verification.',
+      'Improve: close the explicitly listed data gaps before using forecasts.',
+      'Test: one small measurable traffic or conversion experiment after owner approval.',
+      'Stop: any tactic that cannot be linked to a customer outcome after an agreed test period.'
+    ])):''
+  ].join('');
   const generated=esc(new Date(snapshot.generated_at).toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const reportBody=[section('Urgent first',list(urgent)),section('What happened',table),section('Why it matters',why),section('CEO / Creative Director — top three',list(ceo)),section('YHo / Operations — top three',list(yho)),section('Orders and customers needing attention',list(orderItems)),section('Website and integration health',list(healthItems)),section('Industry intelligence',trendHtml),section('Known data limits',list(limitItems))].join('');
+  const reportBody=[section('Urgent first',list(urgent)),section('What happened',table),section('Why it matters',why),scheduleSections,section('CEO / Creative Director — top three',list(ceo)),section('YHo / Operations — top three',list(yho)),section('Orders and customers needing attention',list(orderItems)),section('Website and integration health',list(healthItems)),section('Industry intelligence',trendHtml),section('Known data limits',list(limitItems))].join('');
   const html=`<!doctype html><html><body style="margin:0;background:#f7f3ea;color:#23271f;font-family:Arial,sans-serif;"><table role="presentation" width="100%"><tr><td align="center" style="padding:20px 10px;"><table role="presentation" width="100%" style="max-width:700px;background:#fff;border:1px solid #ddd3bf;border-radius:18px;overflow:hidden;"><tr><td align="center" style="background:#435d2b;padding:18px;"><img src="${LOGO}" width="145" alt="HC Apparel" style="display:block;width:145px;height:auto;"></td></tr><tr><td style="padding:26px;line-height:1.55;">${sampleNotice}<p style="font-size:18px;margin:0 0 14px;"><strong>${esc(greeting)}</strong></p><p>This ${esc(label)} briefing covers HC Apparel commerce and the separately connected Heart Command Center. Data freshness: ${generated} Eastern.</p>${reportBody}<p style="margin-top:24px;"><a href="${SITE}/AdminBusinessIntelligence" style="display:inline-block;background:#435d2b;color:#fff;text-decoration:none;font-weight:700;padding:13px 18px;border-radius:10px;">Open secure mobile action center</a></p><p style="font-size:13px;color:#68715f;">You may reply for context, but inbound reply-to-task automation is not configured. Sensitive actions require authenticated approval in the secure action center. It’s All About The Love!</p></td></tr></table></td></tr></table></body></html>`;
   const text=`${isSample?'SAMPLE INTERNAL BRIEFING\n\n':''}${greeting}\n\n${label} briefing for ${recipient.display_name}\nData freshness: ${snapshot.generated_at}\n\nURGENT\n${urgent.length?urgent.map(x=>`- ${x}`).join('\n'):'No urgent items.'}\n\nKPIs\n${rows.map(([a,b])=>`${a}: ${b}`).join('\n')}\n\nCEO ACTIONS\n${ceo.map((x,i)=>`${i+1}. ${x}`).join('\n')}\n\nYHO ACTIONS\n${yho.map((x,i)=>`${i+1}. ${x}`).join('\n')}\n\nSecure action center: ${SITE}/AdminBusinessIntelligence\n\nReplies do not authorize sensitive actions. It's All About The Love!`;
   return {html,text};
@@ -166,7 +189,7 @@ Deno.serve(async request=>{
   await notifyAlerts('open');
   await notifyAlerts('recovered');
 
-  const {data:snapshot,error:snapshotError}=await db.rpc('operations_business_snapshot',{p_days:30});
+  const {data:snapshot,error:snapshotError}=await db.rpc('operations_business_snapshot',{p_days:1});
   if(snapshotError)return json({error:'Snapshot generation failed',detail:snapshotError.message},500);
   const {data:recipients=[]}=await db.from('operations_report_recipients').select('*').order('recipient_role');
   const ep=easternParts();
@@ -176,11 +199,23 @@ Deno.serve(async request=>{
   const isWeekly=ep.weekday==='Mon',isMonthly=ep.day===1;
   const reportType=shouldSample?'sample':(isWeekly||isMonthly?'combined':'daily');
   const label=shouldSample?'sample daily':isWeekly&&isMonthly?'combined daily, weekly, and monthly':isWeekly?'combined daily and weekly':isMonthly?'combined daily and monthly':'daily';
+  snapshot.schedule_context={};
+  if(isWeekly&&!shouldSample){
+    const [{data:week},{data:fortnight},{count:completedCommitments}]=await Promise.all([
+      db.rpc('operations_business_snapshot',{p_days:7}),db.rpc('operations_business_snapshot',{p_days:14}),
+      db.from('productivity_tasks').select('id',{count:'exact',head:true}).eq('status','completed').gte('updated_at',new Date(Date.now()-7*86400000).toISOString())
+    ]);
+    snapshot.schedule_context.weekly={current:week?.kpis||{},previous:{orders:Number(fortnight?.kpis?.orders||0)-Number(week?.kpis?.orders||0),net_sales:Number(fortnight?.kpis?.net_sales||0)-Number(week?.kpis?.net_sales||0),website_visits:Number(fortnight?.kpis?.website_visits||0)-Number(week?.kpis?.website_visits||0)},completed_commitments:completedCommitments};
+  }
+  if(isMonthly&&!shouldSample){
+    const [{data:month},{data:twoMonths}]=await Promise.all([db.rpc('operations_business_snapshot',{p_days:30}),db.rpc('operations_business_snapshot',{p_days:60})]);
+    snapshot.schedule_context.monthly={current:month?.kpis||{},previous:{orders:Number(twoMonths?.kpis?.orders||0)-Number(month?.kpis?.orders||0),net_sales:Number(twoMonths?.kpis?.net_sales||0)-Number(month?.kpis?.net_sales||0),website_visits:Number(twoMonths?.kpis?.website_visits||0)-Number(month?.kpis?.website_visits||0)}};
+  }
   const operationKey=shouldSample?config.sample_operation_key:`hc-operations-${ep.date}:${reportType}`;
   const {data:existing}=await db.from('operations_report_runs').select('*').eq('operation_key',operationKey).maybeSingle();
   if(existing)return json({ok:true,duplicate_prevented:true,operation_key:operationKey,status:existing.status});
   const enabled=(recipients||[]).filter((r:Row)=>shouldSample||r.daily_enabled);
-  const {data:claimed,error:claimError}=await db.from('operations_report_runs').insert({operation_key:operationKey,report_type:reportType,reporting_window_start:new Date(Date.now()-30*86400000).toISOString(),reporting_window_end:new Date().toISOString(),status:'generating',recipient_count:enabled.length}).select('*').single();
+  const {data:claimed,error:claimError}=await db.from('operations_report_runs').insert({operation_key:operationKey,report_type:reportType,reporting_window_start:new Date(Date.now()-86400000).toISOString(),reporting_window_end:new Date().toISOString(),status:'generating',recipient_count:enabled.length}).select('*').single();
   if(claimError)return json({error:'Report idempotency claim failed'},409);
   const ids:Row={},failures:Row={};
   for(const recipient of enabled){
