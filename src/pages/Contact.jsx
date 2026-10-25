@@ -14,10 +14,20 @@ const initialContactForm = () => {
   const mode = params.get('mode');
   if (mode === 'catalog-product') {
     const catalog = params.get('catalog') || 'HC Apparel catalog';
+    const item = params.get('item') || params.get('style') || '';
+    const page = params.get('page') || '';
+    const catalogDetails = [
+      `Catalog: ${catalog}`,
+      `Item number: ${item}`,
+      page && `Catalog page: ${page}`,
+      'Color: ',
+      'Sizes: ',
+      'Quantities: ',
+    ].filter(Boolean);
     return {
       ...INITIAL_FORM,
-      subject: `Product inquiry: ${catalog}`,
-      message: `Catalog: ${catalog}\nItem number: \nColor: \nSizes: \nQuantities: \n\nPlease help me confirm availability and ordering options.`,
+      subject: item ? `Product inquiry: ${catalog} — ${item}` : `Product inquiry: ${catalog}`,
+      message: `${catalogDetails.join('\n')}\n\nPlease help me confirm availability and ordering options.`,
     };
   }
   if (mode !== 'order-help') return INITIAL_FORM;
