@@ -8,7 +8,8 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Upload, Plus, CheckCircle2, AlertCircle, TriangleAlert,
-  RefreshCw, Package, ShoppingBag, Truck, BarChart3, Edit2, Check, X
+  RefreshCw, Package, ShoppingBag, Truck, BarChart3, Edit2, Check, X,
+  Copy, ExternalLink
 } from 'lucide-react';
 import BuildDraftProducts from '@/components/catalog/BuildDraftProducts';
 import DraftProductQA from '@/components/catalog/DraftProductQA';
@@ -685,6 +686,16 @@ export default function AdminGarmentCatalog() {
     qc.invalidateQueries(['draft-garment-products']);
   };
 
+  const customerCatalogUrl = `${window.location.origin}/Catalogs`;
+  const copyCustomerCatalogLink = async () => {
+    try {
+      await navigator.clipboard.writeText(customerCatalogUrl);
+      toast.success('Customer catalog link copied');
+    } catch {
+      toast.error('Could not copy the link. Press and hold the link to copy it.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Header */}
@@ -719,6 +730,25 @@ export default function AdminGarmentCatalog() {
       </div>
 
       <div className="container mx-auto px-4 py-6 space-y-6 max-w-7xl">
+        <Card className="border-amber-200 bg-amber-50/60 shadow-sm">
+          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Customer sharing</p>
+              <h2 className="mt-1 font-semibold text-slate-900">Unlisted HC Apparel Catalogs page</h2>
+              <p className="mt-1 break-all text-sm text-slate-600">{customerCatalogUrl}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:shrink-0">
+              <Button asChild variant="outline" className="min-h-11 bg-white">
+                <a href="/Catalogs" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-2 h-4 w-4" /> Open Catalogs Page
+                </a>
+              </Button>
+              <Button type="button" className="min-h-11" onClick={copyCustomerCatalogLink}>
+                <Copy className="mr-2 h-4 w-4" /> Copy Customer Link
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
         <AddGarmentSection onAdded={refresh} />
         <UploadCSVSection onImported={refresh} />
         <BuildDraftProducts garments={garments} onRefresh={refresh} />

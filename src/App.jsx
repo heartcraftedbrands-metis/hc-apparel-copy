@@ -33,6 +33,7 @@ import DigitalMockupDetailPage from './pages/DigitalMockupDetail';
 import DigitalOrderConfirmationPage from './pages/DigitalOrderConfirmation';
 import MyDownloadsPage from './pages/MyDownloads';
 import DTFTransfersPage from './pages/DTFTransfers';
+import CatalogsPage from './pages/Catalogs';
 import { STOREFRONT_FEATURES } from './config/storefrontFeatures';
 
 // Admin pages
@@ -166,6 +167,7 @@ const AuthenticatedApp = () => {
       <Route path="/DigitalOrderConfirmation" element={<LayoutWrapper currentPageName="DigitalOrderConfirmation"><DigitalOrderConfirmationPage /></LayoutWrapper>} />
       <Route path="/MyDownloads" element={<LayoutWrapper currentPageName="MyDownloads"><MyDownloadsPage /></LayoutWrapper>} />
       <Route path="/DTFTransfers" element={<LayoutWrapper currentPageName="DTFTransfers"><DTFTransfersPage /></LayoutWrapper>} />
+      <Route path="/Catalogs" element={<LayoutWrapper currentPageName="Catalogs"><CatalogsPage /></LayoutWrapper>} />
 
       <Route element={<ProtectedRoute requiredRoles={['admin','operations_manager']} />}>
         <Route path="/AdminBusinessIntelligence" element={<LayoutWrapper currentPageName="AdminBusinessIntelligence"><AdminBusinessIntelligence /></LayoutWrapper>} />

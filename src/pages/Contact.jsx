@@ -11,7 +11,16 @@ const INITIAL_FORM = { name: '', email: '', subject: '', message: '' };
 
 const initialContactForm = () => {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('mode') !== 'order-help') return INITIAL_FORM;
+  const mode = params.get('mode');
+  if (mode === 'catalog-product') {
+    const catalog = params.get('catalog') || 'HC Apparel catalog';
+    return {
+      ...INITIAL_FORM,
+      subject: `Product inquiry: ${catalog}`,
+      message: `Catalog: ${catalog}\nItem number: \nColor: \nSizes: \nQuantities: \n\nPlease help me confirm availability and ordering options.`,
+    };
+  }
+  if (mode !== 'order-help') return INITIAL_FORM;
 
   const product = params.get('product');
   const quantity = params.get('quantity') || '1';
@@ -34,10 +43,16 @@ const initialContactForm = () => {
 };
 
 export default function Contact() {
-  const isOrderHelp = new URLSearchParams(window.location.search).get('mode') === 'order-help';
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  const isOrderHelp = mode === 'order-help';
+  const isCatalogInquiry = mode === 'catalog-product';
   useEffect(() => {
-    document.title = isOrderHelp ? 'Request Order Help | HC Apparel' : 'Contact | HC Apparel';
-  }, [isOrderHelp]);
+    document.title = isCatalogInquiry
+      ? 'Ask About a Catalog Product | HC Apparel'
+      : isOrderHelp
+        ? 'Request Order Help | HC Apparel'
+        : 'Contact | HC Apparel';
+  }, [isCatalogInquiry, isOrderHelp]);
   const [formData, setFormData] = useState(initialContactForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -86,9 +101,11 @@ export default function Contact() {
       <div className="bg-primary text-primary-foreground py-14">
         <div className="container mx-auto px-4 text-center">
           <MessageSquare className="w-12 h-12 mx-auto mb-4 text-accent" />
-          <h1 className="text-4xl font-bold mb-3">{isOrderHelp ? 'Request Order Help' : 'Contact & Support'}</h1>
+          <h1 className="text-4xl font-bold mb-3">{isCatalogInquiry ? 'Ask About a Catalog Product' : isOrderHelp ? 'Request Order Help' : 'Contact & Support'}</h1>
           <p className="text-primary-foreground/75">
-            {isOrderHelp
+            {isCatalogInquiry
+              ? 'Tell us which catalog item interests you. We’ll confirm availability, pricing, and ordering options.'
+              : isOrderHelp
               ? 'For orders of 1–49 items, send your product details and HC Apparel will help with next steps.'
               : 'Have a question or need help? We’re here for you.'}
           </p>
@@ -136,7 +153,7 @@ export default function Contact() {
           {/* Form column */}
           <div className="md:col-span-2 bg-white rounded-2xl border p-6">
             <h2 className="font-bold text-lg mb-5 flex items-center gap-2">
-                <Mail className="w-5 h-5 text-primary" /> {isOrderHelp ? 'Order Help Details' : 'Send a Message'}
+                <Mail className="w-5 h-5 text-primary" /> {isCatalogInquiry ? 'Product Inquiry Details' : isOrderHelp ? 'Order Help Details' : 'Send a Message'}
             </h2>
 
             {submitted ? (
@@ -176,6 +193,12 @@ export default function Contact() {
                   <Textarea id="message" rows={5} value={formData.message} onChange={e => setFormData({ ...formData, message: e.target.value })} required className="mt-1" />
                 </div>
 
+                {isCatalogInquiry && (
+                  <p className="rounded-lg border border-accent/30 bg-accent/10 p-3 text-sm text-muted-foreground">
+                    This is a product inquiry, not an order or availability guarantee. For a formal quote on 50 or more items, use the Bulk Quote 50+ form.
+                  </p>
+                )}
+
                 {error && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
                     <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -191,7 +214,7 @@ export default function Contact() {
           </div>
         </div>
       </div>
-      {!isOrderHelp && <div className="container mx-auto max-w-4xl px-4 pb-12"><NewsletterSignup source="contact" /></div>}
+      {!isOrderHelp && !isCatalogInquiry && <div className="container mx-auto max-w-4xl px-4 pb-12"><NewsletterSignup source="contact" /></div>}
     </div>
   );
 }
