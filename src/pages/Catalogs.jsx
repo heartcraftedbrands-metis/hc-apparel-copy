@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ExternalLink, HelpCircle, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,10 @@ const CATALOGS = [
   {
     title: '2026 Fall & Winter Catalog',
     url: 'https://www.zoomcats.com/catalog/2026-hc-apparel-fallwinter-catalog',
+  },
+  {
+    title: '2026 HC Apparel Holiday Catalog',
+    url: 'https://www.zoomcats.com/catalog/2026-hc-apparel-holiday-catalog',
   },
 ];
 
@@ -28,6 +32,10 @@ const upsertMeta = (name, content) => {
 };
 
 export default function Catalogs() {
+  const [selectedCatalogIndex, setSelectedCatalogIndex] = useState(0);
+  const selectedCatalog = CATALOGS[selectedCatalogIndex];
+  const inquiryUrl = `/Contact?mode=catalog-product&catalog=${encodeURIComponent(selectedCatalog.title)}`;
+
   useEffect(() => {
     const previousTitle = document.title;
     document.title = 'Explore Our Catalogs | HC Apparel';
@@ -63,44 +71,64 @@ export default function Catalogs() {
           </p>
         </aside>
 
-        {CATALOGS.map((catalog) => {
-          const inquiryUrl = `/Contact?mode=catalog-product&catalog=${encodeURIComponent(catalog.title)}`;
-          return (
-            <section key={catalog.url} className="overflow-hidden rounded-3xl border border-[#d9c79b] bg-[#fffdf7] shadow-[0_18px_50px_rgba(37,67,31,0.10)]">
-              <div className="flex flex-col gap-4 border-b border-[#d9c79b] bg-[#f3ead5] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8b6a18]">Product catalog</p>
-                  <h2 className="mt-1 font-serif text-2xl font-bold text-[#25431f] sm:text-3xl">{catalog.title}</h2>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button asChild variant="outline" className="min-h-11 border-[#4d6b2b] bg-[#fffdf7] text-[#25431f] hover:bg-[#eef1e5]">
-                    <a href={catalog.url} target="_blank" rel="noopener noreferrer">
-                      Open Catalog in a New Tab <ExternalLink aria-hidden="true" className="ml-2 h-4 w-4" />
-                    </a>
-                  </Button>
-                  <Button asChild className="min-h-11 bg-[#4d6b2b] text-white hover:bg-[#3f5924]">
-                    <Link to={inquiryUrl}>
-                      Ask About a Product <HelpCircle aria-hidden="true" className="ml-2 h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </div>
+        <section aria-labelledby="catalog-selector-heading" className="rounded-2xl border border-[#d9c79b] bg-[#fffdf7] p-4 shadow-sm sm:p-6">
+          <p id="catalog-selector-heading" className="text-sm font-bold text-[#25431f]">Choose a catalog to browse</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2" role="group" aria-label="Catalog selector">
+            {CATALOGS.map((catalog, index) => {
+              const selected = index === selectedCatalogIndex;
+              return (
+                <button
+                  key={catalog.url}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setSelectedCatalogIndex(index)}
+                  className={`min-h-14 rounded-xl border px-4 py-3 text-left text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e4bd55] focus-visible:ring-offset-2 ${
+                    selected
+                      ? 'border-[#4d6b2b] bg-[#4d6b2b] text-white shadow-sm'
+                      : 'border-[#d9c79b] bg-[#f3ead5] text-[#25431f] hover:border-[#4d6b2b] hover:bg-[#eef1e5]'
+                  }`}
+                >
+                  {catalog.title}
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
-              <div className="p-2 sm:p-4">
-                <iframe
-                  src={catalog.url}
-                  title={`${catalog.title} interactive catalog`}
-                  className="block h-[72vh] min-h-[560px] w-full rounded-2xl border-0 bg-white sm:h-[780px]"
-                  frameBorder="0"
-                  marginHeight="0"
-                  marginWidth="0"
-                  scrolling="auto"
-                  loading="lazy"
-                />
-              </div>
-            </section>
-          );
-        })}
+        <section className="overflow-hidden rounded-3xl border border-[#d9c79b] bg-[#fffdf7] shadow-[0_18px_50px_rgba(37,67,31,0.10)]">
+          <div className="flex flex-col gap-4 border-b border-[#d9c79b] bg-[#f3ead5] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8b6a18]">Product catalog</p>
+              <h2 className="mt-1 font-serif text-2xl font-bold text-[#25431f] sm:text-3xl">{selectedCatalog.title}</h2>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button asChild variant="outline" className="min-h-11 border-[#4d6b2b] bg-[#fffdf7] text-[#25431f] hover:bg-[#eef1e5]">
+                <a href={selectedCatalog.url} target="_blank" rel="noopener noreferrer">
+                  Open Catalog in a New Tab <ExternalLink aria-hidden="true" className="ml-2 h-4 w-4" />
+                </a>
+              </Button>
+              <Button asChild className="min-h-11 bg-[#4d6b2b] text-white hover:bg-[#3f5924]">
+                <Link to={inquiryUrl}>
+                  Ask About a Product <HelpCircle aria-hidden="true" className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-2 sm:p-4">
+            <iframe
+              key={selectedCatalog.url}
+              src={selectedCatalog.url}
+              title={selectedCatalog.title}
+              className="block h-[72vh] min-h-[560px] w-full rounded-2xl border-0 bg-white sm:h-[780px]"
+              frameBorder="0"
+              marginHeight="0"
+              marginWidth="0"
+              scrolling="auto"
+              loading="lazy"
+            />
+          </div>
+        </section>
 
         <section className="rounded-2xl bg-[#25431f] p-6 text-[#fffaf0] sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-8">
           <div>
@@ -110,7 +138,7 @@ export default function Catalogs() {
             </p>
           </div>
           <Button asChild className="mt-5 min-h-12 w-full bg-[#e4bd55] font-bold text-[#1b2b20] hover:bg-[#efca68] sm:mt-0 sm:w-auto">
-            <Link to="/Contact?mode=catalog-product&catalog=2026%20Fall%20%26%20Winter%20Catalog">Ask About a Product</Link>
+            <Link to={inquiryUrl}>Ask About a Product</Link>
           </Button>
         </section>
       </main>
