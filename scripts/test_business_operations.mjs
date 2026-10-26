@@ -3,6 +3,7 @@ import fs from 'node:fs';
 
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const migration=read('supabase/migrations/202610230001_business_operations_intelligence.sql');
+const actionable=read('supabase/migrations/202610260001_actionable_briefings.sql');
 const monitor=read('supabase/functions/operations-intelligence/index.ts');
 const page=read('src/pages/AdminBusinessIntelligence.jsx');
 const operationsInbox=read('src/pages/AdminOperationsInbox.jsx');
@@ -30,5 +31,17 @@ assert.match(operationsInbox,/Save internal draft/,'Operations manager must have
 assert.match(operationsInbox,/Nothing was sent|never sends an email/,'Response drafting must never imply a send');
 for(const event of ['dtf_calculator_engaged','artwork_upload_success','artwork_upload_failure','freight_review_requested'])assert.ok(dtf.includes(event),`Missing DTF event ${event}`);
 assert.match(app,/requiredRoles=\{\['admin','operations_manager'\]\}/,'Dashboard route must allow only owner/admin and operations manager');
+assert.match(actionable,/internal_or_admin_traffic_exclusion','Not available/i,'Internal traffic gaps must be explicit');
+assert.match(actionable,/test_rows_excluded',true/,'Traffic quality must state that test rows are excluded');
+assert.match(actionable,/operations_action_decisions/,'Decisions must have an append-only audit record');
+assert.match(actionable,/if not public\.is_admin\(\).*Owner approval is required/s,'Proposal decisions must remain owner-only');
+assert.match(actionable,/budget_cents integer not null default 0/,'Proposal budgets must be explicit');
+assert.match(actionable,/AdminOperationsInbox\?draft=/,'Draft reviews must link to the exact draft');
+assert.match(actionable,/No trend task assigned:/,'Weak trend evidence must not create a generic assignment');
+assert.match(page,/Approve defined action/,'Mobile owner controls must include a bounded approval action');
+assert.match(page,/Mark task complete/,'Ordinary tasks must have a completion control');
+assert.match(page,/operations_actionable_snapshot/,'Dashboard must use the actionable data source');
+assert.match(operationsInbox,/new URLSearchParams\(window\.location\.search\)/,'Secure draft links must preserve the selected record');
+for(const placeholder of ['Review the KPI movement','choose one measurable growth action','Review one verified trend opportunity','Confirm the inquiry queue remains clear'])assert.ok(!monitor.includes(placeholder),`Generic assignment remains: ${placeholder}`);
 
 console.log('Business operations safeguards verified.');

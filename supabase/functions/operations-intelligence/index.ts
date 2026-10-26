@@ -42,21 +42,21 @@ async function sendBrevo(key:string,recipient:Row,subject:string,html:string,tex
 }
 
 function renderReport(snapshot:Row,recipient:Row,label:string,isSample:boolean){
-  const k=snapshot.kpis||{},queues=snapshot.work_queues||{},alerts=snapshot.alerts||[],trends=snapshot.trends||[],availability=snapshot.data_availability||{};
+  const decisionContext=snapshot.decision_context||snapshot;
+  const k=snapshot.kpis||{},queues=snapshot.work_queues||{},alerts=snapshot.alerts||[],trends=snapshot.trends||[],availability=snapshot.data_availability||{},actions=decisionContext.actions||[],funnel=decisionContext.funnel||{},traffic=decisionContext.traffic_quality||{};
   const urgent=[...(alerts.filter((a:Row)=>a.severity==='critical').map((a:Row)=>`${a.workflow}: ${a.next_action}`)),...(queues.orders_needing_attention||[]).slice(0,2).map((o:Row)=>`Order ${String(o.id).slice(0,8)}: ${o.next_action}`)];
-  const ceo=[
-    queues.dtf_orders?.some((x:Row)=>x.next_action?.includes('Owner approval'))?'Review paid DTF orders awaiting owner approval.':'Review the KPI movement and choose one measurable growth action.',
-    'Approve or refine customer-facing drafts; ordinary email replies never authorize sensitive actions.',
-    'Review one verified trend opportunity before approving new public content or spend.'
-  ];
-  const yho=[
-    queues.dtf_orders?.some((x:Row)=>x.next_action==='Verify freight')?'Verify exact DTF freight for waiting drafts.':'Review active orders for the next fulfillment step.',
-    queues.inquiries?.length?'Prepare responses for open customer inquiries.':'Confirm the inquiry queue remains clear.',
-    'Update assigned tasks, due dates, and blockers before the next briefing.'
-  ];
+  const ceo=actions.filter((x:Row)=>x.owner_role==='owner');
+  const yho=actions.filter((x:Row)=>x.owner_role==='operations_manager');
   const rows=[['Website visits',fmt(k.website_visits)],['Qualified traffic',fmt(k.qualified_traffic)],['Orders',fmt(k.orders)],['Net sales',money(k.net_sales)],['Average order value',money(k.average_order_value)],['Gross profit',money(k.gross_profit)],['Checkout conversion',k.conversion_rate==null?'Not available':`${k.conversion_rate}%`],['DTF upload failures',fmt(k.dtf_upload_failures)],['DTF freight requests',fmt(k.dtf_quote_requests)]];
   const list=(items:string[])=>items.length?`<ul style="margin:8px 0 0;padding-left:20px;">${items.map(x=>`<li style="margin:6px 0;">${esc(x)}</li>`).join('')}</ul>`:'<p style="color:#68715f;">No items require action.</p>';
   const section=(title:string,body:string)=>`<h2 style="color:#2d441f;margin:24px 0 8px;font-size:20px;">${esc(title)}</h2>${body}`;
+  const actionCards=(items:Row[],empty:string)=>items.length?items.map((item:Row)=>{
+    const page=`${SITE}/AdminBusinessIntelligence`,actionId=encodeURIComponent(item.id),base=`${page}?action=${actionId}#action-${actionId}`;
+    const buttons=item.action_type==='proposal'
+      ?`<a href="${page}?action=${actionId}&intent=approve#action-${actionId}" style="display:inline-block;margin:4px 6px 0 0;background:#435d2b;color:#fff;text-decoration:none;font-weight:700;padding:11px 14px;border-radius:9px;">Approve</a><a href="${page}?action=${actionId}&intent=revise#action-${actionId}" style="display:inline-block;margin:4px 6px 0 0;border:1px solid #435d2b;color:#435d2b;text-decoration:none;font-weight:700;padding:10px 14px;border-radius:9px;">Revise</a><a href="${page}?action=${actionId}&intent=defer#action-${actionId}" style="display:inline-block;margin-top:4px;border:1px solid #8b6b21;color:#6b5017;text-decoration:none;font-weight:700;padding:10px 14px;border-radius:9px;">Defer</a>`
+      :`<a href="${base}" style="display:inline-block;margin-top:4px;background:#435d2b;color:#fff;text-decoration:none;font-weight:700;padding:11px 14px;border-radius:9px;">Open exact task / complete</a>`;
+    return `<div style="border:1px solid #ddd3bf;border-radius:14px;padding:16px;margin:12px 0;"><p style="margin:0 0 8px;font-size:16px;"><strong>${esc(item.title)}</strong></p><p><strong>Finding:</strong> ${esc(item.finding)}</p><p><strong>Recommended action:</strong> ${esc(item.recommended_action)}</p><p><strong>Why it fits:</strong> ${esc(item.rationale)}</p><p><strong>Measure:</strong> ${esc(item.measure)}<br><strong>Baseline:</strong> ${esc(item.baseline||'Not available')}<br><strong>Target:</strong> ${esc(item.target)}<br><strong>Responsible:</strong> ${esc(item.owner_role==='owner'?'CEO / Creative Director':'YHo / Operations')}<br><strong>Review date:</strong> ${esc(item.review_date||'Not set')}<br><strong>Budget:</strong> ${money(Number(item.budget_cents||0)/100)}</p>${buttons}</div>`;
+  }).join(''):`<p style="color:#68715f;">${esc(empty)}</p>`;
   const greeting=greetings[new Date().getUTCDate()%greetings.length];
   const sampleNotice=isSample?'<p style="background:#fff2cc;border:1px solid #d8af45;border-radius:10px;padding:12px;font-weight:700;">SAMPLE INTERNAL BRIEFING — validates the scheduled reporting and delivery workflow. It does not authorize a purchase, refund, credential change, supplier submission, deployment, or public message.</p>':'';
   const table=`<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">${rows.map(([a,b],i)=>`<tr style="background:${i%2?'#faf7ef':'#f0eadc'}"><td style="padding:9px;font-weight:700;">${a}</td><td align="right" style="padding:9px;">${b}</td></tr>`).join('')}</table>`;
@@ -68,7 +68,7 @@ function renderReport(snapshot:Row,recipient:Row,label:string,isSample:boolean){
   const healthItems=alerts.slice(0,6).map((a:Row)=>`${a.severity.toUpperCase()} — ${a.workflow}: ${a.next_action}`);
   const trendHtml=trends.length?trends.slice(0,2).map((t:Row)=>`<p><a href="${esc(t.source_url)}" style="color:#435d2b;font-weight:700;">${esc(t.headline)}</a> <small>(${esc(t.observed_or_published_on)})</small><br><strong>Verified fact:</strong> ${esc(t.verified_fact)}<br><strong>Interpretation:</strong> ${esc(t.interpretation||'Not available')}<br><strong>Next step:</strong> ${esc(t.recommended_next_step)}</p>`).join(''):'<p>Not available.</p>';
   const limitItems=Object.entries(availability).map(([a,b])=>`${a.replaceAll('_',' ')}: ${b}`);
-  const why=`<p>${k.orders||0} paid non-test order(s) and ${money(k.net_sales)} in net sales are recorded for the period. Missing data is labeled “Not available,” never treated as zero.</p>`;
+  const why=`<p>${k.orders||0} paid non-test order(s) and ${money(k.net_sales)} in net sales are recorded for the daily period. Missing data is labeled “Not available,” never treated as zero.</p><p><strong>Rolling seven-day traffic period:</strong> ${esc(decisionContext.reporting_period?.current_start||'Not available')} through ${esc(decisionContext.reporting_period?.current_end||'Not available')} Eastern. ${fmt(traffic.current_page_views)} tracked page views versus ${fmt(traffic.previous_page_views)} in the prior equal period (${Number(traffic.current_page_views||0)-Number(traffic.previous_page_views||0)>=0?'+':''}${fmt(Number(traffic.current_page_views||0)-Number(traffic.previous_page_views||0))}).</p><p><strong>Available funnel:</strong> ${fmt(funnel.page_view)} landing-page views → ${fmt(funnel.product_view)} product views → ${fmt(funnel.add_to_cart)} add-to-cart → ${fmt(funnel.checkout_started)} checkout starts → ${fmt(funnel.purchase_event)} purchase events; ${fmt(funnel.paid_orders)} paid non-test orders corroborate the purchase result.</p><p><strong>Quality limits:</strong> Test rows are excluded. ${esc(traffic.internal_or_admin_traffic_exclusion||'Internal traffic exclusion is not available.')} ${esc(traffic.unique_visitors||'Unique visitors are not available.')} ${esc(traffic.quality_warning||'')}</p>`;
   const context=snapshot.schedule_context||{};
   const compare=(name:string,current:unknown,previous:unknown,format:(value:unknown)=>string=fmt)=>{
     if(current==null||previous==null)return `${name}: Not available`;
@@ -88,14 +88,15 @@ function renderReport(snapshot:Row,recipient:Row,label:string,isSample:boolean){
       compare('Website visits',context.monthly.current.website_visits,context.monthly.previous.website_visits),
       'Continue: customer care, approved organic campaign tracking, and freight verification.',
       'Improve: close the explicitly listed data gaps before using forecasts.',
-      'Test: one small measurable traffic or conversion experiment after owner approval.',
+      'Test: only the clearly defined experiment shown in the Actionable decisions section after its budget, target, owner, and review date are approved.',
       'Stop: any tactic that cannot be linked to a customer outcome after an agreed test period.'
     ])):''
   ].join('');
   const generated=esc(new Date(snapshot.generated_at).toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const reportBody=[section('Urgent first',list(urgent)),section('What happened',table),section('Why it matters',why),scheduleSections,section('CEO / Creative Director — top three',list(ceo)),section('YHo / Operations — top three',list(yho)),section('Orders and customers needing attention',list(orderItems)),section('Website and integration health',list(healthItems)),section('Industry intelligence',trendHtml),section('Known data limits',list(limitItems))].join('');
+  const reportBody=[section('Urgent first',list(urgent)),section('What happened',table),section('Verified funnel and why it matters',why),scheduleSections,section('CEO / Creative Director — actionable decisions',actionCards(ceo,'No owner decision or customer draft is waiting; no generic review task was assigned.')),section('YHo / Operations — evidence-backed assignments',actionCards(yho,'No operations assignment is supported by the current queues; no repetitive placeholder task was assigned.')),section('Orders and customers needing attention',list(orderItems)),section('Website and integration health',list(healthItems)),section('Industry intelligence',`${trendHtml}<p><strong>Assignment status:</strong> ${esc(snapshot.trend_assignment_status||'No sufficiently supported opportunity is assigned.')}</p>`),section('Known data limits',list(limitItems))].join('');
   const html=`<!doctype html><html><body style="margin:0;background:#f7f3ea;color:#23271f;font-family:Arial,sans-serif;"><table role="presentation" width="100%"><tr><td align="center" style="padding:20px 10px;"><table role="presentation" width="100%" style="max-width:700px;background:#fff;border:1px solid #ddd3bf;border-radius:18px;overflow:hidden;"><tr><td align="center" style="background:#435d2b;padding:18px;"><img src="${LOGO}" width="145" alt="HC Apparel" style="display:block;width:145px;height:auto;"></td></tr><tr><td style="padding:26px;line-height:1.55;">${sampleNotice}<p style="font-size:18px;margin:0 0 14px;"><strong>${esc(greeting)}</strong></p><p>This ${esc(label)} briefing covers HC Apparel commerce and the separately connected Heart Command Center. Data freshness: ${generated} Eastern.</p>${reportBody}<p style="margin-top:24px;"><a href="${SITE}/AdminBusinessIntelligence" style="display:inline-block;background:#435d2b;color:#fff;text-decoration:none;font-weight:700;padding:13px 18px;border-radius:10px;">Open secure mobile action center</a></p><p style="font-size:13px;color:#68715f;">You may reply for context, but inbound reply-to-task automation is not configured. Sensitive actions require authenticated approval in the secure action center. It’s All About The Love!</p></td></tr></table></td></tr></table></body></html>`;
-  const text=`${isSample?'SAMPLE INTERNAL BRIEFING\n\n':''}${greeting}\n\n${label} briefing for ${recipient.display_name}\nData freshness: ${snapshot.generated_at}\n\nURGENT\n${urgent.length?urgent.map(x=>`- ${x}`).join('\n'):'No urgent items.'}\n\nKPIs\n${rows.map(([a,b])=>`${a}: ${b}`).join('\n')}\n\nCEO ACTIONS\n${ceo.map((x,i)=>`${i+1}. ${x}`).join('\n')}\n\nYHO ACTIONS\n${yho.map((x,i)=>`${i+1}. ${x}`).join('\n')}\n\nSecure action center: ${SITE}/AdminBusinessIntelligence\n\nReplies do not authorize sensitive actions. It's All About The Love!`;
+  const plainActions=(items:Row[],empty:string)=>items.length?items.map((x:Row,i)=>`${i+1}. ${x.title}\nFinding: ${x.finding}\nAction: ${x.recommended_action}\nMeasure: ${x.measure}\nBaseline: ${x.baseline||'Not available'}\nTarget: ${x.target}\nResponsible: ${x.owner_role==='owner'?'CEO / Creative Director':'YHo / Operations'}\nReview: ${x.review_date||'Not set'}\nBudget: ${money(Number(x.budget_cents||0)/100)}\nSecure link: ${SITE}/AdminBusinessIntelligence?action=${x.id}#action-${x.id}`).join('\n\n'):empty;
+  const text=`${isSample?'SAMPLE INTERNAL BRIEFING\n\n':''}${greeting}\n\n${label} briefing for ${recipient.display_name}\nData freshness: ${snapshot.generated_at}\n\nURGENT\n${urgent.length?urgent.map(x=>`- ${x}`).join('\n'):'No urgent items.'}\n\nKPIs\n${rows.map(([a,b])=>`${a}: ${b}`).join('\n')}\n\nFUNNEL\n${fmt(funnel.page_view)} landing-page views -> ${fmt(funnel.product_view)} product views -> ${fmt(funnel.add_to_cart)} add-to-cart -> ${fmt(funnel.checkout_started)} checkout starts -> ${fmt(funnel.purchase_event)} purchase events; paid non-test orders: ${fmt(funnel.paid_orders)}.\n\nCEO ACTIONS\n${plainActions(ceo,'No owner decision or draft is waiting.')}\n\nYHO ACTIONS\n${plainActions(yho,'No evidence-backed operations assignment is currently waiting.')}\n\nSecure action center: ${SITE}/AdminBusinessIntelligence\n\nReplies do not authorize sensitive actions. It's All About The Love!`;
   return {html,text};
 }
 
@@ -223,8 +224,13 @@ Deno.serve(async request=>{
   await notifyAlerts('open');
   await notifyAlerts('recovered');
 
-  const {data:snapshot,error:snapshotError}=await db.rpc('operations_business_snapshot',{p_days:1});
+  const {error:actionRefreshError}=await db.rpc('refresh_operations_action_items');
+  if(actionRefreshError)return json({error:'Action refresh failed',detail:actionRefreshError.message},500);
+  const {data:snapshot,error:snapshotError}=await db.rpc('operations_actionable_snapshot',{p_days:1});
   if(snapshotError)return json({error:'Snapshot generation failed',detail:snapshotError.message},500);
+  const {data:decisionContext,error:decisionContextError}=await db.rpc('operations_actionable_snapshot',{p_days:7});
+  if(decisionContextError)return json({error:'Decision context generation failed',detail:decisionContextError.message},500);
+  snapshot.decision_context=decisionContext;
   const {data:recipients=[]}=await db.from('operations_report_recipients').select('*').order('recipient_role');
   const ep=easternParts();
   const shouldSample=config.sample_pending===true;
@@ -236,13 +242,13 @@ Deno.serve(async request=>{
   snapshot.schedule_context={};
   if(isWeekly&&!shouldSample){
     const [{data:week},{data:fortnight},{count:completedCommitments}]=await Promise.all([
-      db.rpc('operations_business_snapshot',{p_days:7}),db.rpc('operations_business_snapshot',{p_days:14}),
+      db.rpc('operations_actionable_snapshot',{p_days:7}),db.rpc('operations_actionable_snapshot',{p_days:14}),
       db.from('productivity_tasks').select('id',{count:'exact',head:true}).eq('status','completed').gte('updated_at',new Date(Date.now()-7*86400000).toISOString())
     ]);
     snapshot.schedule_context.weekly={current:week?.kpis||{},previous:{orders:Number(fortnight?.kpis?.orders||0)-Number(week?.kpis?.orders||0),net_sales:Number(fortnight?.kpis?.net_sales||0)-Number(week?.kpis?.net_sales||0),website_visits:Number(fortnight?.kpis?.website_visits||0)-Number(week?.kpis?.website_visits||0)},completed_commitments:completedCommitments};
   }
   if(isMonthly&&!shouldSample){
-    const [{data:month},{data:twoMonths}]=await Promise.all([db.rpc('operations_business_snapshot',{p_days:30}),db.rpc('operations_business_snapshot',{p_days:60})]);
+    const [{data:month},{data:twoMonths}]=await Promise.all([db.rpc('operations_actionable_snapshot',{p_days:30}),db.rpc('operations_actionable_snapshot',{p_days:60})]);
     snapshot.schedule_context.monthly={current:month?.kpis||{},previous:{orders:Number(twoMonths?.kpis?.orders||0)-Number(month?.kpis?.orders||0),net_sales:Number(twoMonths?.kpis?.net_sales||0)-Number(month?.kpis?.net_sales||0),website_visits:Number(twoMonths?.kpis?.website_visits||0)-Number(month?.kpis?.website_visits||0)}};
   }
   const operationKey=shouldSample?config.sample_operation_key:`hc-operations-${ep.date}:${reportType}`;
