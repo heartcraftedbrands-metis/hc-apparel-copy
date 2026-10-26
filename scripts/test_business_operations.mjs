@@ -4,6 +4,7 @@ import fs from 'node:fs';
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const migration=read('supabase/migrations/202610230001_business_operations_intelligence.sql');
 const actionable=read('supabase/migrations/202610260001_actionable_briefings.sql');
+const trafficQuality=read('supabase/migrations/202610260002_verified_traffic_quality.sql');
 const monitor=read('supabase/functions/operations-intelligence/index.ts');
 const page=read('src/pages/AdminBusinessIntelligence.jsx');
 const operationsInbox=read('src/pages/AdminOperationsInbox.jsx');
@@ -38,6 +39,7 @@ assert.match(actionable,/if not public\.is_admin\(\).*Owner approval is required
 assert.match(actionable,/budget_cents integer not null default 0/,'Proposal budgets must be explicit');
 assert.match(actionable,/AdminOperationsInbox\?draft=/,'Draft reviews must link to the exact draft');
 assert.match(actionable,/No trend task assigned:/,'Weak trend evidence must not create a generic assignment');
+assert.match(trafficQuality,/\{kpis,qualified_traffic\}.*'null'::jsonb/,'Unverified source-present page views must not be labeled qualified traffic');
 assert.match(page,/Approve defined action/,'Mobile owner controls must include a bounded approval action');
 assert.match(page,/Mark task complete/,'Ordinary tasks must have a completion control');
 assert.match(page,/operations_actionable_snapshot/,'Dashboard must use the actionable data source');
