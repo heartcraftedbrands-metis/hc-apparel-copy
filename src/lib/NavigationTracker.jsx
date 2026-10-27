@@ -3,11 +3,11 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { base44 } from '@/api/base44Client';
 import { pagesConfig } from '@/pages.config';
-import { disablePublicPixels, isPrivateMarketingRoute, trackMarketingEvent } from '@/lib/marketingAnalytics';
+import { disablePublicPixels, getMarketingSessionId, isPrivateMarketingRoute, trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 export default function NavigationTracker() {
     const location = useLocation();
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
     const { Pages, mainPage } = pagesConfig;
     const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 
@@ -17,15 +17,24 @@ export default function NavigationTracker() {
 
     useEffect(() => {
         if (!isPrivateMarketingRoute(location.pathname)) {
-            void trackMarketingEvent('page_view', null, location.pathname);
+            const isStaff = ['admin', 'operations_manager'].includes(user?.role);
+            const eventOptions = eventName => ({
+                internal: isStaff,
+                context: { actor_scope: isStaff ? 'staff' : isAuthenticated ? 'authenticated_customer' : 'anonymous' },
+                dedupeKey: `${eventName}:${getMarketingSessionId() || 'unavailable'}:${location.key}`,
+            });
+            void trackMarketingEvent('page_view', null, 'navigation', eventOptions('page_view'));
             if (location.pathname.toLowerCase() === '/productdetail' && new URLSearchParams(location.search).get('preview') !== 'draft') {
                 const id = new URLSearchParams(location.search).get('id');
-                if (id) void trackMarketingEvent('product_view', { id }, 'product_detail');
+                if (id) void trackMarketingEvent('product_view', { id }, 'product_detail', eventOptions('product_view'));
             }
-            if (location.pathname.toLowerCase().startsWith('/brand/')) void trackMarketingEvent('brand_view', null, location.pathname);
-            if (location.pathname.toLowerCase() === '/shopgarments') void trackMarketingEvent('category_view', null, new URLSearchParams(location.search).get('category') || 'all_garments');
+            if (location.pathname.toLowerCase().startsWith('/brand/')) void trackMarketingEvent('brand_view', null, 'brand_page', eventOptions('brand_view'));
+            if (location.pathname.toLowerCase() === '/shopgarments') {
+                const options = eventOptions('category_view');
+                void trackMarketingEvent('category_view', null, 'shop_garments', { ...options, context: { ...options.context, category: new URLSearchParams(location.search).get('category') || 'all_garments' } });
+            }
         }
-    }, [location.pathname, location.search]);
+    }, [location.pathname, location.search, location.key, isAuthenticated, user?.role]);
 
     // App activity logging is separate so authentication changes do not duplicate marketing events.
     useEffect(() => {

@@ -13,6 +13,46 @@ export const isPrivateMarketingRoute = (pathname = window.location.pathname) =>
 const safePageLocation = () => `${window.location.origin}${window.location.pathname}`;
 const attributionKey = 'hc_marketing_attribution';
 const attributionFields = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+const sessionKey = 'hc_analytics_session';
+const browserKey = 'hc_analytics_browser';
+const browserLifetimeMs = 90 * 24 * 60 * 60 * 1000;
+
+const randomId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const safeStorageId = (storage, key, lifetimeMs = null) => {
+  try {
+    const now = Date.now();
+    const stored = JSON.parse(storage.getItem(key) || '{}');
+    if (stored.id && (!stored.expires_at || stored.expires_at > now)) return String(stored.id).slice(0, 80);
+    const value = { id: randomId(), ...(lifetimeMs ? { expires_at: now + lifetimeMs } : {}) };
+    storage.setItem(key, JSON.stringify(value));
+    return value.id;
+  } catch {
+    return null;
+  }
+};
+
+export const getMarketingSessionId = () => typeof window === 'undefined' ? null : safeStorageId(window.sessionStorage, sessionKey);
+export const getEstimatedBrowserId = () => typeof window === 'undefined' ? null : safeStorageId(window.localStorage, browserKey, browserLifetimeMs);
+export const marketingEventDedupeKey = scope => {
+  const sessionId = getMarketingSessionId();
+  return sessionId && scope ? `${String(scope).slice(0, 110)}:${sessionId}` : null;
+};
+
+const safeReferrerHost = () => {
+  try {
+    if (!document.referrer) return null;
+    const host = new URL(document.referrer).hostname.toLowerCase();
+    return host && host !== window.location.hostname.toLowerCase() ? host.slice(0, 120) : null;
+  } catch {
+    return null;
+  }
+};
+
+const isExplicitTestVisit = () => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('dtf_test') === '1' || params.get('analytics_test') === '1';
+};
 
 export function getMarketingAttribution() {
   if (typeof window === 'undefined') return {};
@@ -100,17 +140,25 @@ export async function loadPublicPixels() {
   return settings;
 }
 
-async function logInternalEvent(eventName, product, source, context = {}) {
+async function logInternalEvent(eventName, product, placement, { context = {}, internal = false, test = false, dedupeKey = null } = {}) {
   try {
-    const { error } = await supabase.rpc('log_marketing_event_v3', {
+    const attribution = getMarketingAttribution();
+    const referrerHost = safeReferrerHost();
+    const acquisitionSource = attribution.utm_source || referrerHost || 'direct_or_unknown';
+    const { error } = await supabase.rpc('log_marketing_event_v4', {
       p_event_name: eventName,
       p_product_id: product?.id || null,
       p_product_name: product?.name || null,
-      p_source: source || null,
-      p_path: typeof window === 'undefined' ? null : `${window.location.pathname}${window.location.search}`.slice(0, 500),
-      p_attribution: getMarketingAttribution(),
-      p_dedupe_key: null,
-      p_context: context,
+      p_acquisition_source: acquisitionSource,
+      p_path: typeof window === 'undefined' ? null : window.location.pathname.slice(0, 240),
+      p_referrer_host: referrerHost,
+      p_attribution: attribution,
+      p_session_id: getMarketingSessionId(),
+      p_browser_id: getEstimatedBrowserId(),
+      p_is_internal: Boolean(internal),
+      p_is_test: Boolean(test || isExplicitTestVisit()),
+      p_dedupe_key: dedupeKey || `event:${randomId()}`,
+      p_context: { ...context, placement: placement || null },
     });
     if (error) console.warn('Internal marketing event failed:', error.code || 'unknown');
   } catch {
@@ -131,7 +179,7 @@ export async function attributeMarketingPurchase(orderId) {
   }
 }
 
-export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true, internalOnly = false, context = {} } = {}) {
+export async function trackMarketingEvent(eventName, product = null, source = null, { logInternal = true, internalOnly = false, context = {}, internal = false, test = false, dedupeKey = null } = {}) {
   const privateRoute = isPrivateMarketingRoute();
   if (privateRoute && !internalOnly) return;
   const settings = privateRoute ? await getMarketingSettings() : await loadPublicPixels();
@@ -141,7 +189,7 @@ export async function trackMarketingEvent(eventName, product = null, source = nu
     name: String(product.name || '').slice(0, 180),
   };
   if (logInternal && settings.internal_analytics_enabled) {
-    void logInternalEvent(eventName, cleanProduct, source, context);
+    void logInternalEvent(eventName, cleanProduct, source, { context, internal, test, dedupeKey });
   }
   if (privateRoute) return;
   if (settings.ga4_measurement_id && typeof window.gtag === 'function') {

@@ -70,7 +70,7 @@ const policySections = [
     title: '5. Cookies, analytics, and Pinterest',
     content: (
       <>
-        <p>HC Apparel uses browser storage, session identifiers, and similar technologies to keep the site working, remember your cart or session, understand visits, and attribute traffic to marketing campaigns.</p>
+        <p>HC Apparel uses browser storage, random first-party session and browser identifiers, and similar technologies to keep the site working, remember your cart or session, understand visits, and attribute traffic to marketing campaigns. These analytics identifiers are not device fingerprints, do not contain credentials or artwork links, and are reported as sessions or estimated browsers—not unique people.</p>
         <p>When configured, Google Analytics and the Pinterest Tag may receive device, browser, page, product, campaign, and interaction information. Pinterest explains that its Tag can receive information about visits and purchases from participating sites. You can use browser controls to block or delete cookies, though some account, cart, or checkout features may not work correctly.</p>
         <p>A future Pinterest API connection will be used only for the features an authorized HC Apparel administrator requests, such as selecting a board, preparing a Pin, publishing approved content, or reviewing permitted results. HC Apparel will not ask for a Pinterest password, sell Pinterest API information, or take Pinterest actions without authorization.</p>
         <p>

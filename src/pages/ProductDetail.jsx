@@ -15,6 +15,8 @@ import { isBlankFirstProduct } from "@/lib/productCustomization";
 import { getProductBrand, getPublicProductName, getProductStyleLabel } from "@/lib/productDisplayName";
 import { getPublicProductDescription, getPublicProductText } from "@/lib/publicProductCopy";
 import { useCustomerPricing } from '@/lib/useCustomerPricing';
+import { supabase } from '@/api/supabaseClient';
+import { marketingEventDedupeKey, trackMarketingEvent } from '@/lib/marketingAnalytics';
 
 const SS_CDN = 'https://www.ssactivewear.com/';
 
@@ -313,6 +315,15 @@ export default function ProductDetail() {
       return products[0];
     },
     enabled: !!productId,
+  });
+  const { data: dtfOffer } = useQuery({
+    queryKey: ['dtf-cross-sell-offer', productId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('public_dtf_cross_sell_offer', { p_product_id: productId });
+      return error ? null : data;
+    },
+    enabled: !!productId && !isDraftPreview,
+    staleTime: 5 * 60 * 1000,
   });
   const publicName = getPublicProductName(product);
   const publicDescription = getPublicProductDescription(product, publicName);
@@ -781,6 +792,20 @@ export default function ProductDetail() {
                     </div>
                   )}
                 </>
+              )}
+              {isPublicProduct(product) && dtfOffer?.active && (
+                <Link
+                  to={`/DTFTransfers?utm_source=product_detail&utm_medium=onsite_cross_sell&utm_campaign=${encodeURIComponent(dtfOffer.campaign_key)}&utm_content=${encodeURIComponent(product.id)}`}
+                  className="block rounded-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#d2a631]/60"
+                  onClick={() => trackMarketingEvent('dtf_cross_sell_click', { id: product.id, name: publicName }, 'product_detail_cross_sell', {
+                    dedupeKey: marketingEventDedupeKey(`dtf-cross-sell-click:${dtfOffer.experiment_key}:${product.id}`),
+                    context: { experiment_key: dtfOffer.experiment_key },
+                  })}
+                >
+                  <span className="flex min-h-12 w-full items-center justify-center rounded-xl border-2 border-[#48632d] bg-[#f7f3e9] px-4 py-3 text-center text-sm font-black text-[#28401f] transition-colors hover:bg-[#eef0e5]">
+                    Need prints only? Check DTF prices
+                  </span>
+                </Link>
               )}
               <Link to="/Contact" className="block">
                 <Button size="lg" variant="outline" className="w-full gap-2">
