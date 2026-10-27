@@ -44,6 +44,7 @@ assert.match(analytics,/p_browser_id/,'Estimated browser measurement must be pre
 assert.match(analytics,/p_is_internal/,'Internal activity must be marked');
 assert.match(analytics,/p_is_test/,'Test activity must be marked');
 assert.match(navigation,/\['admin', 'operations_manager'\]/,'Authenticated staff must be identified');
+assert.match(navigation,/if \(isLoadingAuth\) return/,'Analytics must wait for authentication state before classifying a visit');
 assert.match(product,/Need prints only\? Check DTF prices/,'Approved product-to-DTF link must be present');
 assert.match(product,/public_dtf_cross_sell_offer/,'Only server-selected experiment targets may show the link');
 assert.match(dtf,/record_owned_dtf_marketing_attribution/,'DTF attribution must survive an allowed cross-session order relationship');

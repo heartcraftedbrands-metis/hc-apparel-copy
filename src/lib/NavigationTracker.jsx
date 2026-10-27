@@ -7,7 +7,7 @@ import { disablePublicPixels, getMarketingSessionId, isPrivateMarketingRoute, tr
 
 export default function NavigationTracker() {
     const location = useLocation();
-    const { isAuthenticated, user } = useAuth();
+    const { isAuthenticated, isLoadingAuth, user } = useAuth();
     const { Pages, mainPage } = pagesConfig;
     const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 
@@ -16,6 +16,10 @@ export default function NavigationTracker() {
     }, [location.pathname]);
 
     useEffect(() => {
+        // Do not emit an anonymous event while an existing staff session is
+        // still being restored. The server also enforces the authenticated
+        // role, but waiting here prevents the initial client race entirely.
+        if (isLoadingAuth) return;
         if (!isPrivateMarketingRoute(location.pathname)) {
             const isStaff = ['admin', 'operations_manager'].includes(user?.role);
             const eventOptions = eventName => ({
@@ -34,7 +38,7 @@ export default function NavigationTracker() {
                 void trackMarketingEvent('category_view', null, 'shop_garments', { ...options, context: { ...options.context, category: new URLSearchParams(location.search).get('category') || 'all_garments' } });
             }
         }
-    }, [location.pathname, location.search, location.key, isAuthenticated, user?.role]);
+    }, [location.pathname, location.search, location.key, isAuthenticated, isLoadingAuth, user?.role]);
 
     // App activity logging is separate so authentication changes do not duplicate marketing events.
     useEffect(() => {
