@@ -21,6 +21,7 @@ export function newMileageDraft(overrides = {}) {
     origin: '',
     destination: '',
     purpose: '',
+    classification: 'needs_review',
     vehicleId: '',
     vehicleName: '',
     startOdometer: '',
@@ -61,7 +62,7 @@ export function validateMileageDraft(draft) {
   if (!draft.tripDate) missing.push('trip date');
   if (!String(draft.origin || '').trim()) missing.push('origin');
   if (!String(draft.destination || '').trim()) missing.push('destination');
-  if (!String(draft.purpose || '').trim()) missing.push('business purpose');
+  if (draft.classification === 'business' && !String(draft.purpose || '').trim()) missing.push('business purpose');
   if (!draft.businessId) missing.push('business');
   if (!draft.vehicleId && !String(draft.vehicleName || '').trim()) missing.push('vehicle');
   if (missing.length) throw new Error(`Enter ${missing.join(', ')}.`);
@@ -106,8 +107,8 @@ export function buildMileageInsert({ draft, userId, nowIso = new Date().toISOStr
     start_longitude: numeric(draft.startLongitude),
     end_latitude: numeric(draft.endLatitude),
     end_longitude: numeric(draft.endLongitude),
-    business_purpose: cleanText(draft.purpose, 500),
-    classification: 'business',
+    business_purpose: cleanText(draft.purpose, 500) || null,
+    classification: ['business', 'personal', 'commuting', 'needs_review'].includes(draft.classification) ? draft.classification : 'needs_review',
     status: 'ended',
     start_odometer: numeric(draft.startOdometer),
     end_odometer: numeric(draft.endOdometer),
@@ -115,7 +116,7 @@ export function buildMileageInsert({ draft, userId, nowIso = new Date().toISOStr
     manual_distance_miles: source === 'manual' ? miles : null,
     final_distance_miles: miles,
     measurement_source: source,
-    review_status: 'reviewed',
+    review_status: draft.classification === 'needs_review' ? 'needs_review' : 'reviewed',
     notes,
     client_created_at: nowIso,
     client_updated_at: nowIso,
@@ -146,6 +147,7 @@ export function tripToMileageDraft(trip, vehicles = []) {
     origin: trip.start_location_label || '',
     destination: trip.destination_label || '',
     purpose: trip.business_purpose || '',
+    classification: trip.classification || 'needs_review',
     vehicleId: trip.vehicle_id || '',
     vehicleName: vehicle?.nickname || manualVehicle,
     startOdometer: trip.start_odometer ?? '',

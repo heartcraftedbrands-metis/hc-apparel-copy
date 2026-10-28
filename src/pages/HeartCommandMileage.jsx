@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
+import MileageTracker from '@/components/heart-command/MileageTracker';
+import MileageTaxRecords from '@/components/heart-command/MileageTaxRecords';
 import {
   buildMileageInsert,
   buildMileageUpdate,
@@ -149,7 +151,7 @@ export default function HeartCommandMileage() {
     const [businessResult, vehicleResult, tripResult] = await Promise.all([
       supabase.from('ops_businesses').select('id,name').in('id', ids).eq('active', true),
       supabase.from('ops_vehicles').select('id,business_id,nickname,make,model,model_year,active').eq('active', true).order('nickname'),
-      supabase.from('ops_mileage_trips').select('id,driver_user_id,business_id,vehicle_id,started_at,start_location_label,destination_label,start_latitude,start_longitude,end_latitude,end_longitude,business_purpose,start_odometer,end_odometer,final_distance_miles,measurement_source,review_status,notes,sync_revision,updated_at').order('started_at', { ascending: false }).limit(100),
+      supabase.from('ops_mileage_trips').select('id,driver_user_id,business_id,vehicle_id,started_at,ended_at,start_location_label,destination_label,start_latitude,start_longitude,end_latitude,end_longitude,business_purpose,classification,status,start_odometer,end_odometer,gps_distance_miles,odometer_distance_miles,manual_distance_miles,final_distance_miles,measurement_source,tracking_gap_count,tracking_gap_notes,review_status,notes,sync_revision,updated_at').order('started_at', { ascending: false }).limit(500),
     ]);
 
     const firstError = businessResult.error || vehicleResult.error || tripResult.error;
@@ -319,14 +321,16 @@ export default function HeartCommandMileage() {
       <main className="mx-auto max-w-5xl px-4 py-5">
         {loadError && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800"><span>{loadError}</span><button onClick={() => void load()} className="min-h-10 whitespace-nowrap rounded-lg border border-red-300 px-3">Retry</button></div>}
         <section className="mb-5 rounded-3xl bg-[#183d2c] p-5 text-white shadow-lg sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#f1c75b]">Business travel</p>
-          <h2 className="mt-2 text-2xl font-black sm:text-3xl">Record a trip from your phone</h2>
-          <p className="mt-2 max-w-2xl text-sm text-[#e7eadf]">Enter odometer readings or total miles. Location access is optional and only runs when you tap a location button; manual entry always works.</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#f1c75b]">Mixed-use vehicle records</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">Track a trip from your phone</h2>
+          <p className="mt-2 max-w-2xl text-sm text-[#e7eadf]">Start and end actual foreground GPS trips, then classify each drive as Business, Personal, Commuting, or Unclassified. Manual entry remains available when GPS cannot be used.</p>
         </section>
 
-        <form onSubmit={save} className="rounded-3xl border border-[#ddd2b8] bg-white p-5 shadow-lg sm:p-7">
+        <MileageTracker user={user} memberships={memberships} businesses={businesses} vehicles={vehicles} onSaved={load} onVehicleAdded={load} />
+
+        <form id="manual-entry" onSubmit={save} className="rounded-3xl border border-[#ddd2b8] bg-white p-5 shadow-lg sm:p-7">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#9b711b]">{editing ? 'Update existing trip' : 'New mileage entry'}</p><h2 className="mt-1 text-xl font-black">{editing ? 'Edit trip' : 'Trip details'}</h2></div>
+            <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#9b711b]">{editing ? 'Update existing trip' : 'Manual fallback'}</p><h2 className="mt-1 text-xl font-black">{editing ? 'Edit trip' : 'Enter a trip manually'}</h2><p className="mt-1 text-sm text-[#686e65]">Use total miles or odometer readings when foreground GPS was unavailable.</p></div>
             {editing && <button type="button" onClick={resetForm} className="min-h-11 rounded-xl border border-[#c9bea4] px-4 text-sm font-bold">Cancel edit</button>}
           </div>
 
@@ -344,7 +348,10 @@ export default function HeartCommandMileage() {
           </div>
           {locationState.message && <p role="status" className="mt-3 rounded-xl bg-[#f3eddf] p-3 text-sm font-semibold text-[#5d604e]">{locationState.message}</p>}
 
-          <label className={`${labelClass} mt-5`}>Business purpose<textarea className={`${fieldClass} min-h-24`} value={draft.purpose} onChange={(event) => updateDraft('purpose', event.target.value)} placeholder="Customer meeting, supply pickup, delivery…" required /></label>
+          <div className="mt-5 grid gap-5 sm:grid-cols-2">
+            <label className={labelClass}>Classification<select className={fieldClass} value={draft.classification} onChange={(event) => updateDraft('classification', event.target.value)}><option value="needs_review">Unclassified</option><option value="business">Business</option><option value="personal">Personal</option><option value="commuting">Commuting</option></select></label>
+            <label className={labelClass}>{draft.classification === 'business' ? 'Specific business purpose' : 'Trip notes (optional)'}<textarea className={`${fieldClass} min-h-24`} value={draft.purpose} onChange={(event) => updateDraft('purpose', event.target.value)} placeholder={draft.classification === 'business' ? 'Customer meeting, supply pickup, delivery…' : 'Optional notes'} required={draft.classification === 'business'} /></label>
+          </div>
 
           <div className="mt-5 grid gap-5 sm:grid-cols-2">
             <label className={labelClass}>Vehicle<select className={fieldClass} value={draft.vehicleId} onChange={(event) => { updateDraft('vehicleId', event.target.value); if (event.target.value) updateDraft('vehicleName', ''); }}><option value="">Other / enter vehicle</option>{availableVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{displayVehicle(vehicle)}</option>)}</select></label>
@@ -359,11 +366,11 @@ export default function HeartCommandMileage() {
               <label className={labelClass}>Starting odometer<input className={fieldClass} inputMode="decimal" type="number" min="0" step="0.1" value={draft.startOdometer} onChange={(event) => updateDraft('startOdometer', event.target.value)} /></label>
               <label className={labelClass}>Ending odometer<input className={fieldClass} inputMode="decimal" type="number" min="0" step="0.1" value={draft.endOdometer} onChange={(event) => updateDraft('endOdometer', event.target.value)} /></label>
             </div>
-            {previewMiles !== null && <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#e6eddd] p-3 text-sm font-black"><Route size={18} /> {previewMiles.toFixed(1)} business miles</div>}
+            {previewMiles !== null && <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#e6eddd] p-3 text-sm font-black"><Route size={18} /> {previewMiles.toFixed(1)} recorded miles · {draft.classification === 'needs_review' ? 'Unclassified' : draft.classification}</div>}
           </fieldset>
 
           <button type="submit" disabled={saving} className="mt-6 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#234d38] px-5 text-base font-black text-white shadow-lg shadow-[#234d38]/20 disabled:opacity-60">
-            {saving ? <Loader2 className="mr-2 animate-spin" size={20} /> : <Save className="mr-2" size={20} />} {saving ? 'Saving trip…' : editing ? 'Update this trip' : 'Save business trip'}
+            {saving ? <Loader2 className="mr-2 animate-spin" size={20} /> : <Save className="mr-2" size={20} />} {saving ? 'Saving trip…' : editing ? 'Update this trip' : 'Save manual trip'}
           </button>
         </form>
 
@@ -371,9 +378,11 @@ export default function HeartCommandMileage() {
           <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#9b711b]">Saved records</p><h2 className="mt-1 text-xl font-black">Recent mileage</h2></div><button onClick={() => void load()} className="grid min-h-11 min-w-11 place-items-center rounded-xl border border-[#c9bea4]" aria-label="Refresh saved trips"><RefreshCw size={18} /></button></div>
           {!trips.length ? <p className="mt-5 rounded-2xl bg-[#f5f0e4] p-5 text-sm text-[#64695f]">No saved mileage trips are available for this account.</p> : <div className="mt-5 space-y-3">{trips.map((trip) => {
             const vehicle = vehicles.find((item) => item.id === trip.vehicle_id);
-            return <article key={trip.id} className="rounded-2xl border border-[#ded4bd] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{trip.start_location_label || 'Origin'} <span aria-hidden="true">→</span> {trip.destination_label || 'Destination'}</p><p className="mt-1 text-sm text-[#686e65]">{formatDate(trip.started_at)} · {Number(trip.final_distance_miles || 0).toFixed(1)} mi</p></div><button onClick={() => editTrip(trip)} className="flex min-h-11 items-center rounded-xl border border-[#c9bea4] px-3 text-sm font-bold"><Edit3 className="mr-2" size={16} /> Edit</button></div><p className="mt-3 text-sm"><span className="font-bold">Purpose:</span> {trip.business_purpose || 'Not provided'}</p><p className="mt-1 text-sm"><span className="font-bold">Vehicle:</span> {vehicle ? displayVehicle(vehicle) : String(trip.notes || '').match(/Manual vehicle: ([^\n]+)/)?.[1] || 'Not listed'}</p><p className="mt-2 break-all text-xs text-[#7d8177]">Reference {trip.id}</p></article>;
+            return <article key={trip.id} className="rounded-2xl border border-[#ded4bd] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{trip.start_location_label || 'Origin'} <span aria-hidden="true">→</span> {trip.destination_label || 'Destination'}</p><p className="mt-1 text-sm text-[#686e65]">{formatDate(trip.started_at)} · {Number(trip.final_distance_miles || 0).toFixed(1)} mi · {trip.classification === 'needs_review' ? 'Unclassified' : trip.classification}</p></div><button onClick={() => editTrip(trip)} className="flex min-h-11 items-center rounded-xl border border-[#c9bea4] px-3 text-sm font-bold"><Edit3 className="mr-2" size={16} /> Edit</button></div><p className="mt-3 text-sm"><span className="font-bold">Purpose:</span> {trip.business_purpose || 'Not provided'}</p><p className="mt-1 text-sm"><span className="font-bold">Vehicle:</span> {vehicle ? displayVehicle(vehicle) : String(trip.notes || '').match(/Manual vehicle: ([^\n]+)/)?.[1] || 'Not listed'}</p><p className="mt-1 text-sm"><span className="font-bold">Source:</span> {trip.measurement_source || 'Unknown'}{trip.tracking_gap_count ? ` · ${trip.tracking_gap_count} interruption(s)` : ''}</p><p className="mt-2 break-all text-xs text-[#7d8177]">Reference {trip.id}</p></article>;
           })}</div>}
         </section>
+
+        <MileageTaxRecords user={user} trips={trips} vehicles={vehicles} businesses={businesses} />
       </main>
 
       <nav aria-label="Heart Command mobile navigation" className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d4c8ad] bg-[#fffdf8]/95 px-3 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_25px_rgba(35,77,56,0.12)] backdrop-blur">

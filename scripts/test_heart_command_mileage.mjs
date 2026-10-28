@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const lib = await import(pathToFileURL(path.join(root, 'src/lib/heartCommandMileage.js')).href);
+const tracking = await import(pathToFileURL(path.join(root, 'src/lib/mileageTracking.js')).href);
 
 const base = {
   recordId: '11111111-1111-4111-8111-111111111111',
@@ -51,16 +52,52 @@ assert.equal(simulatedStore.size, 1, 'editing must update the existing record');
 assert.equal(simulatedStore.get(insert.id).business_purpose, 'Updated purpose');
 
 const component = fs.readFileSync(path.join(root, 'src/pages/HeartCommandMileage.jsx'), 'utf8');
+const tracker = fs.readFileSync(path.join(root, 'src/components/heart-command/MileageTracker.jsx'), 'utf8');
+const taxRecords = fs.readFileSync(path.join(root, 'src/components/heart-command/MileageTaxRecords.jsx'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'src/App.jsx'), 'utf8');
-for (const label of ['Trip date', 'Origin', 'Destination', 'Business purpose', 'Vehicle', 'Starting odometer', 'Ending odometer', 'Total miles']) {
+for (const label of ['Trip date', 'Origin', 'Destination', 'Specific business purpose', 'Vehicle', 'Starting odometer', 'Ending odometer', 'Total miles']) {
   assert.match(component, new RegExp(label), `mobile form is missing ${label}`);
 }
 assert.match(component, /upsert\(buildMileageInsert/, 'new save must use stable-id upsert for retry safety');
 assert.match(component, /eq\('sync_revision'/, 'edit must detect concurrent updates');
 assert.match(component, /localStorage\.setItem/, 'failed and in-progress drafts must persist on device');
 assert.match(component, /navigator\.geolocation\.getCurrentPosition/, 'foreground location permission flow must be explicit');
-assert.match(component, /manual entry always works/i, 'manual fallback must be disclosed');
+assert.match(component, /Manual fallback/i, 'manual fallback must be disclosed');
 assert.match(app, /\/HeartCommand\/Mileage/, 'standalone mobile route must be registered');
-assert.doesNotMatch(component, /watchPosition|background/i, 'web UI must not claim or initiate background tracking');
+assert.match(tracker, /Start Trip/);
+assert.match(tracker, /End Trip/);
+assert.match(tracker, /watchPosition/, 'foreground tracking must use browser location updates');
+assert.match(tracker, /Safari is foreground-only/, 'Safari must not be represented as background-safe');
+assert.match(tracker, /2024 Toyota Tacoma 4×4/, 'the owner vehicle setup must be available');
+for (const label of ['Business', 'Personal', 'Commuting', 'Unclassified']) {
+  assert.match(tracker, new RegExp(label), `${label} classification must be available`);
+}
+assert.match(taxRecords, /Annual odometer miles/);
+assert.match(taxRecords, /Export CSV/);
 
-console.log('PASS: 25 Heart Command mileage workflow assertions');
+const first = { recordedAt: '2026-10-28T12:00:00.000Z', latitude: 33.749, longitude: -84.388, accuracy: 8 };
+const second = { recordedAt: '2026-10-28T12:05:00.000Z', latitude: 33.759, longitude: -84.388, accuracy: 7 };
+let tracked = tracking.appendTrackedPoint({ points: [], gpsDistanceMiles: 0, trackingGapCount: 0 }, first);
+tracked = tracking.appendTrackedPoint(tracked, second);
+assert.ok(tracked.gpsDistanceMiles > 0.65 && tracked.gpsDistanceMiles < 0.75, 'actual geographic distance must be calculated');
+
+const afterGap = tracking.appendTrackedPoint(tracked, { ...second, recordedAt: '2026-10-28T12:20:01.000Z', latitude: 33.769 });
+assert.equal(afterGap.gpsDistanceMiles, tracked.gpsDistanceMiles, 'distance across an interruption must not be invented');
+assert.equal(afterGap.trackingGapCount, tracked.trackingGapCount + 1);
+const inaccurate = tracking.appendTrackedPoint(afterGap, { ...second, recordedAt: '2026-10-28T12:20:30.000Z', accuracy: 250 });
+assert.equal(inaccurate.gpsDistanceMiles, afterGap.gpsDistanceMiles, 'poor-accuracy point must not add distance');
+
+const liveTrips = [
+  { id: 'business', started_at: '2026-10-28T12:00:00Z', vehicle_id: 'v1', classification: 'business', final_distance_miles: 10, measurement_source: 'gps', status: 'ended', business_purpose: 'Delivery' },
+  { id: 'personal', started_at: '2026-10-29T12:00:00Z', vehicle_id: 'v1', classification: 'personal', final_distance_miles: 4, measurement_source: 'odometer', status: 'ended' },
+  { id: 'test', started_at: '2026-10-30T12:00:00Z', vehicle_id: 'v1', classification: 'business', final_distance_miles: 99, measurement_source: 'manual', status: 'ended', notes: lib.MILEAGE_TEST_NOTE },
+];
+const summary = tracking.mileageSummary(liveTrips, { year: 2026, vehicleId: 'v1' });
+assert.equal(summary.recordedMiles, 14, 'test mileage must be excluded from summaries');
+assert.equal(summary.categories.business, 10);
+assert.equal(summary.categories.personal, 4);
+const csv = tracking.mileageCsv(liveTrips, [{ id: 'v1', nickname: 'Tacoma' }], []);
+assert.match(csv, /business/);
+assert.doesNotMatch(csv, /99/);
+
+console.log('PASS: 44 Heart Command mileage workflow assertions');
