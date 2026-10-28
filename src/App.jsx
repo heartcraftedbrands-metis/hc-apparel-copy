@@ -34,6 +34,7 @@ import DigitalOrderConfirmationPage from './pages/DigitalOrderConfirmation';
 import MyDownloadsPage from './pages/MyDownloads';
 import DTFTransfersPage from './pages/DTFTransfers';
 import CatalogsPage from './pages/Catalogs';
+import HeartCommandMileage, { HeartCommandSignIn } from './pages/HeartCommandMileage';
 import { STOREFRONT_FEATURES } from './config/storefrontFeatures';
 
 // Admin pages
@@ -172,6 +173,12 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute requiredRoles={['admin','operations_manager']} />}>
         <Route path="/AdminBusinessIntelligence" element={<LayoutWrapper currentPageName="AdminBusinessIntelligence"><AdminBusinessIntelligence /></LayoutWrapper>} />
         <Route path="/AdminOperationsInbox" element={<LayoutWrapper currentPageName="AdminOperationsInbox"><AdminOperationsInbox /></LayoutWrapper>} />
+      </Route>
+
+      {/* Heart Command Center is a standalone operations surface, not an HC Apparel admin page. */}
+      <Route element={<ProtectedRoute unauthenticatedElement={<HeartCommandSignIn />} />}>
+        <Route path="/HeartCommand/Mileage" element={<HeartCommandMileage />} />
+        <Route path="/HeartCommand" element={<Navigate to="/HeartCommand/Mileage" replace />} />
       </Route>
 
       <Route element={<ProtectedRoute requiredRole="admin" />}>
